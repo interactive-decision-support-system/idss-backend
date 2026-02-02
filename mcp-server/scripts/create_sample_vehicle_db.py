@@ -9,12 +9,12 @@ import json
 from pathlib import Path
 
 # Database path - adjust based on script location
-# If script is in idss-mcp/mcp-server/scripts/, go up 3 levels to reach repo root
+# If script is in mcp-server/scripts/, go up 2 levels to reach repo root
 # If script is in scripts/, go up 2 levels
 SCRIPT_DIR = Path(__file__).parent
 if "mcp-server" in str(SCRIPT_DIR):
-    # We're in idss-mcp/mcp-server/scripts/
-    DB_PATH = SCRIPT_DIR.parent.parent.parent / "data" / "car_dataset_idss" / "uni_vehicles.db"
+    # We're in mcp-server/scripts/
+    DB_PATH = SCRIPT_DIR.parent.parent / "data" / "car_dataset_idss" / "uni_vehicles.db"
 else:
     # We're in scripts/
     DB_PATH = SCRIPT_DIR.parent / "data" / "car_dataset_idss" / "uni_vehicles.db"

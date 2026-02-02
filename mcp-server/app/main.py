@@ -21,10 +21,10 @@ from pathlib import Path
 logger = logging.getLogger("mcp.main")
 
 # Load environment variables from .env file
-# Look for .env in project root (parent of idss-mcp/mcp-server)
-# Path: app/main.py -> app -> mcp-server -> idss-mcp -> idss_new/.env
+# Look for .env in project root (parent of mcp-server)
+# Path: app/main.py -> app -> mcp-server -> root/.env
 # This makes OPENAI_API_KEY and other env vars available to all modules
-env_path = Path(__file__).parent.parent.parent.parent / '.env'
+env_path = Path(__file__).parent.parent.parent / '.env'
 if env_path.exists():
     load_dotenv(env_path)  # Explicitly specify path to .env file
 else:

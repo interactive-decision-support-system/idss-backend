@@ -651,7 +651,7 @@ def main():
     
     print("\n[OK] Done!")
     print("   Products will appear on the website when the MCP server uses the same DATABASE_URL.")
-    print("   Run from idss-mcp/mcp-server: python scripts/check_db_products.py to verify.")
+    print("   Run from mcp-server: python scripts/check_db_products.py to verify.")
 
 
 if __name__ == "__main__":

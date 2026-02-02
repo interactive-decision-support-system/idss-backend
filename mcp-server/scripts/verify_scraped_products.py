@@ -85,7 +85,7 @@ def check_ui_config():
     """Verify frontend config includes source and scraped_from_url in card fields."""
     frontend_config = Path(__file__).parent.parent.parent / "src" / "config" / "domain-config.ts"
     if not frontend_config.exists():
-        print("[UI Config] domain-config.ts not found (expected in idss-mcp/src/config/)")
+        print("[UI Config] domain-config.ts not found (expected in src/config/)")
         return False
     text = frontend_config.read_text()
     has_source = "key: 'source'" in text or "key: \"source\"" in text

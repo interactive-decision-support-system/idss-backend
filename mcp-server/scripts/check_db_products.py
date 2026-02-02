@@ -4,7 +4,7 @@ Check MCP e-commerce database: product count, categories, and schema.
 Use this to see why you get "no X match criteria" (often empty DB or wrong DATABASE_URL).
 
 Run from repo root:
-  cd idss-mcp/mcp-server && python scripts/check_db_products.py
+  cd mcp-server && python scripts/check_db_products.py
 
 Or with explicit DB:
   DATABASE_URL=postgresql://user:pass@localhost:5432/mcp_ecommerce python scripts/check_db_products.py
