@@ -325,7 +325,7 @@ def test_server_health():
     except requests.exceptions.ConnectionError:
         print(f"[FAIL] Server not running at {BASE_URL}")
         print(f"   Please start the server with:")
-        print(f"   cd /Users/julih/Documents/idss_new/idss-mcp/mcp-server")
+        print(f"   cd /Users/julih/Documents/LDR/idss-backend/mcp-server")
         print(f"   source ../../venv/bin/activate")
         print(f"   uvicorn app.main:app --host 0.0.0.0 --port 8001")
         return False

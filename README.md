@@ -100,7 +100,7 @@ NEO4J_PASSWORD=your-password
 createdb mcp_ecommerce
 
 # Seed with laptop and book products
-cd idss-mcp/mcp-server
+cd mcp-server
 psql -d mcp_ecommerce -f scripts/seed_laptops_expanded.sql
 psql -d mcp_ecommerce -f scripts/seed_books_expanded.sql
 
@@ -143,8 +143,8 @@ uvicorn idss.api.server:app --reload --port 8000
 
 **Terminal 2 - MCP Server (Multi-Domain Gateway):**
 ```bash
-cd /path/to/idss-backend/idss-mcp/mcp-server
-source ../../venv/bin/activate
+cd /path/to/idss-backend/mcp-server
+source ../venv/bin/activate
 uvicorn app.main:app --reload --port 8001
 ```
 
@@ -256,7 +256,7 @@ recommendation:
     lambda_risk: 0.5
 ```
 
-### MCP Configuration (`idss-mcp/mcp-server/config.yaml`)
+### MCP Configuration (`mcp-server/config.yaml`)
 
 ```yaml
 default_backend: idss
@@ -283,14 +283,15 @@ idss-backend/
 │   ├── recommendation/         # Ranking algorithms
 │   └── diversification/        # Entropy bucketing
 │
-├── idss-mcp/mcp-server/        # MCP Multi-Domain Gateway
+├── mcp-server/                  # MCP Multi-Domain Gateway
 │   ├── app/
 │   │   ├── main.py            # FastAPI server (port 8001)
 │   │   ├── chat_endpoint.py   # /chat with domain routing
 │   │   ├── conversation_controller.py  # Domain detection
 │   │   └── interview/         # Question generation
-│   └── scripts/
-│       └── seed_*.sql         # Database seed files
+│   ├── scripts/
+│   │   └── seed_*.sql         # Database seed files
+│   └── config.yaml            # MCP configuration
 │
 ├── config/default.yaml         # IDSS configuration
 ├── data/                       # Vehicle data (symlink)
@@ -305,7 +306,7 @@ idss-backend/
 python -m pytest idss/tests/
 
 # MCP server tests
-cd idss-mcp/mcp-server
+cd mcp-server
 python -m pytest tests/
 ```
 
