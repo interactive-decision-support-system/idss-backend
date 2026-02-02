@@ -1,6 +1,6 @@
-# Simplified IDSS - Interactive Decision Support System
+#  IDSS - Interactive Decision Support System
 
-A simplified Interactive Decision Support System for research on **optimal question count (k)**: *"How many questions should we ask users to get the best results?"*
+An Interactive Decision Support System for research on **optimal question count (k)**: *"How many questions should we ask users to get the best results?"*
 
 ## Overview
 
