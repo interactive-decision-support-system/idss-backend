@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  idss:
+    build: .
+    container_name: idss-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data directory from host
+      - ./data:/app/data:ro
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - IDSS_PRELOAD_ALL=1
+    restart: unless-stopped
+    # Memory limit - adjust based on your droplet size
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,32 @@
+# Simplified IDSS Configuration
+# Research: Optimal Question Count (k)
+
+idss:
+  k: 3                          # Number of questions to ask (0 = skip interview)
+  n_vehicles_per_row: 3         # Vehicles per output row
+  num_rows: 3                   # Number of output rows (diversification buckets)
+
+recommendation:
+  method: "embedding_similarity"  # "embedding_similarity" or "coverage_risk"
+
+  embedding_similarity:
+    lambda_param: 0.85          # MMR diversity parameter (0=diversity, 1=relevance)
+    cluster_size: 3             # Vehicles per cluster
+    min_similarity: 0.4         # Minimum semantic similarity threshold
+
+  coverage_risk:
+    lambda_risk: 0.5            # Risk penalty weight
+    mode: "sum"                 # Aggregation mode: "max" or "sum"
+    tau: 0.5                    # Phrase-level similarity threshold
+    alpha: 1.0                  # g function steepness (sum mode)
+
+models:
+  semantic_parser: "gpt-4o"
+  question_generator: "gpt-4o"
+  temperature: 0
+
+data:
+  vehicle_db: "data/car_dataset_idss/uni_vehicles.db"
+  faiss_index_dir: "data/car_dataset_idss/faiss_indices"
+  phrase_embeddings_dir: "data/car_dataset_idss/phrase_embeddings"
+  reviews_db: "data/car_dataset_idss/vehicle_reviews_tavily.db"

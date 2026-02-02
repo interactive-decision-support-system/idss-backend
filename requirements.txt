@@ -1,0 +1,23 @@
+# Core dependencies
+openai>=1.0.0
+pydantic>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Vector search (for Method 1)
+faiss-cpu>=1.7.4
+sentence-transformers>=2.2.0
+
+# API server
+fastapi>=0.100.0
+uvicorn>=0.23.0
+
+# Utilities
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Logging
+rich>=13.0.0

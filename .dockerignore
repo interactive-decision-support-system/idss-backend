@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data (mounted as volume, not copied into image)
+data/
+
+# Vercel (not needed for Docker deployment)
+api/
+vercel.json
+
+# Docs and misc
+*.md
+.claude/
+logs/
+*.log
+
+# Environment files (will be passed as env vars)
+.env
+.env.*

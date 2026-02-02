@@ -1,0 +1,4 @@
+# Lightweight dependencies for Vercel serverless
+# NO sentence-transformers, faiss, or heavy ML libraries
+
+openai>=1.0.0
