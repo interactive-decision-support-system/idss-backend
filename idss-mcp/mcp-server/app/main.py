@@ -58,6 +58,11 @@ from app.ucp_endpoints import (
 )
 from app.ucp_event_logger import log_ucp_event
 from app.supplier_api import router as supplier_router
+from app.chat_endpoint import (
+    ChatRequest, ChatResponse, process_chat,
+    SessionResponse, ResetRequest, ResetResponse,
+    get_session_state, reset_session, delete_session, list_sessions
+)
 
 
 # Create database tables if they don't exist
@@ -158,19 +163,67 @@ def health_check():
 def get_metrics():
     """
     Observability metrics endpoint.
-    
+
     Returns:
     - Latency percentiles (p50, p95, p99) per endpoint
     - Cache hit rate
     - Request counts and error rates
     - Uptime
-    
+
     For research and performance analysis.
     """
     return metrics_collector.get_summary()
 
 
-# 
+#
+# Chat Endpoint (IDSS-compatible)
+#
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """
+    Main conversation endpoint - compatible with IDSS /chat API.
+
+    Provides multi-domain support:
+    - Vehicles: Routes to IDSS backend (port 8000)
+    - Laptops/Books: Uses MCP interview system
+
+    Request format matches IDSS /chat for frontend compatibility.
+
+    Config overrides (optional):
+    - k: Number of interview questions (0 = skip interview)
+    - method: 'embedding_similarity' or 'coverage_risk' (vehicles only)
+    - n_rows: Number of result rows
+    - n_per_row: Items per row
+    """
+    return await process_chat(request)
+
+
+@app.get("/session/{session_id}", response_model=SessionResponse)
+async def get_session(session_id: str):
+    """Get current session state."""
+    return get_session_state(session_id)
+
+
+@app.post("/session/reset", response_model=ResetResponse)
+async def reset_session_endpoint(request: ResetRequest):
+    """Reset session or create new one."""
+    return reset_session(request.session_id)
+
+
+@app.delete("/session/{session_id}")
+async def delete_session_endpoint(session_id: str):
+    """Delete a session."""
+    return delete_session(session_id)
+
+
+@app.get("/sessions")
+async def list_sessions_endpoint():
+    """List all active sessions."""
+    return list_sessions()
+
+
+#
 # Merchant Center Feed Export
 # 
 

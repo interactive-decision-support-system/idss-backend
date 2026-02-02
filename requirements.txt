@@ -6,6 +6,10 @@ scipy>=1.10.0
 
 # Database
 sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0  # Added to fix PostgreSQL connection error
+
+# Caching & Background Tasks
+redis>=5.0.0
 
 # Vector search (for Method 1)
 faiss-cpu>=1.7.4
@@ -21,3 +25,5 @@ python-dotenv>=1.0.0
 
 # Logging
 rich>=13.0.0
+
+neo4j
