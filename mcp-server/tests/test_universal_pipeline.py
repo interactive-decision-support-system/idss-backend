@@ -37,6 +37,14 @@ async def run_test_scenario(scenario_name: str, domain: str, messages: list):
         print(f"Agent: {response.message}")
         if response.response_type == "recommendations":
             print(f"[SUCCESS] Recommendation reached! Items found: {len(response.recommendations) if response.recommendations else 0}")
+            if response.recommendations and len(response.recommendations) > 0 and len(response.recommendations[0]) > 0:
+                first_item = response.recommendations[0][0]
+                print(f"Sample Item Type: {first_item.get('productType')}")
+                print(f"Sample Item Name: {first_item.get('name')}")
+                if 'vehicle' in first_item:
+                    print(f"Vehicle Details: {first_item['vehicle']}")
+                if 'laptop' in first_item:
+                    print(f"Laptop Details: {first_item['laptop']}")
             return
         elif response.response_type == "question":
              print(f"[INFO] Asked question: {response.message}")
