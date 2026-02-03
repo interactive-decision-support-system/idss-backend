@@ -91,6 +91,38 @@ app.add_middleware(
 app.include_router(supplier_router)
 
 
+# ============================================================================
+# Startup Event - Preload IDSS Components
+# ============================================================================
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Preload IDSS components at server startup for lower latency.
+
+    This loads:
+    - Vehicle store (SQLite)
+    - SentenceTransformer model
+    - FAISS embedding index
+    """
+    # Check if preloading is disabled (for faster dev startup)
+    skip_preload = os.getenv("MCP_SKIP_PRELOAD", "0") == "1"
+
+    if skip_preload:
+        logger.info("Skipping IDSS preload (MCP_SKIP_PRELOAD=1)")
+        return
+
+    logger.info("Starting IDSS component preload...")
+
+    try:
+        from app.tools.vehicle_search import preload_idss_components
+        preload_idss_components()
+        logger.info("IDSS components preloaded successfully")
+    except Exception as e:
+        logger.warning(f"Failed to preload IDSS components: {e}")
+        logger.warning("Vehicle search will lazy-load on first request")
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Log unhandled exceptions and return 500 so 'Internal server error' is debuggable."""

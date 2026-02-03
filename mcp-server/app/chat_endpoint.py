@@ -14,12 +14,6 @@ import httpx
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
-from app.conversation_controller import (
-    detect_domain,
-    is_domain_switch,
-    is_greeting_or_ambiguous,
-    Domain,
-)
 from app.interview.session_manager import (
     get_session_manager,
     STAGE_INTERVIEW,
@@ -76,337 +70,112 @@ class ChatResponse(BaseModel):
 # Chat Endpoint Logic
 # ============================================================================
 
+# Global agent cache (in-memory for demo, Redis for prod)
+# Map: session_id -> UniversalAgent
+active_agents: Dict[str, Any] = {}
+
+from app.universal_agent import UniversalAgent
+
 async def process_chat(request: ChatRequest) -> ChatResponse:
     """
-    Process a chat message with multi-domain support.
-
-    Routes to:
-    - IDSS backend (port 8000) for vehicles
-    - MCP interview system for laptops/books
+    Process a chat message using the Universal Agent.
+    
+    Unified pipeline for all domains.
     """
-    start_time = time.time()
-
     # Get or create session ID
     session_id = request.session_id or str(uuid.uuid4())
-    session_manager = get_session_manager()
+    
+    # Retrieve or create agent
+    if session_id not in active_agents:
+        # Initialize with empty history (or load from DB)
+        active_agents[session_id] = UniversalAgent(session_id=session_id)
+        logger.info("agent_created", f"Created new UniversalAgent for {session_id}")
+    
+    agent = active_agents[session_id]
+    
+    # Process message
+    agent_response = agent.process_message(request.message)
+    
+    # Handle "recommendations_ready" signal (Handoff)
+    if agent_response.get("response_type") == "recommendations_ready":
+        # This is where we call the actual Search Tools
+        # For now, we route to the existing handlers based on domain
+        # In the future, the Agent should call the search tool itself
+        
+        domain = agent_response["domain"]
+        filters = agent_response["filters"]
+        
+        if domain == "vehicles":
+            # Use IDSS vehicle search tool with embedding-based ranking
+            from app.tools.vehicle_search import search_vehicles, VehicleSearchRequest
 
-    # Get current session state
-    session = session_manager.get_session(session_id)
-    active_domain_before = session.active_domain
+            # Build search request from agent filters
+            search_request = VehicleSearchRequest(
+                filters=filters,
+                preferences=filters.get("preferences", {}),
+                method="embedding_similarity",  # Use sentence embeddings
+                n_rows=3,
+                n_per_row=3,
+                limit=500
+            )
 
-    # Detect domain from message
-    detected_domain, route_reason = detect_domain(
-        request.message,
-        active_domain_before,
-        None  # No category filter from request
-    )
+            # Execute search using IDSS recommendation system
+            search_result = search_vehicles(search_request)
 
-    logger.info("chat_routing", f"Domain detection: {detected_domain.value}", {
-        "message": request.message[:100],
-        "detected_domain": detected_domain.value,
-        "active_domain_before": active_domain_before,
-        "route_reason": route_reason,
-    })
+            # Build response message
+            total = sum(len(row) for row in search_result.recommendations)
+            if total > 0:
+                message = f"Based on your preferences, here are {total} vehicle recommendations:"
+            else:
+                message = "I couldn't find vehicles matching your criteria. Try adjusting your preferences."
 
-    # Handle domain switch - reset session
-    if is_domain_switch(active_domain_before, detected_domain):
-        session_manager.reset_session(session_id)
-        session = session_manager.get_session(session_id)
-        logger.info("chat_domain_switch", f"Domain switch: {active_domain_before} -> {detected_domain.value}", {
-            "session_id": session_id,
-        })
-
-    # Update active domain
-    if detected_domain != Domain.NONE:
-        session_manager.set_active_domain(session_id, detected_domain.value)
-
-    # Handle greeting/ambiguous - ask what category
-    if is_greeting_or_ambiguous(request.message) and detected_domain == Domain.NONE:
-        return ChatResponse(
-            response_type="question",
-            message="Hi! What are you looking for today?",
-            session_id=session_id,
-            quick_replies=["Cars", "Laptops", "Books"],
-            filters={},
-            preferences={},
-            question_count=0,
-            domain="none",
-        )
-
-    # Route based on domain
-    if detected_domain == Domain.VEHICLES:
-        return await _handle_vehicles(request, session_id)
-    elif detected_domain in (Domain.LAPTOPS, Domain.BOOKS):
-        return await _handle_ecommerce(request, session_id, detected_domain)
-    else:
-        # Default: try to continue with active domain or ask
-        if active_domain_before == "vehicles":
-            return await _handle_vehicles(request, session_id)
-        elif active_domain_before in ("laptops", "books"):
-            domain = Domain.LAPTOPS if active_domain_before == "laptops" else Domain.BOOKS
-            return await _handle_ecommerce(request, session_id, domain)
-        else:
-            # No domain context - ask
             return ChatResponse(
-                response_type="question",
-                message="What are you looking for?",
+                response_type="recommendations",
+                message=message,
                 session_id=session_id,
-                quick_replies=["Cars", "Laptops", "Books"],
-                filters={},
-                preferences={},
-                question_count=0,
-                domain="none",
-            )
-
-
-async def _handle_vehicles(request: ChatRequest, session_id: str) -> ChatResponse:
-    """Forward vehicle queries to IDSS backend."""
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            idss_request = {
-                "message": request.message,
-                "session_id": session_id,
-            }
-
-            # Pass through optional parameters
-            if request.k is not None:
-                idss_request["k"] = request.k
-            if request.method is not None:
-                idss_request["method"] = request.method
-            if request.n_rows is not None:
-                idss_request["n_rows"] = request.n_rows
-            if request.n_per_row is not None:
-                idss_request["n_per_row"] = request.n_per_row
-
-            logger.info("chat_idss_request", f"Forwarding to IDSS backend", {
-                "session_id": session_id,
-                "message": request.message[:100],
-            })
-
-            response = await client.post(
-                f"{IDSS_BACKEND_URL}/chat",
-                json=idss_request
-            )
-            response.raise_for_status()
-            idss_data = response.json()
-
-            # Return IDSS response with domain info added
-            return ChatResponse(
-                response_type=idss_data.get("response_type", "question"),
-                message=idss_data.get("message", ""),
-                session_id=idss_data.get("session_id", session_id),
-                quick_replies=idss_data.get("quick_replies"),
-                recommendations=idss_data.get("recommendations"),
-                bucket_labels=idss_data.get("bucket_labels"),
-                diversification_dimension=idss_data.get("diversification_dimension"),
-                filters=idss_data.get("filters", {}),
-                preferences=idss_data.get("preferences", {}),
-                question_count=idss_data.get("question_count", 0),
                 domain="vehicles",
+                recommendations=search_result.recommendations,
+                bucket_labels=search_result.bucket_labels,
+                diversification_dimension=search_result.diversification_dimension,
+                filters=filters
             )
+            
+        elif domain in ["laptops", "books"]:
+             # Similar logic for e-commerce
+             # Reuse _search_ecommerce_products logic
+             from app.main import search_products # Import issues potential?
+             # Let's use the local helper _search_ecommerce_products defined in this file (chat_endpoint.py)
+             
+             # Need category mapping
+             category = "Electronics" if domain == "laptops" else "Books"
+             
+             # Call helper
+             recs, labels = await _search_ecommerce_products(
+                 filters, 
+                 category,
+                 n_rows=3,
+                 n_per_row=3
+             )
+             
+             return ChatResponse(
+                 response_type="recommendations",
+                 message=f"Here are top {domain} recommendations:",
+                 session_id=session_id,
+                 domain=domain,
+                 recommendations=recs,
+                 bucket_labels=labels,
+                 filters=filters
+             )
 
-    except httpx.HTTPStatusError as e:
-        logger.error("chat_idss_error", f"IDSS backend error: {e}", {
-            "status_code": e.response.status_code,
-        })
-        return ChatResponse(
-            response_type="question",
-            message=f"Sorry, I couldn't connect to the vehicle system. Please try again.",
-            session_id=session_id,
-            quick_replies=["Try again", "Look for laptops instead", "Look for books instead"],
-            filters={},
-            preferences={},
-            question_count=0,
-            domain="vehicles",
-        )
-    except httpx.RequestError as e:
-        logger.error("chat_idss_network_error", f"Network error: {e}", {})
-        return ChatResponse(
-            response_type="question",
-            message="Sorry, I couldn't connect to the vehicle system. Is the IDSS backend running on port 8000?",
-            session_id=session_id,
-            quick_replies=["Try again", "Look for laptops instead"],
-            filters={},
-            preferences={},
-            question_count=0,
-            domain="vehicles",
-        )
-
-
-async def _handle_ecommerce(
-    request: ChatRequest,
-    session_id: str,
-    domain: Domain
-) -> ChatResponse:
-    """Handle laptops/books using MCP interview system."""
-    from app.query_specificity import is_specific_query, should_ask_followup, generate_followup_question
-    from app.query_normalizer import normalize_query, enhance_query_for_search
-    from app.query_parser import enhance_search_request
-    from sqlalchemy.orm import Session
-    from app.database import SessionLocal
-
-    session_manager = get_session_manager()
-    session = session_manager.get_session(session_id)
-
-    # Determine product type
-    product_type = "laptop" if domain == Domain.LAPTOPS else "book"
-    category = "Electronics" if domain == Domain.LAPTOPS else "Books"
-
-    # Set product type in session
-    if not session.product_type:
-        session_manager.set_product_type(session_id, product_type)
-
-    # Add user message to history
-    session_manager.add_message(session_id, "user", request.message)
-
-    # Parse query and extract filters
-    normalized_query, _ = enhance_query_for_search(request.message)
-    cleaned_query, enhanced_filters = enhance_search_request(normalized_query, {})
-
-    filters = {"category": category}
-    if enhanced_filters:
-        filters.update(enhanced_filters)
-
-    # Update session filters
-    session_manager.update_filters(session_id, filters)
-
-    # Check if query is specific enough
-    is_specific, extracted_info = is_specific_query(cleaned_query, filters)
-
-    logger.info("chat_ecommerce_extracted", f"Query analysis", {
-        "cleaned_query": cleaned_query,
-        "is_specific": is_specific,
-        "extracted_info": extracted_info,
-        "filters_so_far": filters,
-    })
-
-    # Apply extracted info to filters
-    if extracted_info.get("brand"):
-        # Map brand to proper case (database stores specific casing)
-        brand_lower = extracted_info["brand"].lower()
-        brand_map = {
-            "apple": "Apple",
-            "mac": "Apple",
-            "macbook": "Apple",
-            "dell": "Dell",
-            "hp": "HP",
-            "lenovo": "Lenovo",
-            "asus": "ASUS",
-            "acer": "Acer",
-            "microsoft": "Microsoft",
-            "samsung": "Samsung",
-            "msi": "MSI",
-            "razer": "Razer",
-            "google": "Google",
-        }
-        brand = brand_map.get(brand_lower, extracted_info["brand"].title())
-        filters["brand"] = brand
-        session_manager.update_filters(session_id, {"brand": brand})
-    if extracted_info.get("price_range"):
-        price_range = extracted_info["price_range"]
-        if "min" in price_range:
-            filters["price_min_cents"] = price_range["min"] * 100
-        if "max" in price_range:
-            filters["price_max_cents"] = price_range["max"] * 100
-        session_manager.update_filters(session_id, filters)
-
-    logger.info("chat_ecommerce_final_filters", f"Final filters before search", {
-        "filters": filters,
-        "session_filters": session.explicit_filters,
-    })
-
-    # Determine max questions based on k parameter
-    max_questions = request.k if request.k is not None else 3
-
-    # If k=0, skip interview entirely
-    if max_questions == 0:
-        is_specific = True
-
-    # Check if we should ask more questions
-    if not is_specific and session_manager.should_ask_question(session_id, max_questions):
-        should_ask, missing_info = should_ask_followup(cleaned_query, session.explicit_filters)
-
-        if should_ask and missing_info:
-            # Try LLM-based question generation
-            try:
-                from app.interview.question_generator import generate_question
-                question_response = generate_question(
-                    product_type=product_type,
-                    conversation_history=session.conversation_history,
-                    explicit_filters=session.explicit_filters,
-                    questions_asked=session.questions_asked
-                )
-                question = question_response.question
-                quick_replies = question_response.quick_replies
-                topic = question_response.topic
-            except (ImportError, ModuleNotFoundError, Exception) as e:
-                logger.info("chat_fallback_questions", f"Using rule-based questions: {e}", {})
-                question, quick_replies = generate_followup_question(product_type, missing_info, filters)
-                topic = missing_info[0] if missing_info else "general"
-
-            # Record question
-            session_manager.add_question_asked(session_id, topic)
-            session_manager.add_message(session_id, "assistant", question)
-
-            return ChatResponse(
-                response_type="question",
-                message=question,
-                session_id=session_id,
-                quick_replies=quick_replies,
-                filters=session.explicit_filters,
-                preferences={},
-                question_count=session.question_count,
-                domain=domain.value,
-            )
-
-    # Ready for recommendations - search products
-    session_manager.set_stage(session_id, STAGE_RECOMMENDATIONS)
-
-    # Search products from database
-    recommendations, bucket_labels = await _search_ecommerce_products(
-        session.explicit_filters,
-        category,
-        request.n_rows or 3,
-        request.n_per_row or 3
+    # Standard Question Response
+    return ChatResponse(
+        response_type=agent_response.get("response_type", "question"),
+        message=agent_response.get("message", "Internal Error"),
+        session_id=session_id,
+        quick_replies=agent_response.get("quick_replies", []),
+        filters=agent_response.get("filters", {}),
+        domain=agent_response.get("domain", "none")
     )
-
-    if recommendations and any(len(row) > 0 for row in recommendations):
-        # Generate intro message
-        total_count = sum(len(row) for row in recommendations)
-        if domain == Domain.LAPTOPS:
-            message = f"Based on your preferences, here are {total_count} laptop recommendations:"
-        else:
-            message = f"Based on your preferences, here are {total_count} book recommendations:"
-
-        session_manager.add_message(session_id, "assistant", message)
-
-        return ChatResponse(
-            response_type="recommendations",
-            message=message,
-            session_id=session_id,
-            recommendations=recommendations,
-            bucket_labels=bucket_labels,
-            diversification_dimension="price",
-            filters=session.explicit_filters,
-            preferences={},
-            question_count=session.question_count,
-            domain=domain.value,
-        )
-    else:
-        # No results found
-        message = "I couldn't find any products matching your criteria. Would you like to try different preferences?"
-        session_manager.add_message(session_id, "assistant", message)
-
-        return ChatResponse(
-            response_type="question",
-            message=message,
-            session_id=session_id,
-            quick_replies=["Show me all options", "Change my budget", "Different brand"],
-            filters=session.explicit_filters,
-            preferences={},
-            question_count=session.question_count,
-            domain=domain.value,
-        )
 
 
 # ============================================================================
