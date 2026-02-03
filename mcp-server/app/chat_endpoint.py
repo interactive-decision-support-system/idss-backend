@@ -494,13 +494,100 @@ def list_sessions() -> Dict[str, Any]:
 # Product Search Helper
 # ============================================================================
 
+def _format_product_as_vehicle(product_dict: Dict[str, Any], category: str) -> Dict[str, Any]:
+    """
+    Format an e-commerce product to match IDSS vehicle format for frontend compatibility.
+
+    The frontend was built for vehicles, so we map product fields to the vehicle structure:
+    - @id: unique identifier
+    - vehicle: contains product specs (make=brand, model=name, etc.)
+    - retailListing: contains pricing and image info
+    """
+    product_id = product_dict.get("product_id", "")
+    name = product_dict.get("name", "")
+    description = product_dict.get("description", "")
+    brand = product_dict.get("brand", "")
+    price = product_dict.get("price", 0)
+    price_cents = product_dict.get("price_cents", 0)
+    image_url = product_dict.get("image_url")
+
+    # Determine product type for display
+    if category == "Electronics":
+        product_type = "Laptop"
+        body_style = "Electronics"
+    elif category == "Books":
+        product_type = "Book"
+        body_style = "Books"
+    else:
+        product_type = category
+        body_style = category
+
+    return {
+        # Top-level identifiers (matching IDSS vehicle format)
+        "@id": product_id,
+        "vin": product_id,  # Use product_id as "vin" for compatibility
+        "online": True,
+
+        # Vehicle object with product specs (mapped to vehicle fields)
+        "vehicle": {
+            "vin": product_id,
+            "year": 2024,  # Current year for products
+            "make": brand,  # Brand maps to make
+            "model": name,  # Product name maps to model
+            "trim": "",  # No trim for products
+            "price": int(price),  # Price in dollars (frontend expects dollars)
+            "mileage": 0,
+            "bodyStyle": body_style,
+            "drivetrain": product_type,  # Use as product type indicator
+            "engine": "",
+            "fuel": "",
+            "transmission": "",
+            "doors": 0,
+            "seats": 0,
+            "exteriorColor": "",
+            "interiorColor": "",
+            "build_city_mpg": 0,
+            "build_highway_mpg": 0,
+            "norm_body_type": body_style,
+            "norm_fuel_type": "",
+            "norm_is_used": 0,
+            # Additional product-specific fields
+            "description": description,
+            "category": category,
+        },
+
+        # Retail listing with pricing and image
+        "retailListing": {
+            "price": int(price),  # Price in dollars (frontend expects dollars)
+            "miles": 0,
+            "dealer": brand,  # Use brand as dealer
+            "city": "",
+            "state": "",
+            "zip": "",
+            "vdp": "",  # Vehicle detail page URL
+            "carfaxUrl": "",
+            "primaryImage": image_url or "",
+            "photoCount": 1 if image_url else 0,
+            "used": False,
+            "cpo": False,
+        },
+
+        # Keep original product data for reference
+        "_product": product_dict,
+    }
+
+
 async def _search_ecommerce_products(
     filters: Dict[str, Any],
     category: str,
     n_rows: int = 3,
     n_per_row: int = 3
 ) -> tuple[List[List[Dict[str, Any]]], List[str]]:
-    """Search e-commerce products from PostgreSQL database."""
+    """
+    Search e-commerce products from PostgreSQL database.
+
+    Returns products formatted to match IDSS vehicle structure for frontend compatibility.
+    """
     from app.database import SessionLocal
     from app.models import Product, Price, Inventory
     from sqlalchemy import and_
@@ -547,7 +634,7 @@ async def _search_ecommerce_products(
             logger.info("search_no_products", "No products found, returning empty", {})
             return [], []
 
-        # Convert to product dicts
+        # Convert to product dicts (intermediate format)
         product_dicts = []
         for product in products:
             # Get price
@@ -586,20 +673,24 @@ async def _search_ecommerce_products(
             if i == n_rows - 1:
                 end = min(start + n_per_row, total)
 
-            bucket = product_dicts[start:end]
-            if bucket:
-                buckets.append(bucket)
+            bucket_products = product_dicts[start:end]
+            if bucket_products:
+                # Convert products to vehicle format for frontend compatibility
+                formatted_bucket = [
+                    _format_product_as_vehicle(p, category)
+                    for p in bucket_products
+                ]
+                buckets.append(formatted_bucket)
 
                 # Generate label based on price range
-                if bucket:
-                    min_price = min(p.get("price", 0) for p in bucket)
-                    max_price = max(p.get("price", 0) for p in bucket)
-                    if i == 0:
-                        bucket_labels.append(f"Budget-Friendly (${min_price:.0f}-${max_price:.0f})")
-                    elif i == n_rows - 1:
-                        bucket_labels.append(f"Premium (${min_price:.0f}-${max_price:.0f})")
-                    else:
-                        bucket_labels.append(f"Mid-Range (${min_price:.0f}-${max_price:.0f})")
+                min_price = min(p.get("price", 0) for p in bucket_products)
+                max_price = max(p.get("price", 0) for p in bucket_products)
+                if i == 0:
+                    bucket_labels.append(f"Budget-Friendly (${min_price:.0f}-${max_price:.0f})")
+                elif i == n_rows - 1:
+                    bucket_labels.append(f"Premium (${min_price:.0f}-${max_price:.0f})")
+                else:
+                    bucket_labels.append(f"Mid-Range (${min_price:.0f}-${max_price:.0f})")
 
         return buckets, bucket_labels
 
