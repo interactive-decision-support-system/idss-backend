@@ -270,6 +270,7 @@ async def chat(request: ChatRequest):
             filters=response.filters_extracted or {},
             preferences=response.preferences_extracted or {},
             question_count=controller.state.question_count,
+            domain=response.domain,  # Include domain in response
         )
 
     except Exception as e:

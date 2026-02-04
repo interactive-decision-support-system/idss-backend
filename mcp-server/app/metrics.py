@@ -8,10 +8,9 @@ Tracks:
 - Error rates
 """
 
-import time
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 import statistics
 
 
@@ -44,8 +43,8 @@ class MetricsCollector:
         self.error_counts: Dict[str, int] = defaultdict(int)
         
         # Timestamp tracking
-        self.start_time = datetime.utcnow()
-        self.last_reset = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
+        self.last_reset = datetime.now(timezone.utc)
     
     def record_latency(self, endpoint: str, latency_ms: float):
         """Record a latency sample for an endpoint."""
@@ -108,16 +107,17 @@ class MetricsCollector:
         Returns:
             Dict with metrics summary for all endpoints
         """
-        uptime_seconds = (datetime.utcnow() - self.start_time).total_seconds()
+        uptime_seconds = (datetime.now(timezone.utc) - self.start_time).total_seconds()
         
-        summary = {
+        endpoints: Dict[str, object] = {}
+        summary: Dict[str, object] = {
             "uptime_seconds": uptime_seconds,
             "cache": {
                 "hit_rate_pct": round(self.get_cache_hit_rate(), 2),
                 "total_hits": self.cache_hits,
                 "total_misses": self.cache_misses
             },
-            "endpoints": {}
+            "endpoints": endpoints
         }
         
         # Add per-endpoint metrics
@@ -145,7 +145,7 @@ class MetricsCollector:
                     statistics.mean(self.latencies[endpoint]), 2
                 )
             
-            summary["endpoints"][endpoint] = endpoint_metrics
+            endpoints[endpoint] = endpoint_metrics
         
         return summary
     
@@ -156,7 +156,7 @@ class MetricsCollector:
         self.cache_misses = 0
         self.request_counts.clear()
         self.error_counts.clear()
-        self.last_reset = datetime.utcnow()
+        self.last_reset = datetime.now(timezone.utc)
 
 
 # Global metrics collector instance

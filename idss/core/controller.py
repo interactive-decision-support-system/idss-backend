@@ -66,6 +66,7 @@ class SessionState:
     questions_asked: List[str] = field(default_factory=list)
     asked_dimensions: set = field(default_factory=set)  # Dimensions already asked about
     question_count: int = 0
+    domain: str = "vehicles"  # Domain: vehicles, laptops, books
 
 
 @dataclass
@@ -79,6 +80,7 @@ class IDSSResponse:
     diversification_dimension: Optional[str] = None
     filters_extracted: Optional[Dict[str, Any]] = None
     preferences_extracted: Optional[Dict[str, Any]] = None
+    domain: Optional[str] = None  # Domain: vehicles, laptops, books
 
 
 class IDSSController:
@@ -115,13 +117,23 @@ class IDSSController:
             IDSSResponse with either a question or recommendations
         """
         logger.info(f"Processing input: {user_message[:100]}...")
+        
+        # Detect domain from message (for domain-aware parsing/questions)
+        from idss.parsing.semantic_parser import detect_domain_from_message
+        domain = detect_domain_from_message(user_message)
+        # Store domain in state for question generation
+        if not hasattr(self.state, 'domain'):
+            self.state.domain = domain
+        elif domain != "vehicles":  # Update if detected (don't override vehicles with default)
+            self.state.domain = domain
 
-        # Step 1: Parse the user input
+        # Step 1: Parse the user input (with domain awareness)
         parsed = parse_user_input(
             user_message=user_message,
             conversation_history=self.state.conversation_history,
             existing_filters=self.state.explicit_filters,
-            question_count=self.state.question_count
+            question_count=self.state.question_count,
+            domain=getattr(self.state, 'domain', 'vehicles')
         )
 
         # Step 2: Update state with extracted information
@@ -230,11 +242,15 @@ class IDSSController:
         # --- PHASE 1: FOUNDATION ---
         if high_priority_missing:
             logger.info(f"Phase 1: Missing {len(high_priority_missing)} high-priority slots. Enforcing Slot-based question.")
+            # Get domain from state (default to vehicles)
+            domain = getattr(self.state, 'domain', 'vehicles')
+            
             question_response = generate_question(
                 conversation_history=self.state.conversation_history,
                 explicit_filters=self.state.explicit_filters,
                 implicit_preferences=self.state.implicit_preferences,
-                questions_asked=self.state.questions_asked
+                questions_asked=self.state.questions_asked,
+                domain=domain
             )
 
         # --- PHASE 2: ENTROPY REFINEMENT ---
@@ -249,11 +265,13 @@ class IDSSController:
             # go back to the standard generator to ask about Medium/Low slots
             if question_response is None:
                 logger.info("Phase 3: Entropy yielded no question. Falling back to standard generator.")
+                domain = getattr(self.state, 'domain', 'vehicles')
                 question_response = generate_question(
                     conversation_history=self.state.conversation_history,
                     explicit_filters=self.state.explicit_filters,
                     implicit_preferences=self.state.implicit_preferences,
-                    questions_asked=self.state.questions_asked
+                    questions_asked=self.state.questions_asked,
+                    domain=domain
                 )
 
         # Update state (same as before)
@@ -266,12 +284,14 @@ class IDSSController:
 
         logger.info(f"Generated question #{self.state.question_count}: {question_response.question}")
 
+        domain = getattr(self.state, 'domain', 'vehicles')
         return IDSSResponse(
             response_type="question",
             message=question_response.question,
             quick_replies=question_response.quick_replies,
             filters_extracted=self.state.explicit_filters,
-            preferences_extracted=self.state.implicit_preferences
+            preferences_extracted=self.state.implicit_preferences,
+            domain=domain
         )
 
     def _generate_entropy_based_question(self) -> Optional[QuestionResponse]:
@@ -359,6 +379,7 @@ class IDSSController:
         # Step 1: Get candidate vehicles from database (larger pool for ranking)
         candidates = self._get_candidates(limit=500)
 
+        domain = getattr(self.state, 'domain', 'vehicles')
         if not candidates:
             return IDSSResponse(
                 response_type="recommendations",
@@ -366,7 +387,8 @@ class IDSSController:
                 recommendations=[],
                 bucket_labels=[],
                 filters_extracted=self.state.explicit_filters,
-                preferences_extracted=self.state.implicit_preferences
+                preferences_extracted=self.state.implicit_preferences,
+                domain=domain
             )
 
         logger.info(f"Found {len(candidates)} candidate vehicles from SQL")
@@ -427,6 +449,7 @@ class IDSSController:
         # Convert numpy types to native Python types for JSON serialization
         buckets = convert_numpy_types(buckets)
 
+        domain = getattr(self.state, 'domain', 'vehicles')
         return IDSSResponse(
             response_type="recommendations",
             message=intro_message,
@@ -434,7 +457,8 @@ class IDSSController:
             bucket_labels=bucket_labels,
             diversification_dimension=div_dimension,
             filters_extracted=self.state.explicit_filters,
-            preferences_extracted=self.state.implicit_preferences
+            preferences_extracted=self.state.implicit_preferences,
+            domain=domain
         )
 
     def _get_candidates(self, limit: int = 500) -> List[Dict[str, Any]]:

@@ -5,11 +5,10 @@ Append-only log for research replay and debugging.
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.models import Base
 from app.schemas import ResponseStatus
 
 
@@ -216,7 +215,7 @@ def log_event(
         """)
         
         db.execute(insert_sql, {
-            'timestamp': datetime.utcnow(),
+            'timestamp': datetime.now(timezone.utc),
             'request_id': request_id,
             'session_id': session_id,
             'tool_name': tool_name,

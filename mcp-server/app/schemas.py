@@ -6,7 +6,7 @@ All response schemas follow the standard envelope pattern.
 """
 
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
 
@@ -262,6 +262,7 @@ class CartData(BaseModel):
     cart_id: str
     status: str
     items: List[CartItemData]
+    item_count: int
     total_cents: int
     currency: str = "USD"
 

@@ -10,7 +10,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_, and_
@@ -136,7 +136,7 @@ def create_version_info() -> VersionInfo:
     """
     return VersionInfo(
         catalog_version=CATALOG_VERSION,
-        updated_at=datetime.utcnow()
+    updated_at=datetime.now(timezone.utc)
     )
 
 
@@ -151,6 +151,32 @@ async def search_products(
     """
     Search for products in the MCP e-commerce catalog.
 
+    PROTOCOL MAPPING:
+    - MCP Protocol: /api/search-products (POST)
+    - UCP Protocol: /ucp/search (POST) -> maps to this function
+    - Tool Protocol: /tools/execute with tool_name="search_products"
+    
+    REQUEST PROCESSING FLOW:
+    1. Request received (MCP/UCP/Tool format)
+    2. Query normalization (typo correction, synonym expansion)
+    3. Query parsing (extract filters from natural language)
+    4. Domain detection (vehicles, laptops, books, electronics)
+    5. Route to appropriate backend:
+       - Vehicles: IDSS backend (port 8000) for interview + ranking
+       - Laptops/Books: IDSS backend for interview, then PostgreSQL + IDSS ranking
+       - Electronics: PostgreSQL + Neo4j KG + Vector search
+    6. Data sources queried (in order):
+       - Neo4j KG (compatibility, relationships, use cases)
+       - PostgreSQL (authoritative product data)
+       - Redis (cached results, prices, inventory)
+       - Vector search (semantic similarity)
+    7. Apply IDSS ranking algorithms (if applicable):
+       - embedding_similarity: Dense embeddings + MMR diversification
+       - coverage_risk: Coverage-risk optimization
+    8. Diversification (entropy-based bucketing)
+    9. Build SearchResultsData response
+    10. Return response in MCP standard envelope format
+    
     When category + session are present, this endpoint can also drive interview flow:
     it may return FOLLOWUP_QUESTION_REQUIRED with domain/tool/question_id so the client
     routes quick replies (e.g. "Under $500") to the correct domain. Core behavior is
@@ -159,6 +185,38 @@ async def search_products(
     """
     request_id = str(uuid.uuid4())
     start_time = time.time()
+    
+    # PROTOCOL MAPPING LOG
+    logger.info("protocol_mapping", "SearchProducts request received", {
+        "request_id": request_id,
+        "protocol": "MCP",  # Could be MCP, UCP, or Tool
+        "endpoint": "/api/search-products",
+        "query": request.query,
+        "filters": dict(request.filters) if request.filters else {},
+        "limit": request.limit,
+        "mapping": {
+            "mcp_format": {
+                "endpoint": "/api/search-products",
+                "method": "POST",
+                "request_schema": "SearchProductsRequest"
+            },
+            "ucp_format": {
+                "endpoint": "/ucp/search",
+                "method": "POST",
+                "request_schema": "UCPSearchRequest",
+                "maps_to": "SearchProductsRequest"
+            },
+            "tool_format": {
+                "endpoint": "/tools/execute",
+                "tool_name": "search_products",
+                "parameters": {
+                    "query": request.query,
+                    "filters": dict(request.filters) if request.filters else {},
+                    "limit": request.limit
+                }
+            }
+        }
+    })
 
     # Log raw incoming request body (as received) for debugging state leak / schema drop / normalization
     _raw_body = {
@@ -176,25 +234,60 @@ async def search_products(
     # Initialize timings early (needed for validation errors)
     timings = {}
 
-    # Validate query - reject invalid/nonsensical queries
+    # STEP 1: Validate and normalize query
+    logger.info("processing_step", "Step 1: Validating and normalizing query", {
+        "request_id": request_id,
+        "step": "query_normalization",
+        "original_query": request.query
+    })
+    
     search_query = request.query.strip() if request.query else ""
     parse_start = time.time()
 
     # Normalize query: correct typos and expand synonyms
-    from app.query_normalizer import normalize_query, enhance_query_for_search
+    from app.query_normalizer import enhance_query_for_search
     normalized_query, expanded_terms = enhance_query_for_search(search_query)
+    
+    logger.info("processing_step", "Step 1 Result: Query normalized", {
+        "request_id": request_id,
+        "step": "query_normalization",
+        "original": search_query,
+        "normalized": normalized_query,
+        "expanded_terms": expanded_terms
+    })
 
-    # Parse complex queries (e.g., "family suv fuel efficient")
+    # STEP 2: Parse complex queries (e.g., "family suv fuel efficient", "gaming PC under $2000")
+    logger.info("processing_step", "Step 2: Parsing query to extract filters", {
+        "request_id": request_id,
+        "step": "query_parsing",
+        "normalized_query": normalized_query
+    })
+    
     from app.query_parser import enhance_search_request
     cleaned_query, enhanced_filters = enhance_search_request(normalized_query, request.filters or {})
     timings["parse_ms"] = round((time.time() - parse_start) * 1000, 1)
+    
+    logger.info("processing_step", "Step 2 Result: Filters extracted", {
+        "request_id": request_id,
+        "step": "query_parsing",
+        "cleaned_query": cleaned_query,
+        "enhanced_filters": enhanced_filters,
+        "parsing_timing_ms": timings["parse_ms"]
+    })
     
     # Clone filters so we never mutate request (per review: avoid bleed in middleware/async)
     filters = dict(request.filters) if request.filters else {}
     if enhanced_filters:
         filters.update(enhanced_filters)
 
-    # --- Deterministic router (conversation_controller) per bigerrorjan29.txt ---
+    # STEP 3: Domain detection and routing
+    logger.info("processing_step", "Step 3: Detecting domain and routing", {
+        "request_id": request_id,
+        "step": "domain_detection",
+        "query": cleaned_query or search_query,
+        "filters": filters
+    })
+    
     from app.conversation_controller import (
         detect_domain,
         is_domain_switch,
@@ -202,7 +295,7 @@ async def search_products(
         is_greeting_or_ambiguous,
         Domain,
     )
-    from app.interview.session_manager import get_session_manager, STAGE_INTERVIEW
+    from app.interview.session_manager import get_session_manager
 
     active_domain_before = None
     if request.session_id:
@@ -217,6 +310,20 @@ async def search_products(
         active_domain_before,
         filters.get("category"),
     )
+    
+    logger.info("processing_step", "Step 3 Result: Domain detected and routing decision", {
+        "request_id": request_id,
+        "step": "domain_detection",
+        "detected_domain": detected_domain.value if detected_domain != Domain.NONE else "NONE",
+        "route_reason": route_reason,
+        "active_domain_before": active_domain_before,
+        "routing": {
+            "vehicles": "IDSS backend (port 8000) - interview + ranking",
+            "laptops": "IDSS backend (interview) -> PostgreSQL + IDSS ranking",
+            "books": "IDSS backend (interview) -> PostgreSQL + IDSS ranking",
+            "electronics": "PostgreSQL + Neo4j KG + Vector search"
+        }
+    })
 
     # Domain switch: reset session so old interview state doesn't bleed
     if request.session_id and is_domain_switch(active_domain_before, detected_domain):
@@ -321,13 +428,15 @@ async def search_products(
         is_specific = True
         logger.info("multi_constraint_specific", f"Query has {constraint_count} constraints, searching directly", {"extracted_info": extracted_info})
 
+    # Stateless search requests (no session_id) should return results without interview gating.
+    if not getattr(request, "session_id", None):
+        is_specific = True
+
     # CRITICAL: For generic laptop/electronics queries, force interview ONLY if query is NOT already specific
     # A query like "laptops" alone is NOT specific enough - we need use_case, brand, budget
     # BUT a query like "gaming PC with NVIDIA GPU under $2000" IS specific enough - return results immediately
-    # Use effective_session_id so we can create one server-side when absent (first turn "laptops")
+    # Only force interview when a session_id is provided (chat flow).
     effective_session_id = getattr(request, "session_id", None)
-    if is_laptop_or_electronics_query and not is_specific and not effective_session_id:
-        effective_session_id = str(uuid.uuid4())
     if is_laptop_or_electronics_query and effective_session_id and not is_specific:
         # Check if we have enough information (use_case, brand, budget)
         has_use_case = bool(filters.get("use_case") or filters.get("subcategory"))
@@ -397,6 +506,10 @@ async def search_products(
             filters["price_min_cents"] = price_range["min"] * 100
         if "max" in price_range:
             filters["price_max_cents"] = price_range["max"] * 100
+
+    # Attach soft preferences (luxury, family_safe, durable, portable) for ranking if available
+    if extracted_info.get("soft_preferences"):
+        filters["_soft_preferences"] = extracted_info["soft_preferences"]
 
     # Apply extracted attributes (e.g., "gaming" → subcategory="Gaming")
     if extracted_info.get("attributes"):
@@ -660,6 +773,124 @@ async def search_products(
 
     # Structured logging: log request
     log_request("search_products", request_id, params={"query": search_query, "filters": filters, "limit": request.limit})
+    
+    # ROUTE BOOKS AND LAPTOPS THROUGH IDSS BACKEND (same as vehicles)
+    # This ensures they use the same complex interview system, semantic parsing, and ranking
+    is_books = filters.get("category") == "Books" or detected_domain == Domain.BOOKS
+    is_laptops = (
+        filters.get("category") == "Electronics" or 
+        detected_domain == Domain.LAPTOPS or
+        extracted_info.get("product_type") in ["laptop", "electronics"]
+    )
+    
+    # Route through IDSS backend if books or laptops (same complex system as vehicles)
+    if is_books or is_laptops:
+        import httpx
+        logger.info("routing_to_idss", f"Routing {detected_domain.value if detected_domain != Domain.NONE else 'books/laptops'} through IDSS backend for interview system", {
+            "query": search_query[:100],
+            "is_books": is_books,
+            "is_laptops": is_laptops,
+            "filters": filters
+        })
+        
+        # Use IDSS backend for interview/questions (same complex system as vehicles)
+        # Build message for IDSS - adapt query to work with IDSS
+        product_type = "books" if is_books else "laptops"
+        idss_message = cleaned_query or search_query
+        if not idss_message or idss_message.lower().strip() in ["books", "book", "laptops", "laptop", "computer", "computers"]:
+            idss_message = f"I want {product_type}"
+        
+        # Add filters to message
+        if filters:
+            filter_parts = []
+            if "price_max_cents" in filters:
+                filter_parts.append(f"under ${int(filters['price_max_cents'] / 100)}")
+            elif "price_max" in filters:
+                filter_parts.append(f"under ${int(filters['price_max'])}")
+            if "price_min_cents" in filters:
+                filter_parts.append(f"over ${int(filters['price_min_cents'] / 100)}")
+            elif "price_min" in filters:
+                filter_parts.append(f"over ${int(filters['price_min'])}")
+            if "brand" in filters:
+                filter_parts.append(f"{filters['brand']}")
+            if filter_parts:
+                idss_message = f"{idss_message} {' '.join(filter_parts)}"
+        
+        # Call IDSS chat endpoint for interview/questions
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                idss_request = {"message": idss_message}
+                if request.session_id:
+                    idss_request["session_id"] = request.session_id
+                
+                idss_response = await client.post(
+                    "http://localhost:8000/chat",
+                    json=idss_request
+                )
+                idss_response.raise_for_status()
+                idss_data = idss_response.json()
+                
+                # If IDSS returns a question, forward it (same interview system)
+                if idss_data.get("response_type") == "question":
+                    timings["idss"] = (time.time() - start_time) * 1000
+                    timings["total"] = (time.time() - start_time) * 1000
+                    
+                    question = idss_data.get("message", "I need more information")
+                    quick_replies = idss_data.get("quick_replies", [])
+                    idss_session_id = idss_data.get("session_id")
+                    
+                    return SearchProductsResponse(
+                        status=ResponseStatus.INVALID,
+                        data=SearchResultsData(products=[], total_count=0, next_cursor=None),
+                        constraints=[
+                            ConstraintDetail(
+                                code="FOLLOWUP_QUESTION_REQUIRED",
+                                message=question,
+                                details={
+                                    "question": question,
+                                    "quick_replies": quick_replies,
+                                    "response_type": "question",
+                                    "session_id": idss_session_id,
+                                    "domain": product_type,
+                                    "tool": "idss_backend"
+                                },
+                                allowed_fields=None,
+                                suggested_actions=quick_replies[:5] if quick_replies else []
+                            )
+                        ],
+                        trace=create_trace(request_id, False, timings, ["idss_backend"]),
+                        version=create_version_info()
+                    )
+                
+                # If IDSS returns recommendations, extract filters/preferences and apply IDSS ranking to PostgreSQL results
+                if idss_data.get("response_type") == "recommendations":
+                    # Extract IDSS filters and preferences for ranking
+                    idss_filters = idss_data.get("filters", {})
+                    idss_preferences = idss_data.get("preferences", {})
+                    
+                    # Merge IDSS filters with existing filters
+                    if idss_filters:
+                        filters.update(idss_filters)
+                    
+                    logger.info("idss_interview_complete", "IDSS interview complete, extracting preferences for ranking", {
+                        "idss_filters": idss_filters,
+                        "idss_preferences": idss_preferences,
+                        "response_type": idss_data.get("response_type")
+                    })
+                    
+                    # Store IDSS preferences for later ranking (after PostgreSQL query)
+                    filters["_idss_preferences"] = idss_preferences
+                    filters["_idss_filters"] = idss_filters
+                    filters["_use_idss_ranking"] = True
+                    filters["_idss_session_id"] = idss_data.get("session_id")
+                    
+                    # Continue to PostgreSQL search, then apply IDSS ranking
+        except Exception as e:
+            logger.warning("idss_routing_failed", f"Failed to route through IDSS backend, using PostgreSQL: {e}", {
+                "error": str(e),
+                "query": search_query[:100]
+            })
+            # Fall through to PostgreSQL search as fallback
     
     # If we have category filters, that means the user's intent was clear
     has_category_filter = "category" in filters
@@ -1412,21 +1643,127 @@ async def search_products(
         )
         products_with_scores.append((summary, product))
     
-    # Apply ranking: KG candidates first, then vector scores, then price
-    if kg_candidate_ids:
-        # KG candidates are already ordered by relevance
-        # Keep KG order (most relevant first)
-        kg_order = {pid: idx for idx, pid in enumerate(kg_candidate_ids)}
-        products_with_scores.sort(
-            key=lambda x: kg_order.get(x[0].product_id, 9999)
-        )
-    elif use_vector_search and vector_product_ids and vector_scores and len(vector_scores) > 0:
-        # Fallback: Sort by vector score (highest similarity first)
-        score_map = dict(zip(vector_product_ids, vector_scores))
-        products_with_scores.sort(
-            key=lambda x: score_map.get(x[0].product_id, 0.0),
-            reverse=True
-        )
+    # Apply IDSS ranking if requested (for books/laptops using IDSS interview system)
+    if filters.get("_use_idss_ranking") and (is_books or is_laptops):
+        try:
+            idss_preferences = filters.get("_idss_preferences", {})
+            idss_filters = filters.get("_idss_filters", {})
+            
+            logger.info("applying_idss_ranking", "Applying IDSS ranking algorithms to PostgreSQL results", {
+                "product_count": len(products_with_scores),
+                "is_books": is_books,
+                "is_laptops": is_laptops
+            })
+            
+            # Convert PostgreSQL products to dict format for IDSS ranking
+            # IDSS ranking expects vehicle-like dicts with name, description, price, etc.
+            products_for_ranking = []
+            for summary, product in products_with_scores:
+                product_dict = {
+                    "product_id": summary.product_id,
+                    "name": summary.name or product.name,
+                    "description": getattr(product, 'description', '') or summary.name,
+                    "price": summary.price_cents / 100.0,  # Convert cents to dollars
+                    "category": summary.category or product.category,
+                    "brand": summary.brand or product.brand,
+                    "product_type": getattr(product, 'product_type', None),
+                    "subcategory": getattr(product, 'subcategory', None),
+                    # Add any other fields that IDSS ranking might use
+                    "metadata": {
+                        "color": getattr(product, 'color', None),
+                        "source": getattr(product, 'source', None),
+                    }
+                }
+                products_for_ranking.append(product_dict)
+            
+            # Apply IDSS ranking algorithm (embedding_similarity or coverage_risk)
+            # Use embedding_similarity as default (works better for general products)
+            from idss.recommendation.embedding_similarity import rank_with_embedding_similarity
+            from idss.core.config import get_config
+            
+            config = get_config()
+            ranking_method = config.recommendation_method  # "embedding_similarity" or "coverage_risk"
+            
+            if ranking_method == "embedding_similarity":
+                ranked_products = rank_with_embedding_similarity(
+                    vehicles=products_for_ranking,  # IDSS uses "vehicles" but works with any products
+                    explicit_filters=idss_filters,
+                    implicit_preferences=idss_preferences,
+                    top_k=min(100, len(products_for_ranking)),
+                    lambda_param=config.embedding_similarity_lambda_param,
+                    use_mmr=config.use_mmr_diversification
+                )
+            else:
+                # Try coverage_risk, fallback to embedding_similarity if it fails
+                try:
+                    from idss.recommendation.coverage_risk import rank_with_coverage_risk
+                    ranked_products = rank_with_coverage_risk(
+                        vehicles=products_for_ranking,
+                        explicit_filters=idss_filters,
+                        implicit_preferences=idss_preferences,
+                        top_k=min(100, len(products_for_ranking)),
+                        lambda_risk=config.coverage_risk_lambda_risk,
+                        mode=config.coverage_risk_mode,
+                        tau=config.coverage_risk_tau,
+                        alpha=config.coverage_risk_alpha
+                    )
+                except Exception as e:
+                    logger.warning("coverage_risk_failed", f"Coverage-risk ranking failed, using embedding_similarity: {e}")
+                    ranked_products = rank_with_embedding_similarity(
+                        vehicles=products_for_ranking,
+                        explicit_filters=idss_filters,
+                        implicit_preferences=idss_preferences,
+                        top_k=min(100, len(products_for_ranking)),
+                        lambda_param=config.embedding_similarity_lambda_param,
+                        use_mmr=config.use_mmr_diversification
+                    )
+            
+            # Map ranked products back to ProductSummary objects
+            ranked_product_ids = {p.get("product_id"): p for p in ranked_products}
+            products_with_scores_ranked = []
+            for summary, product in products_with_scores:
+                if summary.product_id in ranked_product_ids:
+                    ranked_product = ranked_product_ids[summary.product_id]
+                    # Store ranking score in metadata if available
+                    if "_dense_score" in ranked_product:
+                        summary.metadata = summary.metadata or {}
+                        summary.metadata["_idss_score"] = ranked_product["_dense_score"]
+                    products_with_scores_ranked.append((summary, product))
+            
+            # Reorder by IDSS ranking (products not in ranked list go to end)
+            products_with_scores = products_with_scores_ranked + [
+                (s, p) for s, p in products_with_scores 
+                if s.product_id not in ranked_product_ids
+            ]
+            
+            logger.info("idss_ranking_complete", f"IDSS ranking applied, {len(ranked_products)} products ranked", {
+                "method": ranking_method,
+                "ranked_count": len(ranked_products)
+            })
+            timings["idss_ranking_ms"] = (time.time() - start_time) * 1000 - timings.get("total", 0)
+            sources.append("idss_ranking")
+        except Exception as e:
+            logger.error("idss_ranking_failed", f"IDSS ranking failed, using default ranking: {e}", {
+                "error": str(e)
+            })
+            # Fall through to default ranking
+    
+    # Apply ranking: KG candidates first, then vector scores, then price (if IDSS ranking not applied)
+    if not filters.get("_use_idss_ranking"):
+        if kg_candidate_ids:
+            # KG candidates are already ordered by relevance
+            # Keep KG order (most relevant first)
+            kg_order = {pid: idx for idx, pid in enumerate(kg_candidate_ids)}
+            products_with_scores.sort(
+                key=lambda x: kg_order.get(x[0].product_id, 9999)
+            )
+        elif use_vector_search and vector_product_ids and vector_scores and len(vector_scores) > 0:
+            # Fallback: Sort by vector score (highest similarity first)
+            score_map = dict(zip(vector_product_ids, vector_scores))
+            products_with_scores.sort(
+                key=lambda x: score_map.get(x[0].product_id, 0.0),
+                reverse=True
+            )
     
     # Extract summaries (limit to requested limit)
     product_summaries = [summary for summary, _ in products_with_scores[:request.limit]]
@@ -1606,15 +1943,64 @@ def get_product(
     """
     Get detailed information about a single product.
     
-    Uses cache-aside pattern:
-    1. Check Redis cache first
-    2. If miss, query Postgres
-    3. Update cache with fresh data
+    PROTOCOL MAPPING:
+    - MCP Protocol: /api/get-product (POST)
+    - UCP Protocol: /ucp/get-product (POST) -> maps to this function
+    - Tool Protocol: /tools/execute with tool_name="get_product"
+    
+    REQUEST PROCESSING FLOW:
+    1. Request received (MCP/UCP/Tool format)
+    2. Validate product_id (required field)
+    3. Check Redis cache (cache-aside pattern)
+       - Key: mcp:prod_summary:{product_id}
+       - Key: mcp:price:{product_id}
+       - Key: mcp:inventory:{product_id}
+    4. If cache miss: Query PostgreSQL (authoritative source)
+       - Table: products (product_id, name, description, category, brand, etc.)
+       - Table: prices (product_id, price_cents, currency)
+       - Table: inventory (product_id, available_qty)
+    5. If found: Update Redis cache with TTL
+    6. Check Neo4j KG for additional relationships (if enabled)
+    7. Build ProductDetail response
+    8. Apply field projection if requested
+    9. Return response in MCP standard envelope format
+    
+    DATA SOURCES (in priority order):
+    - Redis (cache, fast, 1-5 min TTL)
+    - PostgreSQL (authoritative, persistent)
+    - Neo4j (relationships, compatibility, optional)
     
     Returns: Full product details or NOT_FOUND
     """
     request_id = str(uuid.uuid4())
     start_time = time.time()
+    
+    # PROTOCOL MAPPING LOG
+    logger.info("protocol_mapping", "GetProduct request received", {
+        "request_id": request_id,
+        "protocol": "MCP",  # Could be MCP, UCP, or Tool
+        "endpoint": "/api/get-product",
+        "product_id": request.product_id,
+        "fields": request.fields,
+        "mapping": {
+            "mcp_format": {
+                "endpoint": "/api/get-product",
+                "method": "POST",
+                "request_schema": "GetProductRequest"
+            },
+            "ucp_format": {
+                "endpoint": "/ucp/get-product",
+                "method": "POST",
+                "request_schema": "UCPGetProductRequest",
+                "maps_to": "GetProductRequest"
+            },
+            "tool_format": {
+                "endpoint": "/tools/execute",
+                "tool_name": "get_product",
+                "parameters": {"product_id": request.product_id, "fields": request.fields}
+            }
+        }
+    })
     
     # Structured logging: log request
     log_request("get_product", request_id, params={"product_id": request.product_id, "fields": request.fields})
@@ -1623,17 +2009,38 @@ def get_product(
     sources = []
     cache_hit = False
     
-    # Try cache first
+    # STEP 1: Try Redis cache first (cache-aside pattern)
     cache_start = time.time()
+    logger.info("processing_step", "Step 1: Checking Redis cache", {
+        "request_id": request_id,
+        "step": "cache_lookup",
+        "cache_keys": [
+            f"mcp:prod_summary:{request.product_id}",
+            f"mcp:price:{request.product_id}",
+            f"mcp:inventory:{request.product_id}"
+        ],
+        "ttl": {
+            "product_summary": "300s (5 min)",
+            "price": "60s (1 min)",
+            "inventory": "30s (30 sec)"
+        }
+    })
     cached_summary = cache_client.get_product_summary(request.product_id)
     cached_price = cache_client.get_price(request.product_id)
     cached_inventory = cache_client.get_inventory(request.product_id)
     timings["cache"] = (time.time() - cache_start) * 1000
     
     if cached_summary and cached_price and cached_inventory:
-        # Full cache hit
+        # Full cache hit - return from Redis
         cache_hit = True
         sources = ["redis"]
+        logger.info("processing_step", "Step 1 Result: Cache HIT - returning from Redis", {
+            "request_id": request_id,
+            "step": "cache_lookup",
+            "result": "cache_hit",
+            "source": "redis",
+            "cache_timing_ms": timings["cache"]
+        })
         
         # Build response from cache
         product_detail = ProductDetail(
@@ -1679,15 +2086,36 @@ def get_product(
         
         return response
     
-    # Cache miss - query database
+    # STEP 2: Cache miss - query PostgreSQL (authoritative source)
+    logger.info("processing_step", "Step 1 Result: Cache MISS - querying PostgreSQL", {
+        "request_id": request_id,
+        "step": "cache_lookup",
+        "result": "cache_miss",
+        "next_step": "postgresql_query"
+    })
     sources.append("postgres")
     db_start = time.time()
+    
+    logger.info("processing_step", "Step 2: Querying PostgreSQL database", {
+        "request_id": request_id,
+        "step": "postgresql_query",
+        "query": f"SELECT * FROM products WHERE product_id = '{request.product_id}'",
+        "tables": ["products", "prices", "inventory"],
+        "joins": ["products.price_info", "products.inventory_info"]
+    })
     
     product = db.query(Product).filter(
         Product.product_id == request.product_id
     ).first()
     
     timings["db"] = (time.time() - db_start) * 1000
+    
+    logger.info("processing_step", "Step 2 Result: PostgreSQL query completed", {
+        "request_id": request_id,
+        "step": "postgresql_query",
+        "result": "found" if product else "not_found",
+        "db_timing_ms": timings["db"]
+    })
     
     if not product:
         # Product not found
@@ -1720,7 +2148,17 @@ def get_product(
         
         return response
     
-    # Build product detail from database
+    # STEP 3: Build product detail from database
+    logger.info("processing_step", "Step 3: Building ProductDetail from PostgreSQL data", {
+        "request_id": request_id,
+        "step": "build_response",
+        "product_id": product.product_id,
+        "category": product.category,
+        "brand": product.brand,
+        "has_price": product.price_info is not None,
+        "has_inventory": product.inventory_info is not None
+    })
+    
     product_detail = ProductDetail(
         product_id=product.product_id,
         name=product.name,
@@ -1737,6 +2175,17 @@ def get_product(
         created_at=product.created_at,
         updated_at=product.updated_at
     )
+    
+    # STEP 4: Update Redis cache (cache-aside pattern)
+    logger.info("processing_step", "Step 4: Updating Redis cache with fresh data", {
+        "request_id": request_id,
+        "step": "cache_update",
+        "cache_keys": [
+            f"mcp:prod_summary:{product.product_id}",
+            f"mcp:price:{product.product_id}",
+            f"mcp:inventory:{product.product_id}"
+        ]
+    })
     
     cache_client.set_product_summary(
         product.product_id,
@@ -1770,11 +2219,33 @@ def get_product(
         }
     )
     
-    # Apply field projection if requested
+    # STEP 5: Apply field projection if requested
     if request.fields:
+        logger.info("processing_step", "Step 5: Applying field projection", {
+            "request_id": request_id,
+            "step": "field_projection",
+            "requested_fields": request.fields
+        })
         product_detail = apply_field_projection(product_detail, request.fields)
     
     timings["total"] = (time.time() - start_time) * 1000
+    
+    # STEP 6: Build response in MCP standard envelope format
+    logger.info("processing_step", "Step 6: Building MCP response envelope", {
+        "request_id": request_id,
+        "step": "build_response_envelope",
+        "status": "OK",
+        "sources": sources,
+        "cache_hit": cache_hit,
+        "total_timing_ms": timings["total"],
+        "response_format": {
+            "status": "ResponseStatus enum (OK, NOT_FOUND, etc.)",
+            "data": "ProductDetail object",
+            "constraints": "List[ConstraintDetail] (empty if OK)",
+            "trace": "RequestTrace (timings, sources, cache_hit)",
+            "version": "VersionInfo (catalog_version, updated_at)"
+        }
+    })
     
     # Record metrics
     record_request_metrics("get_product", timings["total"], cache_hit, is_error=False)
@@ -1957,6 +2428,7 @@ def add_to_cart(
         cart_id=cart.cart_id,
         status=cart.status,
         items=cart_items_data,
+        item_count=len(cart_items_data),
         total_cents=total_cents,
         currency="USD"
     )

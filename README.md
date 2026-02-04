@@ -2,6 +2,36 @@
 
 A multi-domain Interactive Decision Support System that helps users find products through conversational interviews. Supports **vehicles**, **laptops**, and **books** with intelligent domain routing.
 
+## Quick MCP Capability Examples
+
+**Add a specific product to cart (MCP):**
+
+Request (POST `/api/add-to-cart`)
+
+```json
+{
+  "cart_id": "cart-001",
+  "product_id": "laptop-001",
+  "qty": 1
+}
+```text
+
+Response (agent consumes `data` + `trace`):
+
+```json
+{
+  "status": "OK",
+  "data": {
+    "cart_id": "cart-001",
+    "item_count": 1,
+    "total_cents": 149999
+  },
+  "trace": {"request_id": "..."}
+}
+```
+
+Agent-facing summary: “Added Gaming Laptop RTX 4060 to your cart. Total: $1499.99.”
+
 ## Architecture Overview
 
 ```
@@ -175,6 +205,7 @@ NEXT_PUBLIC_API_BASE_URL="http://localhost:8001"
 ```
 
 The frontend will call `/chat` on port 8001, which routes to the appropriate backend based on the detected domain.
+For laptops and books, `/chat` always runs the MCP interview flow before returning recommendations.
 
 ## API Reference
 
@@ -182,7 +213,7 @@ The frontend will call `/chat` on port 8001, which routes to the appropriate bac
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/chat` | POST | Main conversation endpoint (routes by domain) |
+| `/chat` | POST | Main conversation endpoint (routes by domain, interview-first for laptops/books) |
 | `/session/{id}` | GET | Get session state |
 | `/session/reset` | POST | Reset/create session |
 | `/sessions` | GET | List active sessions |
@@ -234,8 +265,8 @@ The MCP server automatically detects the domain from user messages:
 | Keywords | Domain | Backend |
 |----------|--------|---------|
 | car, SUV, truck, Toyota, Honda... | vehicles | IDSS (port 8000) |
-| laptop, MacBook, computer, Dell... | laptops | PostgreSQL |
-| book, novel, reading, fiction... | books | PostgreSQL |
+| laptop, MacBook, computer, Dell... | laptops | MCP interview → PostgreSQL |
+| book, novel, reading, fiction... | books | MCP interview → PostgreSQL |
 | hi, hello, ambiguous | none | Asks "What are you looking for?" |
 
 ## Configuration Files

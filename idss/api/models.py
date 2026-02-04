@@ -35,6 +35,7 @@ class ChatResponse(BaseModel):
     filters: Dict[str, Any] = Field(default_factory=dict, description="Extracted explicit filters")
     preferences: Dict[str, Any] = Field(default_factory=dict, description="Extracted implicit preferences")
     question_count: int = Field(default=0, description="Number of questions asked so far")
+    domain: Optional[str] = Field(default=None, description="Domain: vehicles, laptops, books")
 
 
 class SessionResponse(BaseModel):

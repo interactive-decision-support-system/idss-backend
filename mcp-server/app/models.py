@@ -10,7 +10,8 @@ Postgres is authoritative for:
 - Orders and checkout state
 """
 
-from sqlalchemy import Column, String, Integer, Numeric, DateTime, ForeignKey, Text, Boolean, ARRAY, Index, UniqueConstraint
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, JSON, Index, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -48,7 +49,7 @@ class Product(Base):
     product_type = Column(String(50), index=True)  # laptop, desktop_pc, gaming_laptop, book, etc.
     gpu_vendor = Column(String(50), index=True)  # NVIDIA, AMD, Apple, Intel; NULL = unknown (must not pass when required)
     gpu_model = Column(String(100))
-    tags = Column(ARRAY(Text))  # e.g. ["gaming"]
+    tags = Column(PG_ARRAY(Text).with_variant(JSON, "sqlite"))  # e.g. ["gaming"]
     image_url = Column(String(512))
     source_product_id = Column(String(255))  # Stable id per source for upsert; NULL for seed.
 

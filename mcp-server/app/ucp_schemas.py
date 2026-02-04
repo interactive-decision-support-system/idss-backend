@@ -51,10 +51,10 @@ class UCPGetProductRequest(BaseModel):
 
 class UCPAddToCartParameters(BaseModel):
     """Parameters for UCP add_to_cart action."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     
     product_id: str = Field(..., description="Unique product identifier")
-    quantity: int = Field(1, description="Quantity to add", ge=1)
+    quantity: int = Field(1, alias="qty", description="Quantity to add", ge=1)
     cart_id: Optional[str] = Field(None, description="Existing cart ID (optional)")
 
 

@@ -1,0 +1,289 @@
+Week 4 friday meeting notes
+NOTES
+
+Have several examples and use cases upfront to demonstrate that specific capabilities-add this product - specific product how generate request per mcp, how response is communicated to ai agent
+Populate the frontend with actual scraped web products- there's some weird fight between the real and synthetic products, things kept getting cleared from database 
+Query being multiple sentences long- thomas can handle this 
+MCP design separate from ai shopping
+Come up with user persona, test dataset, focus on specific task mcp can handle. Product discovery feature, search product feature, add to cart feature, 20 samples, make separate features
+Make my agent design more similar to the vehicle's one-slower but more complex query
+Multiple knowledge graphs  or merge?- cars and electronics should have separate knowledge graphs
+Bundles - have all electronics be together in same knowledge graph-thomas 
+Payment methods- google and apple pay -hannah
+product database, fake inventory for checkout, columns
+hannah - mcp interact with ai agent, and interact with supplier side, most up to date price, get more updated inventory for suppliers 
+Mcp  continuous lookup
+Crete communication channel between mcp and suppliers
+Communicate ost up to date info about the supplier- wordpress 
+Focus more details in search ad get products - show how request being set to  existing protocol and how its being processed
+Hananh doing add to cart
+See how shopping agent take in request we generate , incorporate into final thing we generate into user
+Ai agent need to understand response as well- thomas doing this
+Tracker for dif features asked and answered- thomas
+Consolidate github repos backends databases frontends and mcps -DONE
+I can help merge knowledge graphs 
+Make sure design can handle long queries and conversations and inputs from user
+Make my laptops and books use same agent structure questioning as the vehicle from yongceli  use his parsing intervie structure dont do my own- make his interview questions faster like doing the caching thing i did from my interivew/take home test
+Test front and backend by run 2 cursor window (idss new and idss backend)
+Do supabase part
+Recommendation create sql query logic
+optimizing the selection of components for a gaming PC under a $2,000 budget, focusing on compatibility and efficiency. emphasized the importance of merging and consolidating databases, particularly the electronics and car databases, to streamline processes.
+solving a web scraping error, making complex queries, and merging knowledge graphs. 
+planned to evaluate the system's robustness through use cases and ensure efficient memory management. 
+Action Items
+[ ] Create specific evaluation use cases and multi-turn conversation tests (similar to the vehicle evaluation) to systematically evaluate the electronics shopping flow and judge system robustness
+[ ] Investigate and document how memory/context is currently managed for multi-turn conversations and identify gaps that cause follow-up questions to lose context
+[ ] Fix the web-scraping/database integration error so real scraped electronics products appear in the database and verify products are visible
+[ ] Merge and consolidate electronics repositories and knowledge graphs (combine personal electronics KG with team KG) so there are fewer duplicate repos to maintain
+[ ] Help merge the knowledge graphs for electronics with the rest of the team (assist with KG consolidation)
+[ ] Support the consolidation effort and update the MCP/AI shopping design to handle UCP/ACP requests and responses; coordinate with Juli and Hannah and Thomas so responses can be generated and consumed by the AI agent
+solving the web scraping error, making queries more complex, and merging and consolidating databases.
+mentions merging knowledge graphs and working on payments and inventory updates.
+focusing on one or two capabilities for MCP and generating use cases.
+collaboration between AI agent, MCP, and the knowledge graph.
+Outline
+Discussion on Budget Constraints and Compatibility Checks
+importance of benchmarking and compatibility checks for GPUs and CPUs.
+how to enforce budget constraints when finding candidates for a gaming PC.
+checking compatibility after the budget constraint is enforced.
+raises concerns about the efficiency of redoing checks if none of the candidates meet the constraints.
+Focus on Electronics Database and Knowledge Graph
+mentions the complexity of the electronics database and the need to focus on it.
+emphasizes the importance of understanding domain knowledge for electronics parts.
+careful consideration of features for follow-up questions.
+proposes discussing action items and moving forward with clear steps.
+Consolidation and Collaboration
+Speaker 1 suggests prioritizing bundling ideas after consolidation.
+Evaluation and Memory Management
+discusses the need for systematic evaluation of the system using specific use cases.
+mentions the importance of handling long context in multi-term conversations.
+for insights into memory management for follow-up questions.
+emphasizes the need for a robust initial product before adding additional features.
+1. Overall Vision & Scope Clarification
+MCP design should be separate from AI shopping
+Focus on one or two concrete MCP capabilities first
+Demonstrate specific product-level capabilities, not generic flows
+MCP should work independently of frontend polish
+Build a robust initial product before adding extra features
+MCP should support long queries, multi-sentence inputs, and conversations
+Make electronics and laptops follow the same agent interview structure as vehicles
+Use Yongceli’s parsing / interview question structure
+Do NOT invent a new structure
+Make it faster using caching (similar to prior interview/take-home solution)
+2. User Personas, Tasks, and Evaluation Strategy
+Come up with clear user personas
+Define a test dataset
+Focus on specific tasks MCP can handle
+Example MCP tasks:
+Product discovery
+Product search
+Add to cart
+Create ~20 concrete samples
+Make each capability its own feature
+Create specific evaluation use cases
+Create multi-turn conversation tests (similar to vehicle evaluation)
+Judge system robustness
+Evaluate:
+Long queries
+Follow-ups
+Context retention
+Latency
+Investigate and document:
+How memory/context is currently managed
+Where follow-up questions lose context
+Gaps in current memory handling
+3. MCP ↔ AI Agent Communication
+Show how MCP generates requests
+Show how responses are communicated back to the AI agent
+AI agent needs to understand MCP responses
+Thomas working on this
+Tracker for:
+Which features are asked
+Which are answered
+Which are still missing
+Grouped by priority (Thomas)
+Focus more detail on:
+Search
+Get product
+How requests map to existing protocol
+How they are processed
+MCP should support UCP / ACP requests and responses
+Coordinate with:
+Juli
+Hannah
+Shopping agent should:
+Take MCP responses
+Incorporate them into final user-facing output
+4. Frontend, Backend, and Repo Consolidation
+Populate frontend with real scraped web products
+There is a conflict between real and synthetic products
+Items keep getting cleared from the database
+Fix web-scraping / database integration error
+Verify scraped electronics products appear and are visible
+Consolidate:
+Backends
+Databases
+Frontends
+MCPs
+Merge and consolidate repositories
+Reduce duplicate repos
+Hannah to help consolidate (primary owner)
+Thomas to help with:
+Consolidation
+Knowledge graph changes
+Repo to merge:
+https://github.com/TheClassicTechno/idss_new/tree/mcp-v2-protocol-first
+Test frontend and backend by running:
+Two Cursor windows
+idss_new
+idss_backend
+Do Supabase part
+5. Knowledge Graphs (KG)
+Question: Multiple KGs or merged?
+Cars and electronics:
+Should have separate KGs
+Electronics:
+All electronics should be in the same KG
+Merge:
+Personal electronics KG
+Team KG
+Bundling idea:
+Thomas working on this
+Help merge electronics KG with rest of team
+Consider domain knowledge carefully for electronics parts
+6. Bundling, Compatibility, and Optimization Logic
+Gaming PC under $2,000 example
+Budget constraint enforcement:
+Should budget be enforced before compatibility?
+What if no candidates remain?
+Concerns:
+Redoing checks is inefficient
+Compatibility checks can be expensive
+Cars:
+No compatibility checks
+Electronics:
+Compatibility is critical (CPU, GPU, motherboard, etc.)
+Thomas’s approach:
+Graph embeddings
+Group items by proximity
+Use compatibility links
+Filter before checking full compatibility
+Concerns raised:
+Similarity scores may not reflect real compatibility
+Need to train embeddings with KG compatibility links
+Suggestion:
+Write out algorithm steps clearly
+Implement and test
+Re-evaluate after seeing concrete behavior
+Consider:
+Pre-computed bundles
+Caching frequent queries
+Optimization vs combinatorial explosion
+7. Supplier Side, Inventory, and Pricing
+MCP should interact with:
+AI agent
+Supplier side
+Product database:
+Fake inventory for checkout
+Define columns
+Payment methods:
+Google Pay
+Apple Pay 
+MCP should support:
+Continuous lookup
+Most up-to-date price
+Updated inventory
+Create communication channel between:
+MCP
+Suppliers
+Supplier requests may include:
+Price updates
+Inventory availability
+MCP-initiated requests:
+Ask supplier for updates
+Explore existing tech:
+Shopify
+WooCommerce
+Shopify model discussed:
+Aggregates product data
+Affiliate links
+Keeps price and inventory up to date
+Communicates with supplier
+WordPress mentioned as possible supplier-side system
+Goal:
+Minimal overhead
+Reuse existing protocols
+Avoid reinventing deterministic systems
+8. Roles & Ownership
+Hannah:
+MCP interaction with AI agent
+Supplier-side interaction
+Add to cart
+Payments
+Repo consolidation
+Thomas:
+Feature tracker
+Bundling logic
+AI agent understanding MCP responses
+Knowledge graph help
+You:
+Help merge knowledge graphs
+System design
+Evaluation use cases
+Repo consolidation support
+10. Miscellaneous / Notes 
+Need real numbers even if inventory is fake
+Latency concerns raised
+Memory management is a known gap
+Emphasis on avoiding redundant changes
+
+
+
+     6. Laptop Interview (Lines 332-342)
+```
+User: "laptop" or "computer"
+→ "What will you use the laptop for?" [Work, Gaming, School, Creative work]
+User: "School"
+→ "Any brand preferences?" [Apple, Dell, HP, Lenovo, No preference]
+User: "Dell"
+→ "What's your budget?" [Under $500, $500-$1000, $1000-$2000, Over $2000]
+User: "$1000-$2000"
+→ [Shows school laptops from Dell in price range]
+```
+
+     7. Book Interview (Lines 353-361)
+```
+User: "books" or "booksss" (misspelling handled)
+→ "What genre are you interested in?" [Mystery, Sci-Fi, Non-fiction, Fiction, Romance]
+User: "Mystery"
+→ "What's your price range?" [Under $10, $10-$20, $20-$30, Over $30]
+User: "$10-$20"
+→ [Shows mystery books in price range]
+```
+
+
+nstruction for cursor:
+
+
+first, check and read @week4tips.txt . next, check if the databases here can dispay not just cars (already tehre) but also my products (my laptops and cars), and check that the website frontend can receive it - which is  https://github.com/interactive-decision-support-system/idss-web .
+next, after my producrs are put in, check if the query and quesioning betweeen them are teh same . as descriped best in @week4tips.txt , the reasoning/questioning/querying of the chat interface should be similar between laptops, books, and cars. like complex questions like      6. Laptop Interview (Lines 332-342)
+```
+User: "laptop" or "computer"
+→ "What will you use the laptop for?" [Work, Gaming, School, Creative work]
+User: "School"
+→ "Any brand preferences?" [Apple, Dell, HP, Lenovo, No preference]
+User: "Dell"
+→ "What's your budget?" [Under $500, $500-$1000, $1000-$2000, Over $2000]
+User: "$1000-$2000"
+→ [Shows school laptops from Dell in price range]
+```
+
+     7. Book Interview (Lines 353-361)
+```
+User: "books" or "booksss" (misspelling handled)
+→ "What genre are you interested in?" [Mystery, Sci-Fi, Non-fiction, Fiction, Romance]
+User: "Mystery"
+→ "What's your price range?" [Under $10, $10-$20, $20-$30, Over $30]
+User: "$10-$20"
+→ [Shows mystery books in price range]
+```but dont hard code the questions. the questions should be book or laptop related if user wants book or lpatopsbut the reasoning/format of questioning should be similar to the cars one for idss-backend.

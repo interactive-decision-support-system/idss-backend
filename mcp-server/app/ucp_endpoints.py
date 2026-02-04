@@ -4,7 +4,7 @@ UCP (Universal Commerce Protocol) Endpoints.
 Thin adapter layer that wraps MCP tools with UCP-compatible request/response format.
 """
 
-from typing import Dict, Any
+from typing import Any
 from sqlalchemy.orm import Session
 
 from app.ucp_schemas import (
@@ -19,7 +19,6 @@ from app.schemas import (
     AddToCartRequest, CheckoutRequest
 )
 from app.endpoints import search_products, get_product, add_to_cart, checkout
-from app.database import get_db
 
 
 # ============================================================================
@@ -180,9 +179,8 @@ async def ucp_get_product(
         fields=request.parameters.fields
     )
     
-    # Call MCP get_product (use the universal adapter)
-    from app.idss_adapter import get_product_universal
-    mcp_response = await get_product_universal(mcp_request)
+    # Call MCP get_product (local DB for tests and default execution)
+    mcp_response = get_product(mcp_request, db)
     
     # Convert MCP response to UCP format
     ucp_status = mcp_status_to_ucp(mcp_response.status)

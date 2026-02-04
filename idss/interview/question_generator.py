@@ -31,7 +31,17 @@ class QuestionResponse(BaseModel):
     )
 
 
-SYSTEM_PROMPT_TEMPLATE = """You are a helpful car shopping assistant gathering preferences to make great recommendations.
+def get_system_prompt_template(domain: str = "vehicles") -> str:
+    """Get domain-specific system prompt template."""
+    
+    domain_names = {
+        "vehicles": "car shopping",
+        "laptops": "laptop shopping", 
+        "books": "book shopping"
+    }
+    domain_name = domain_names.get(domain, "shopping")
+    
+    return f"""You are a helpful {domain_name} assistant gathering preferences to make great recommendations.
 
 ## Current Knowledge
 {slot_context}
@@ -69,7 +79,8 @@ def generate_question(
     conversation_history: List[Dict[str, str]],
     explicit_filters: Dict[str, Any],
     implicit_preferences: Dict[str, Any],
-    questions_asked: List[str]
+    questions_asked: List[str],
+    domain: str = "vehicles"
 ) -> QuestionResponse:
     """
     Generate the next clarifying question based on context.
@@ -92,8 +103,9 @@ def generate_question(
 
     logger.debug(f"Slot context for question generation:\n{slot_context}")
 
-    # Build system prompt with slot context
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(slot_context=slot_context)
+    # Build domain-aware system prompt with slot context
+    system_prompt_template = get_system_prompt_template(domain)
+    system_prompt = system_prompt_template.format(slot_context=slot_context)
 
     # Build messages
     messages = [

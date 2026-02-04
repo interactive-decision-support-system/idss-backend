@@ -17,6 +17,7 @@ import traceback
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger("mcp.main")
 
@@ -65,16 +66,42 @@ from app.chat_endpoint import (
 )
 
 
-# Create database tables if they don't exist
-# In production, use Alembic migrations instead
-Base.metadata.create_all(bind=engine)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan handler to preload IDSS components.
+
+    Replaces deprecated startup events.
+    """
+    # Create database tables if they don't exist
+    # In production, use Alembic migrations instead
+    Base.metadata.create_all(bind=engine)
+
+    skip_preload = os.getenv("MCP_SKIP_PRELOAD", "0") == "1"
+    if skip_preload:
+        logger.info("Skipping IDSS preload (MCP_SKIP_PRELOAD=1)")
+        yield
+        return
+
+    logger.info("Starting IDSS component preload...")
+
+    try:
+        from app.tools.vehicle_search import preload_idss_components
+        preload_idss_components()
+        logger.info("IDSS components preloaded successfully")
+    except Exception as e:
+        logger.warning(f"Failed to preload IDSS components: {e}")
+        logger.warning("Vehicle search will lazy-load on first request")
+
+    yield
 
 # Initialize FastAPI application
 app = FastAPI(
     title="MCP E-commerce Server",
     description=
 "Model Context Protocol e-commerce server with typed tool-call endpoints",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Enable CORS for development
@@ -90,37 +117,6 @@ app.add_middleware(
 # Include supplier API router
 app.include_router(supplier_router)
 
-
-# ============================================================================
-# Startup Event - Preload IDSS Components
-# ============================================================================
-
-@app.on_event("startup")
-async def startup_event():
-    """
-    Preload IDSS components at server startup for lower latency.
-
-    This loads:
-    - Vehicle store (SQLite)
-    - SentenceTransformer model
-    - FAISS embedding index
-    """
-    # Check if preloading is disabled (for faster dev startup)
-    skip_preload = os.getenv("MCP_SKIP_PRELOAD", "0") == "1"
-
-    if skip_preload:
-        logger.info("Skipping IDSS preload (MCP_SKIP_PRELOAD=1)")
-        return
-
-    logger.info("Starting IDSS component preload...")
-
-    try:
-        from app.tools.vehicle_search import preload_idss_components
-        preload_idss_components()
-        logger.info("IDSS components preloaded successfully")
-    except Exception as e:
-        logger.warning(f"Failed to preload IDSS components: {e}")
-        logger.warning("Vehicle search will lazy-load on first request")
 
 
 @app.exception_handler(Exception)
@@ -439,7 +435,7 @@ async def api_search_products(
     return await search_products(request, db)
 
 
-@app.post("/api/get-product", response_model=GetProductResponse)
+@app.post("/api/get-product", response_model=GetProductResponse, response_model_exclude_none=True)
 def api_get_product(
     request: GetProductRequest,
     db: Session = Depends(get_db)
@@ -607,6 +603,7 @@ async def ucp_search_endpoint(
     return response
 
 
+@app.post("/ucp/get-product", response_model=UCPGetProductResponse)
 @app.post("/ucp/get_product", response_model=UCPGetProductResponse)
 async def ucp_get_product_endpoint(
     request: UCPGetProductRequest,

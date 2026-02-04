@@ -20,11 +20,11 @@ logger = get_logger("parsing.semantic_parser")
 
 
 class ExplicitFilters(BaseModel):
-    """Explicit vehicle filters extracted from user input."""
+    """Explicit filters extracted from user input (domain-agnostic)."""
+    # Vehicle-specific fields
     make: Optional[str] = Field(None, description="Vehicle make (e.g., 'Toyota', 'Honda,Ford')")
     model: Optional[str] = Field(None, description="Vehicle model (e.g., 'Camry', 'Civic,Accord')")
     year: Optional[str] = Field(None, description="Year or year range (e.g., '2020', '2018-2022')")
-    price: Optional[str] = Field(None, description="Price range (e.g., '20000-30000')")
     mileage: Optional[str] = Field(None, description="Mileage range (e.g., '0-50000')")
     body_style: Optional[str] = Field(None, description="Body style (e.g., 'SUV', 'Sedan,Truck')")
     fuel_type: Optional[str] = Field(None, description="Fuel type (e.g., 'Electric', 'Hybrid,Gasoline')")
@@ -34,21 +34,36 @@ class ExplicitFilters(BaseModel):
     interior_color: Optional[str] = Field(None, description="Interior color preference")
     seating_capacity: Optional[int] = Field(None, description="Number of seats needed")
     is_used: Optional[bool] = Field(None, description="True for used, False for new")
+    
+    # Electronics/Laptop-specific fields (HARD CONSTRAINTS)
+    brand: Optional[str] = Field(None, description="Brand (e.g., 'Apple', 'Dell,HP') - HARD CONSTRAINT")
+    product_type: Optional[str] = Field(None, description="Product type (e.g., 'gaming_laptop', 'laptop', 'desktop_pc') - HARD CONSTRAINT")
+    gpu_vendor: Optional[str] = Field(None, description="GPU vendor (e.g., 'NVIDIA', 'AMD') - HARD CONSTRAINT")
+    cpu_vendor: Optional[str] = Field(None, description="CPU vendor (e.g., 'Intel', 'AMD') - HARD CONSTRAINT")
+    price: Optional[str] = Field(None, description="Price range (e.g., '1000-2000') - HARD CONSTRAINT")
+    
+    # Book-specific fields
+    genre: Optional[str] = Field(None, description="Book genre (e.g., 'Mystery', 'Sci-Fi')")
+    format: Optional[str] = Field(None, description="Book format (e.g., 'Hardcover', 'Paperback')")
 
 
 class ImplicitPreferences(BaseModel):
-    """Implicit preferences inferred from user input."""
+    """Implicit preferences inferred from user input (SOFT CONSTRAINTS)."""
     use_case: Optional[str] = Field(
         None,
-        description="Primary use for the vehicle (e.g., 'daily commute', 'family trips', 'off-road adventures', 'city driving', 'road trips')"
+        description="Primary use case (e.g., for vehicles: 'daily commute', 'family trips', 'luxury'; for laptops: 'Gaming', 'Work', 'School', 'Creative')"
     )
     liked_features: List[str] = Field(
         default_factory=list,
-        description="Features the user likes (e.g., 'fuel efficiency', 'safety', 'spacious')"
+        description="Features the user likes (SOFT CONSTRAINT). For vehicles: 'fuel efficiency', 'safety', 'luxury', 'family safe'. For laptops: 'high performance', 'portable', 'long battery', 'premium build'"
     )
     disliked_features: List[str] = Field(
         default_factory=list,
-        description="Features the user dislikes (e.g., 'poor visibility', 'high maintenance')"
+        description="Features the user dislikes (SOFT CONSTRAINT). For vehicles: 'poor visibility', 'high maintenance'. For laptops: 'heavy', 'poor battery', 'slow'"
+    )
+    notes: Optional[str] = Field(
+        None,
+        description="Additional free-text notes about preferences (SOFT CONSTRAINT)"
     )
 
 
@@ -71,10 +86,13 @@ class ParsedInput(BaseModel):
     )
 
 
-SYSTEM_PROMPT = """You are a semantic parser for a vehicle recommendation system.
+def get_system_prompt(domain: str = "vehicles") -> str:
+    """Get domain-specific system prompt for semantic parser."""
+    
+    base_prompt = f"""You are a semantic parser for a {domain} recommendation system.
 
 Your job is to analyze user messages and extract:
-1. **Explicit filters**: Specific criteria like make, model, price, etc.
+1. **Explicit filters**: Specific criteria relevant to {domain}
 2. **Implicit preferences**: What features they like or dislike
 3. **Impatience signals**: Whether they want to skip questions and see recommendations
 
@@ -82,9 +100,16 @@ Your job is to analyze user messages and extract:
 
 ### Extracting Filters
 - Only extract filters that are CLEARLY stated
-- Use ranges for price/mileage/year (e.g., "under 30k" → "0-30000")
-- Multiple values should be comma-separated (e.g., "Honda or Toyota" → "Honda,Toyota")
+- Use ranges for price (e.g., "under 30k" → "0-30000")
+- Multiple values should be comma-separated (e.g., "Honda or Toyota" → "Honda,Toyota")"""
+    
+    if domain == "vehicles":
+        domain_specific = """
 - Body styles: SUV, Sedan, Truck, Coupe, Hatchback, Convertible, Van, Wagon
+- Mileage range (e.g., "0-50000")
+- Year or year range (e.g., "2020", "2018-2022")
+
+### Brand Nationalities → Actual Makes (VEHICLES ONLY)
 
 ### Brand Nationalities → Actual Makes
 When users mention car nationalities, convert to actual brand names (only these brands are available):
@@ -106,19 +131,102 @@ Set is_impatient=true if the user:
 - Expresses frustration with the questions
 - Says things like "just show me", "enough questions", "let's see what you have"
 
-Set wants_recommendations=true if the user explicitly asks to see vehicles/recommendations.
+Set wants_recommendations=true if the user explicitly asks to see {domain}/recommendations.
 
 ### Important
 - Don't over-interpret: if something isn't clearly stated, don't infer it
 - Be conservative with impatience detection - only flag clear signals
 - Provide brief reasoning for your decisions"""
+    
+    elif domain == "laptops":
+        domain_specific = """
+- HARD CONSTRAINTS (must match exactly):
+  * Brand: Apple, Dell, HP, Lenovo, ASUS, etc. (e.g., "Apple laptop" → brand="Apple")
+  * Product type: gaming_laptop, laptop, desktop_pc (e.g., "gaming laptop" → product_type="gaming_laptop")
+  * GPU vendor: NVIDIA, AMD (e.g., "NVIDIA gaming PC" → gpu_vendor="NVIDIA")
+  * CPU vendor: Intel, AMD, Apple (e.g., "Intel processor" → cpu_vendor="Intel")
+  * Price range: e.g., "under $2000" → price="0-2000"
+
+- SOFT CONSTRAINTS (preferences, boost matching products):
+  * Use case: Gaming, Work, School, Creative work (e.g., "for gaming" → use_case="Gaming")
+  * Liked features: "high performance", "portable", "long battery", "premium", "luxury", "lightweight"
+  * Disliked features: "heavy", "poor battery", "slow", "cheap build"
+  * Notes: Free text describing preferences (e.g., "luxury laptop for work")
+
+### Important
+- Don't over-interpret: if something isn't clearly stated, don't infer it
+- Be conservative with impatience detection - only flag clear signals
+- Provide brief reasoning for your decisions"""
+    
+    elif domain == "books":
+        domain_specific = """
+- Genre: Fiction, Mystery, Sci-Fi, Non-fiction, Romance, etc.
+- Format: Hardcover, Paperback, E-book, Audiobook
+- Author name
+- Price range for books
+
+### Important
+- Don't over-interpret: if something isn't clearly stated, don't infer it
+- Be conservative with impatience detection - only flag clear signals
+- Provide brief reasoning for your decisions"""
+    
+    else:
+        domain_specific = """
+
+### Important
+- Don't over-interpret: if something isn't clearly stated, don't infer it
+- Be conservative with impatience detection - only flag clear signals
+- Provide brief reasoning for your decisions"""
+    
+    # Add common sections
+    common_sections = """
+
+### Detecting Impatience
+Set is_impatient=true if the user:
+- Explicitly asks to skip questions or see results
+- Gives very short, terse responses (like "yes", "no", "fine", "whatever")
+- Expresses frustration with the questions
+- Says things like "just show me", "enough questions", "let's see what you have"
+
+Set wants_recommendations=true if the user explicitly asks to see {domain}/recommendations.
+
+### Important
+- Don't over-interpret: if something isn't clearly stated, don't infer it
+- Be conservative with impatience detection - only flag clear signals
+- Provide brief reasoning for your decisions""".format(domain=domain)
+    
+    return base_prompt + domain_specific + common_sections
+
+
+def detect_domain_from_message(user_message: str) -> str:
+    """Detect domain (vehicles, laptops, books) from user message."""
+    msg_lower = user_message.lower()
+    
+    # Check for laptop/computer keywords
+    laptop_keywords = ["laptop", "laptops", "notebook", "notebooks", "macbook", "computer", "computers", "pc", "pcs"]
+    if any(kw in msg_lower for kw in laptop_keywords):
+        return "laptops"
+    
+    # Check for book keywords
+    book_keywords = ["book", "books", "novel", "novels", "textbook", "textbooks", "reading", "genre", "author"]
+    if any(kw in msg_lower for kw in book_keywords):
+        return "books"
+    
+    # Check for vehicle keywords
+    vehicle_keywords = ["car", "cars", "vehicle", "vehicles", "auto", "automobile", "suv", "truck", "sedan"]
+    if any(kw in msg_lower for kw in vehicle_keywords):
+        return "vehicles"
+    
+    # Default to vehicles (original behavior)
+    return "vehicles"
 
 
 def parse_user_input(
     user_message: str,
     conversation_history: Optional[List[Dict[str, str]]] = None,
     existing_filters: Optional[Dict[str, Any]] = None,
-    question_count: int = 0
+    question_count: int = 0,
+    domain: Optional[str] = None
 ) -> ParsedInput:
     """
     Parse user input to extract filters, preferences, and impatience signals.
@@ -134,9 +242,16 @@ def parse_user_input(
     """
     config = get_config()
     client = OpenAI()
+    
+    # Detect domain if not provided
+    if domain is None:
+        domain = detect_domain_from_message(user_message)
+    
+    # Get domain-specific system prompt
+    system_prompt = get_system_prompt(domain)
 
     # Build conversation context
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt}]
 
     # Add context about current state
     context_parts = []

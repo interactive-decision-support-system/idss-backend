@@ -4,9 +4,38 @@
 
 Consolidate the interview and recommendation logic so that **everything flows through MCP**, while leveraging the sophisticated algorithms currently implemented in IDSS.
 
+## Feb 2026 Updates (Week4 Alignment)
+
+### Interview flow alignment (laptops/books)
+
+- Interview gating now uses `app/query_specificity.py` with **domain-aware slot checks**.
+- Laptops/electronics follow a consistent slot order: **use_case → brand → budget**.
+- Books follow: **genre → budget**.
+- Questions are **not hard-coded**; they are sourced from `app/domain_registry.py` slot definitions or LLM-based `question_generator` when available.
+
+### Electronics constraints (hard + soft)
+
+- **Hard constraints** extracted for electronics/laptops:
+  - brand, product_type, gpu_vendor, cpu_vendor, price_min/max
+- **Soft constraints** extracted for electronics:
+  - `luxury`, `family_safe`, `durable`, `portable`
+  - Stored in `filters["_soft_preferences"]` for downstream ranking.
+
+### Frontend integration (idss-web)
+
+The UI expects a backend `POST /chat` endpoint and will use the MCP server as the backend.
+
+From `idss-web` README:
+
+- Set `.env.local` in the frontend repo:
+  - `NEXT_PUBLIC_API_BASE_URL="http://localhost:8001"` (MCP server)
+  - Optional direct call: `NEXT_PUBLIC_API_URL="http://localhost:8001"`
+- The proxy route `/api/chat` forwards to `${NEXT_PUBLIC_API_BASE_URL}/chat`.
+- Response shape must match `ChatResponse` (question/recommendations with 2D `recommendations` array).
+
 ## Current Architecture
 
-```
+```text
 Frontend (3000)
       │
       ▼
@@ -24,6 +53,7 @@ MCP Server (8001)
 ```
 
 **Problem:** The IDSS backend (port 8000) has a complete interview + recommendation system that is being bypassed. The MCP's `UniversalAgent` handles interviews, but doesn't use IDSS's:
+
 - Semantic preference parsing
 - Coverage-risk ranking algorithm
 - Embedding similarity ranking
@@ -31,7 +61,7 @@ MCP Server (8001)
 
 ## Target Architecture
 
-```
+```text
 Frontend (3000)
       │
       ▼
@@ -56,21 +86,25 @@ MCP Server (8001) ← Single entry point for all domains
 ## Key Components to Port from IDSS
 
 ### 1. Interview System (`idss/core/controller.py`)
+
 - `_run_interview()` - Main interview loop
 - `_generate_question()` - Dynamic question generation based on missing info
 - `_parse_user_response()` - Extract preferences from natural language
 
 ### 2. Preference Parsing (`idss/core/`)
+
 - Semantic parsing of user messages
 - Extraction of explicit filters (price, brand, etc.)
 - Extraction of implicit preferences (liked/disliked features)
 
 ### 3. Recommendation Algorithms (`idss/recommendation/`)
+
 - `dense_ranker.py` - Embedding similarity ranking
 - `coverage_risk_ranker.py` - Coverage-risk optimization
 - Configuration via `lambda_param` and `lambda_risk`
 
 ### 4. Diversification (`idss/diversification/`)
+
 - `bucketing.py` - Entropy-based diversification
 - Automatic dimension selection (price, body type, etc.)
 - Row-based result organization
@@ -78,17 +112,20 @@ MCP Server (8001) ← Single entry point for all domains
 ## Implementation Plan
 
 ### Phase 1: Abstract IDSS Core Logic
+
 - [x] Extract vehicle search into reusable MCP tool (`mcp-server/app/tools/vehicle_search.py`)
 - [ ] Extract interview logic into reusable module
 - [ ] Create abstract `RecommendationEngine` interface
 - [ ] Make ranking algorithms domain-agnostic
 
 ### Phase 2: Integrate into MCP
+
 - [x] Add IDSS recommendation engine to MCP for vehicles
 - [ ] Replace `UniversalAgent` with IDSS-based interview system
 - [ ] Support multiple data sources (SQLite, PostgreSQL)
 
 ### Phase 3: Unify Data Access
+
 - [ ] Create unified product schema across domains
 - [ ] Implement adapters for each data source
 - [ ] Support vector search for all domains (not just vehicles)
@@ -98,6 +135,7 @@ MCP Server (8001) ← Single entry point for all domains
 ### Vehicle Search Tool (Completed)
 
 Created `mcp-server/app/tools/vehicle_search.py` which:
+
 - Imports IDSS's LocalVehicleStore for SQLite vehicle database access
 - Uses embedding similarity ranking (sentence-transformers + FAISS)
 - Supports coverage-risk ranking as alternative
@@ -128,3 +166,13 @@ result = search_vehicles(VehicleSearchRequest(
 - Keep IDSS API (port 8000) available for backward compatibility
 - Consider making IDSS a library that MCP imports directly
 - Vehicle data files (~2GB) will still need to be accessible to MCP
+
+## Meeting Prep Notes (Accuracy)
+
+- Evaluation tests for multi-turn robustness: **not implemented**; only test scripts + unit tests exist.
+- `README.md` contains some formatting issues (table spacing + code fence language tags flagged by markdown lint). It’s readable, but not polished for slides.
+- The docs don’t yet include personas, sample tasks, or success metrics, which are asked for in `week4tips.txt`.
+
+Recommendation:
+
+- For the meeting, use a **1-page executive summary** (architecture, key flows, current status, next steps), backed by `API_PROTOCOL_DOCUMENTATION.txt` for deep dives.

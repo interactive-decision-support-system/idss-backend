@@ -11,7 +11,7 @@ Logs all events in structured JSON format for:
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from enum import Enum
 
@@ -77,7 +77,7 @@ class StructuredLogger:
             context: Additional structured context
         """
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "level": level.value,
             "logger": self.name,
             "event_type": event_type,

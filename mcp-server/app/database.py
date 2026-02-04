@@ -4,8 +4,7 @@ Uses SQLAlchemy for Postgres connections.
 """
 
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 import os
 
 # Get database URL from environment, with sensible default for local development

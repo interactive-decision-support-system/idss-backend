@@ -9,7 +9,6 @@ Provides a unified /chat endpoint that:
 """
 
 import uuid
-import time
 import httpx
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
@@ -18,6 +17,17 @@ from app.interview.session_manager import (
     get_session_manager,
     STAGE_INTERVIEW,
     STAGE_RECOMMENDATIONS,
+)
+from app.conversation_controller import (
+    detect_domain,
+    is_domain_switch,
+    is_greeting_or_ambiguous,
+    Domain,
+)
+from app.query_specificity import (
+    is_specific_query,
+    should_ask_followup,
+    generate_followup_question,
 )
 from app.structured_logger import StructuredLogger
 
@@ -74,108 +84,200 @@ class ChatResponse(BaseModel):
 # Map: session_id -> UniversalAgent
 active_agents: Dict[str, Any] = {}
 
-from app.universal_agent import UniversalAgent
-
 async def process_chat(request: ChatRequest) -> ChatResponse:
     """
-    Process a chat message using the Universal Agent.
-    
-    Unified pipeline for all domains.
+    Process a chat message with strict interview flow for laptops/books.
+
+    - Vehicles: routed to IDSS backend (/chat)
+    - Laptops/Books: MCP interview flow (query specificity + follow-up questions)
     """
     # Get or create session ID
     session_id = request.session_id or str(uuid.uuid4())
-    
-    # Retrieve or create agent
-    if session_id not in active_agents:
-        # Initialize with empty history (or load from DB)
-        active_agents[session_id] = UniversalAgent(session_id=session_id)
-        logger.info("agent_created", f"Created new UniversalAgent for {session_id}")
-    
-    agent = active_agents[session_id]
-    
-    # Process message
-    agent_response = agent.process_message(request.message)
-    
-    # Handle "recommendations_ready" signal (Handoff)
-    if agent_response.get("response_type") == "recommendations_ready":
-        # This is where we call the actual Search Tools
-        # For now, we route to the existing handlers based on domain
-        # In the future, the Agent should call the search tool itself
-        
-        domain = agent_response["domain"]
-        filters = agent_response["filters"]
-        
-        if domain == "vehicles":
-            # Use IDSS vehicle search tool with embedding-based ranking
-            from app.tools.vehicle_search import search_vehicles, VehicleSearchRequest
+    session_manager = get_session_manager()
+    session = session_manager.get_session(session_id)
 
-            # Build search request from agent filters
-            search_request = VehicleSearchRequest(
+    detected_domain, route_reason = detect_domain(
+        request.message,
+        active_domain=session.active_domain,
+        filters_category=session.explicit_filters.get("category") if session else None,
+    )
+
+    if is_domain_switch(session.active_domain, detected_domain):
+        session_manager.reset_session(session_id)
+        session = session_manager.get_session(session_id)
+
+    if detected_domain != Domain.NONE:
+        session_manager.set_active_domain(session_id, detected_domain.value)
+
+    if detected_domain == Domain.NONE and is_greeting_or_ambiguous(request.message):
+        return ChatResponse(
+            response_type="question",
+            message="What are you looking for today?",
+            session_id=session_id,
+            quick_replies=["Vehicles", "Laptops", "Books"],
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=None,
+        )
+
+    active_domain = detected_domain.value if detected_domain != Domain.NONE else session.active_domain or "vehicles"
+
+    if active_domain in ["laptops", "books"]:
+        category = "Electronics" if active_domain == "laptops" else "Books"
+        filters = dict(session.explicit_filters)
+        filters["category"] = category
+
+        is_specific, extracted_info = is_specific_query(request.message, filters)
+        product_type = "book" if active_domain == "books" else str(extracted_info.get("product_type") or "laptop")
+        filters["product_type"] = product_type
+        session_manager.set_product_type(session_id, product_type)
+
+        # Respect explicit k=0 to skip interview questions
+        if request.k == 0:
+            is_specific = True
+
+        # Apply extracted filters
+        if extracted_info.get("gpu_vendor"):
+            filters["gpu_vendor"] = extracted_info["gpu_vendor"]
+        if extracted_info.get("cpu_vendor"):
+            filters["cpu_vendor"] = extracted_info["cpu_vendor"]
+        if extracted_info.get("brand"):
+            filters["brand"] = extracted_info["brand"]
+        if extracted_info.get("color"):
+            filters["color"] = extracted_info["color"]
+        attributes = extracted_info.get("attributes")
+        if isinstance(attributes, list) and attributes:
+            attribute_map = {
+                "gaming": "Gaming",
+                "work": "Work",
+                "school": "School",
+                "creative": "Creative",
+                "entertainment": "Entertainment",
+                "education": "Education",
+            }
+            first_attr = str(attributes[0]).lower()
+            mapped_subcategory = attribute_map.get(first_attr)
+            if mapped_subcategory:
+                filters["subcategory"] = mapped_subcategory
+                filters["use_case"] = mapped_subcategory
+        price_range = extracted_info.get("price_range")
+        if isinstance(price_range, dict):
+            min_price = price_range.get("min")
+            max_price = price_range.get("max")
+            if isinstance(min_price, (int, float)):
+                filters["price_min_cents"] = int(min_price) * (100 if active_domain == "laptops" else 1)
+            if isinstance(max_price, (int, float)):
+                filters["price_max_cents"] = int(max_price) * (100 if active_domain == "laptops" else 1)
+        if extracted_info.get("soft_preferences"):
+            filters["_soft_preferences"] = extracted_info["soft_preferences"]
+
+        session_manager.update_filters(session_id, filters)
+        session_manager.set_stage(session_id, STAGE_INTERVIEW)
+
+        should_ask, missing_info = should_ask_followup(request.message, filters)
+        if not is_specific:
+            should_ask = True
+
+        if should_ask:
+            question, quick_replies = generate_followup_question(product_type, missing_info, filters)
+
+            session_manager.add_message(session_id, "user", request.message)
+            session_manager.add_question_asked(session_id, missing_info[0] if missing_info else "general")
+            session_manager.add_message(session_id, "assistant", question)
+
+            session = session_manager.get_session(session_id)
+            return ChatResponse(
+                response_type="question",
+                message=question,
+                session_id=session_id,
+                quick_replies=quick_replies,
                 filters=filters,
-                preferences=filters.get("preferences", {}),
-                method="embedding_similarity",  # Use sentence embeddings
-                n_rows=3,
-                n_per_row=3,
-                limit=500
+                preferences=filters.get("_soft_preferences", {}),
+                question_count=session.question_count,
+                domain=active_domain,
             )
 
-            # Execute search using IDSS recommendation system
-            search_result = search_vehicles(search_request)
+        session_manager.add_message(session_id, "user", request.message)
+        recs, labels = await _search_ecommerce_products(
+            filters,
+            category,
+            n_rows=request.n_rows or 3,
+            n_per_row=request.n_per_row or 3,
+        )
 
-            # Build response message
-            total = sum(len(row) for row in search_result.recommendations)
-            if total > 0:
-                message = f"Based on your preferences, here are {total} vehicle recommendations:"
-            else:
-                message = "I couldn't find vehicles matching your criteria. Try adjusting your preferences."
+        session_manager.set_stage(session_id, STAGE_RECOMMENDATIONS)
+        return ChatResponse(
+            response_type="recommendations",
+            message=f"Here are top {active_domain} recommendations:",
+            session_id=session_id,
+            domain=active_domain,
+            recommendations=recs,
+            bucket_labels=labels,
+            filters=filters,
+            preferences=filters.get("_soft_preferences", {}),
+            question_count=session.question_count,
+        )
+
+    # Vehicles route to IDSS backend
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            idss_request: Dict[str, Any] = {
+                "message": request.message,
+                "session_id": session_id,
+            }
+
+            # Forward optional config overrides
+            if request.k is not None:
+                idss_request["k"] = request.k
+            if request.method:
+                idss_request["method"] = request.method
+            if request.n_rows is not None:
+                idss_request["n_rows"] = request.n_rows
+            if request.n_per_row is not None:
+                idss_request["n_per_row"] = request.n_per_row
+
+            logger.info("routing_to_idss", "Routing chat request to IDSS backend", {
+                "session_id": session_id,
+                "message": request.message[:100],
+                "domain": active_domain,
+                "route_reason": route_reason,
+            })
+
+            idss_response = await client.post(
+                f"{IDSS_BACKEND_URL}/chat",
+                json=idss_request,
+            )
+            idss_response.raise_for_status()
+            idss_data = idss_response.json()
+
+            response_type = idss_data.get("response_type", "question")
+            domain = idss_data.get("domain") or "vehicles"
 
             return ChatResponse(
-                response_type="recommendations",
-                message=message,
-                session_id=session_id,
-                domain="vehicles",
-                recommendations=search_result.recommendations,
-                bucket_labels=search_result.bucket_labels,
-                diversification_dimension=search_result.diversification_dimension,
-                filters=filters
+                response_type=response_type,
+                message=idss_data.get("message", ""),
+                session_id=idss_data.get("session_id", session_id),
+                quick_replies=idss_data.get("quick_replies"),
+                recommendations=idss_data.get("recommendations"),
+                bucket_labels=idss_data.get("bucket_labels"),
+                diversification_dimension=idss_data.get("diversification_dimension"),
+                filters=idss_data.get("filters", {}),
+                preferences=idss_data.get("preferences", {}),
+                question_count=idss_data.get("question_count", 0),
+                domain=domain,
             )
-            
-        elif domain in ["laptops", "books"]:
-             # Similar logic for e-commerce
-             # Reuse _search_ecommerce_products logic
-             from app.main import search_products # Import issues potential?
-             # Let's use the local helper _search_ecommerce_products defined in this file (chat_endpoint.py)
-             
-             # Need category mapping
-             category = "Electronics" if domain == "laptops" else "Books"
-             
-             # Call helper
-             recs, labels = await _search_ecommerce_products(
-                 filters, 
-                 category,
-                 n_rows=3,
-                 n_per_row=3
-             )
-             
-             return ChatResponse(
-                 response_type="recommendations",
-                 message=f"Here are top {domain} recommendations:",
-                 session_id=session_id,
-                 domain=domain,
-                 recommendations=recs,
-                 bucket_labels=labels,
-                 filters=filters
-             )
-
-    # Standard Question Response
-    return ChatResponse(
-        response_type=agent_response.get("response_type", "question"),
-        message=agent_response.get("message", "Internal Error"),
-        session_id=session_id,
-        quick_replies=agent_response.get("quick_replies", []),
-        filters=agent_response.get("filters", {}),
-        domain=agent_response.get("domain", "none")
-    )
+    except Exception as e:
+        logger.error("idss_routing_failed", f"Failed to route to IDSS backend: {e}", {
+            "error": str(e)
+        })
+        return ChatResponse(
+            response_type="question",
+            message=f"I'm having trouble connecting to the recommendation system. Please try again. Error: {str(e)[:100]}",
+            session_id=session_id,
+            quick_replies=["Try again"],
+            domain=active_domain,
+        )
 
 
 # ============================================================================
@@ -277,7 +379,6 @@ def _format_product_as_vehicle(product_dict: Dict[str, Any], category: str) -> D
     description = product_dict.get("description", "")
     brand = product_dict.get("brand", "")
     price = product_dict.get("price", 0)
-    price_cents = product_dict.get("price_cents", 0)
     image_url = product_dict.get("image_url")
 
     # Determine product type for display
@@ -350,7 +451,8 @@ async def _search_ecommerce_products(
     filters: Dict[str, Any],
     category: str,
     n_rows: int = 3,
-    n_per_row: int = 3
+    n_per_row: int = 3,
+    idss_preferences: Optional[Dict[str, Any]] = None
 ) -> tuple[List[List[Dict[str, Any]]], List[str]]:
     """
     Search e-commerce products from PostgreSQL database.
@@ -358,10 +460,9 @@ async def _search_ecommerce_products(
     Returns products formatted to match IDSS vehicle structure for frontend compatibility.
     """
     from app.database import SessionLocal
-    from app.models import Product, Price, Inventory
-    from sqlalchemy import and_
+    from app.models import Product, Price
 
-    logger.info("search_ecommerce_start", f"Searching products", {
+    logger.info("search_ecommerce_start", "Searching products", {
         "category": category,
         "filters": filters,
         "n_rows": n_rows,
@@ -380,6 +481,14 @@ async def _search_ecommerce_products(
         # Apply filters
         if filters.get("brand"):
             query = query.filter(Product.brand == filters["brand"])
+        if filters.get("subcategory"):
+            query = query.filter(Product.subcategory == filters["subcategory"])
+        if filters.get("product_type"):
+            query = query.filter(Product.product_type == filters["product_type"])
+        if filters.get("color"):
+            query = query.filter(Product.color == filters["color"])
+        if filters.get("gpu_vendor"):
+            query = query.filter(Product.gpu_vendor == filters["gpu_vendor"])
 
         # Join with prices for price filtering
         query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
@@ -418,7 +527,7 @@ async def _search_ecommerce_products(
                 "brand": product.brand,
                 "price": price_cents / 100,  # Convert to dollars for display
                 "price_cents": price_cents,
-                "image_url": getattr(product, 'image_url', None),
+                "image_url": getattr(product, "image_url", None),
             }
             product_dicts.append(product_dict)
 
@@ -427,7 +536,7 @@ async def _search_ecommerce_products(
             return [], []
 
         # Sort by price
-        product_dicts.sort(key=lambda x: x.get("price_cents", 0))
+        product_dicts.sort(key=lambda x: float(x.get("price_cents", 0) or 0))
 
         # Create buckets
         total = len(product_dicts)
@@ -452,8 +561,8 @@ async def _search_ecommerce_products(
                 buckets.append(formatted_bucket)
 
                 # Generate label based on price range
-                min_price = min(p.get("price", 0) for p in bucket_products)
-                max_price = max(p.get("price", 0) for p in bucket_products)
+                min_price = min(float(p.get("price", 0) or 0) for p in bucket_products)
+                max_price = max(float(p.get("price", 0) or 0) for p in bucket_products)
                 if i == 0:
                     bucket_labels.append(f"Budget-Friendly (${min_price:.0f}-${max_price:.0f})")
                 elif i == n_rows - 1:
