@@ -114,14 +114,14 @@ MCP Server (8001) ← Single entry point for all domains
 ### Phase 1: Abstract IDSS Core Logic
 
 - [x] Extract vehicle search into reusable MCP tool (`mcp-server/app/tools/vehicle_search.py`)
-- [ ] Extract interview logic into reusable module
+- [x] Enhance UniversalAgent with IDSS interview principles
 - [ ] Create abstract `RecommendationEngine` interface
 - [ ] Make ranking algorithms domain-agnostic
 
 ### Phase 2: Integrate into MCP
 
 - [x] Add IDSS recommendation engine to MCP for vehicles
-- [ ] Replace `UniversalAgent` with IDSS-based interview system
+- [x] Enhanced `UniversalAgent` with IDSS interview principles (impatience detection, question limits)
 - [ ] Support multiple data sources (SQLite, PostgreSQL)
 
 ### Phase 3: Unify Data Access
@@ -131,6 +131,18 @@ MCP Server (8001) ← Single entry point for all domains
 - [ ] Support vector search for all domains (not just vehicles)
 
 ## Recent Progress
+
+### UniversalAgent Enhancement (Completed)
+
+Enhanced `mcp-server/app/universal_agent.py` with IDSS interview principles:
+- **LLM Models**: gpt-4o-mini for domain detection/extraction, gpt-4o for question generation
+- **Impatience Detection**: LLM detects when user wants to skip questions ("just show me results")
+- **Recommendation Request Detection**: LLM detects explicit requests ("show me options")
+- **Question Limit**: Configurable max questions (default 3) before showing recommendations
+- **Priority-based Slot Filling**: HIGH → MEDIUM → LOW priority order
+- **Early Exit**: Skips to recommendations when HIGH priority slots are filled
+- **IDSS Question Style**: Questions end with "Feel free to also share..." invitation for other topics at same priority level
+- **Invite Topics Logic**: `_get_invite_topics()` determines related topics to bundle in questions
 
 ### Vehicle Search Tool (Completed)
 

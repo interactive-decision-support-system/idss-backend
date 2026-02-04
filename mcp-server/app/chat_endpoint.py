@@ -367,12 +367,13 @@ def list_sessions() -> Dict[str, Any]:
 
 def _format_product_as_vehicle(product_dict: Dict[str, Any], category: str) -> Dict[str, Any]:
     """
-    Format an e-commerce product to match IDSS vehicle format for frontend compatibility.
+    Format an e-commerce product using the unified product schema.
 
-    The frontend was built for vehicles, so we map product fields to the vehicle structure:
-    - @id: unique identifier
-    - vehicle: contains product specs (make=brand, model=name, etc.)
-    - retailListing: contains pricing and image info
+    New unified format includes:
+    - productType: "laptop" | "book" | "vehicle"
+    - Common fields: id, name, brand, price, image
+    - Type-specific details: laptop{}, book{}, or vehicle{}
+    - Legacy compatibility: vehicle{} and retailListing{} for backwards compat
     """
     product_id = product_dict.get("product_id", "")
     name = product_dict.get("name", "")
@@ -381,34 +382,52 @@ def _format_product_as_vehicle(product_dict: Dict[str, Any], category: str) -> D
     price = product_dict.get("price", 0)
     image_url = product_dict.get("image_url")
 
-    # Determine product type for display
+    # Determine product type
     if category == "Electronics":
-        product_type = "Laptop"
+        product_type = "laptop"
         body_style = "Electronics"
     elif category == "Books":
-        product_type = "Book"
+        product_type = "book"
         body_style = "Books"
     else:
-        product_type = category
+        product_type = "generic"
         body_style = category
 
-    return {
-        # Top-level identifiers (matching IDSS vehicle format)
+    # Build unified format
+    result = {
+        # ===== NEW UNIFIED SCHEMA =====
+        # Common fields for all product types
+        "id": product_id,
+        "productType": product_type,
+        "name": name,
+        "brand": brand,
+        "price": int(price),
+        "currency": "USD",
+        "description": description,
+        "image": {
+            "primary": image_url or "",
+            "count": 1 if image_url else 0,
+            "gallery": []
+        },
+        "url": "",  # Product detail page URL
+        "available": True,
+
+        # ===== LEGACY COMPATIBILITY (for existing frontend) =====
         "@id": product_id,
-        "vin": product_id,  # Use product_id as "vin" for compatibility
+        "vin": product_id,
         "online": True,
 
-        # Vehicle object with product specs (mapped to vehicle fields)
+        # Legacy vehicle object (frontend expects this structure)
         "vehicle": {
             "vin": product_id,
-            "year": 2024,  # Current year for products
-            "make": brand,  # Brand maps to make
-            "model": name,  # Product name maps to model
-            "trim": "",  # No trim for products
-            "price": int(price),  # Price in dollars (frontend expects dollars)
+            "year": 2024,
+            "make": brand,
+            "model": name,
+            "trim": "",
+            "price": int(price),
             "mileage": 0,
             "bodyStyle": body_style,
-            "drivetrain": product_type,  # Use as product type indicator
+            "drivetrain": product_type.capitalize(),
             "engine": "",
             "fuel": "",
             "transmission": "",
@@ -421,20 +440,19 @@ def _format_product_as_vehicle(product_dict: Dict[str, Any], category: str) -> D
             "norm_body_type": body_style,
             "norm_fuel_type": "",
             "norm_is_used": 0,
-            # Additional product-specific fields
             "description": description,
             "category": category,
         },
 
-        # Retail listing with pricing and image
+        # Legacy retailListing (frontend expects this for images/price)
         "retailListing": {
-            "price": int(price),  # Price in dollars (frontend expects dollars)
+            "price": int(price),
             "miles": 0,
-            "dealer": brand,  # Use brand as dealer
+            "dealer": brand,
             "city": "",
             "state": "",
             "zip": "",
-            "vdp": "",  # Vehicle detail page URL
+            "vdp": "",
             "carfaxUrl": "",
             "primaryImage": image_url or "",
             "photoCount": 1 if image_url else 0,
@@ -442,9 +460,38 @@ def _format_product_as_vehicle(product_dict: Dict[str, Any], category: str) -> D
             "cpo": False,
         },
 
-        # Keep original product data for reference
+        # Keep original product data
         "_product": product_dict,
     }
+
+    # Add type-specific details
+    if product_type == "laptop":
+        result["laptop"] = {
+            "productType": product_dict.get("product_type", "laptop"),
+            "specs": {
+                "processor": "",
+                "ram": "",
+                "storage": "",
+                "display": "",
+                "graphics": product_dict.get("gpu_model", "")
+            },
+            "gpuVendor": product_dict.get("gpu_vendor", ""),
+            "gpuModel": product_dict.get("gpu_model", ""),
+            "color": product_dict.get("color", ""),
+            "tags": product_dict.get("tags", []) or []
+        }
+    elif product_type == "book":
+        result["book"] = {
+            "author": "",  # Would need parsing from description
+            "genre": product_dict.get("subcategory", ""),
+            "format": "",
+            "pages": None,
+            "isbn": "",
+            "publisher": "",
+            "language": "English"
+        }
+
+    return result
 
 
 async def _search_ecommerce_products(
@@ -460,7 +507,9 @@ async def _search_ecommerce_products(
     Returns products formatted to match IDSS vehicle structure for frontend compatibility.
     """
     from app.database import SessionLocal
-    from app.models import Product, Price
+    from app.models import Product, Price, Inventory
+    from sqlalchemy import and_
+    from app.formatters import format_product
 
     logger.info("search_ecommerce_start", "Searching products", {
         "category": category,
@@ -524,10 +573,17 @@ async def _search_ecommerce_products(
                 "name": product.name,
                 "description": product.description,
                 "category": product.category,
+                "subcategory": product.subcategory, # Genre/Subcategory
                 "brand": product.brand,
                 "price": price_cents / 100,  # Convert to dollars for display
                 "price_cents": price_cents,
-                "image_url": getattr(product, "image_url", None),
+                "image_url": getattr(product, 'image_url', None),
+                # Extended fields for formatters
+                "product_type": product.product_type,
+                "gpu_vendor": product.gpu_vendor,
+                "gpu_model": product.gpu_model,
+                "color": product.color,
+                "tags": product.tags,
             }
             product_dicts.append(product_dict)
 
@@ -553,9 +609,12 @@ async def _search_ecommerce_products(
 
             bucket_products = product_dicts[start:end]
             if bucket_products:
-                # Convert products to vehicle format for frontend compatibility
+                # Convert products to unified format using helper
+                # We determine domain based on category for the formatter
+                fmt_domain = "laptops" if category == "Electronics" else "books"
+                
                 formatted_bucket = [
-                    _format_product_as_vehicle(p, category)
+                    format_product(p, fmt_domain).model_dump(mode='json', exclude_none=True)
                     for p in bucket_products
                 ]
                 buckets.append(formatted_bucket)

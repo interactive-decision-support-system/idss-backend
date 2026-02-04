@@ -85,9 +85,12 @@ def preload_idss_components():
 
     This loads:
     - LocalVehicleStore (SQLite connection)
-    - SentenceTransformer model (all-mpnet-base-v2)
-    - FAISS index for dense embeddings
-    - Phrase embeddings for coverage-risk ranking
+    - FAISS index via IDSS's internal cache (dense_ranker.get_dense_embedding_store)
+    - SentenceTransformer model (warm up via encode call)
+
+    IMPORTANT: We prime the IDSS module's internal _DENSE_STORE_CACHE by calling
+    get_dense_embedding_store() from dense_ranker.py. This ensures the same
+    cached instance is used at query time, avoiding duplicate loads.
 
     Call this from main.py at startup to reduce first-request latency.
     """
@@ -110,30 +113,25 @@ def preload_idss_components():
     except Exception as e:
         logger.error("preload_vehicle_store_error", f"Failed to load vehicle store: {e}")
 
-    # 2. Load SentenceTransformer model
+    # 2. Prime the IDSS dense_ranker's internal cache
+    # This is the key - we call get_dense_embedding_store() from dense_ranker.py
+    # which populates IDSS's internal _DENSE_STORE_CACHE, so the same instance
+    # is reused at query time instead of creating a new one
     try:
-        from sentence_transformers import SentenceTransformer
-        _sentence_transformer = SentenceTransformer('all-mpnet-base-v2')
-        # Warm up with a test encoding
-        _sentence_transformer.encode(["warm up query"])
-        logger.info("preload_sentence_transformer", "SentenceTransformer loaded and warmed up")
-    except Exception as e:
-        logger.error("preload_sentence_transformer_error", f"Failed to load SentenceTransformer: {e}")
+        from idss.recommendation.dense_ranker import get_dense_embedding_store
+        _dense_embedding_store = get_dense_embedding_store()
+        logger.info("preload_dense_store", "DenseEmbeddingStore loaded (primed IDSS cache)")
 
-    # 3. Load dense embedding store (FAISS)
-    try:
-        from idss.recommendation.dense_embedding_store import DenseEmbeddingStore
-        _dense_embedding_store = DenseEmbeddingStore()
-        logger.info("preload_dense_store", "DenseEmbeddingStore loaded")
-    except Exception as e:
-        logger.warning("preload_dense_store_error", f"Failed to load dense embedding store: {e}")
+        # 3. Warm up the SentenceTransformer by encoding a test query
+        # This triggers lazy loading of the encoder inside DenseEmbeddingStore
+        # so it's ready for the first real query
+        _dense_embedding_store.encode_features(["warm up query", "test encoding"])
+        logger.info("preload_encoder_warmup", "SentenceTransformer encoder warmed up")
 
-    # 4. Preload embedding similarity module (triggers internal caching)
-    try:
-        from idss.recommendation import embedding_similarity
-        logger.info("preload_embedding_similarity", "Embedding similarity module loaded")
     except Exception as e:
-        logger.warning("preload_embedding_similarity_error", f"Failed to load embedding similarity: {e}")
+        logger.error("preload_dense_store_error", f"Failed to load dense embedding store: {e}")
+        import traceback
+        traceback.print_exc()
 
     elapsed = time.time() - start_time
     _preloaded = True

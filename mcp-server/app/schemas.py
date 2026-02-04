@@ -336,3 +336,102 @@ class AddToCartResponse(BaseResponse):
 class CheckoutResponse(BaseResponse):
     """Checkout response with typed data field."""
     data: Optional[OrderData] = None
+
+# ============================================================================
+# Unified Frontend Product Schemas
+# ============================================================================
+
+class ProductType(str, Enum):
+    VEHICLE = "vehicle"
+    LAPTOP = "laptop"
+    BOOK = "book"
+    GENERIC = "generic"
+
+class ImageInfo(BaseModel):
+    primary: Optional[str] = None
+    count: int = 0
+    gallery: List[str] = Field(default_factory=list)
+
+class VehicleDetails(BaseModel):
+    year: int
+    make: str
+    model: str
+    trim: Optional[str] = None
+    bodyStyle: Optional[str] = None
+    mileage: Optional[int] = None
+    price: int
+    vin: Optional[str] = None
+    fuel: Optional[str] = None
+    transmission: Optional[str] = None
+    drivetrain: Optional[str] = None
+    engine: Optional[str] = None
+    doors: Optional[int] = None
+    seats: Optional[int] = None
+    exteriorColor: Optional[str] = None
+    interiorColor: Optional[str] = None
+    mpg: Optional[Dict[str, float]] = None
+    condition: Optional[str] = None
+    dealer: Optional[Dict[str, Any]] = None
+
+class LaptopSpecs(BaseModel):
+    processor: Optional[str] = None
+    ram: Optional[str] = None
+    storage: Optional[str] = None
+    display: Optional[str] = None
+    graphics: Optional[str] = None
+
+class LaptopDetails(BaseModel):
+    productType: str = "laptop"
+    specs: LaptopSpecs = Field(default_factory=LaptopSpecs)
+    gpuVendor: Optional[str] = None
+    gpuModel: Optional[str] = None
+    color: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+
+class BookDetails(BaseModel):
+    author: Optional[str] = None
+    genre: Optional[str] = None
+    format: Optional[str] = None
+    pages: Optional[int] = None
+    isbn: Optional[str] = None
+    publisher: Optional[str] = None
+    language: str = "English"
+    publishedDate: Optional[str] = None
+
+class RetailListing(BaseModel):
+    """Legacy compatibility layer mirroring vehicle listing structure."""
+    price: int
+    primaryImage: Optional[str] = None
+    photoCount: int = 0
+    dealer: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    vdp: Optional[str] = None
+    carfaxUrl: Optional[str] = None
+    used: bool = False
+    cpo: bool = False
+
+class UnifiedProduct(BaseModel):
+    """
+    Unified product summary payload for the frontend.
+    Supports polymorphic types (Vehicle, Laptop, Book).
+    """
+    id: str
+    productType: ProductType
+    name: str
+    brand: Optional[str] = None
+    price: int
+    currency: str = "USD"
+    image: ImageInfo = Field(default_factory=ImageInfo)
+    url: Optional[str] = None
+    available: bool = True
+    
+    # Domain specific details (only one set should be populated)
+    vehicle: Optional[VehicleDetails] = None
+    laptop: Optional[LaptopDetails] = None
+    book: Optional[BookDetails] = None
+    
+    # Legacy compatibility
+    retailListing: Optional[RetailListing] = None
+    
+    model_config = ConfigDict(extra="ignore")
