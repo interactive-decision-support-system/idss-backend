@@ -14,6 +14,7 @@ from typing import Optional, Tuple, Any, Dict
 from enum import Enum
 
 from app.structured_logger import StructuredLogger
+from app.input_validator import fuzzy_match_domain, normalize_domain_keywords
 
 logger = StructuredLogger("conversation_controller")
 
@@ -23,6 +24,10 @@ class Domain(str, Enum):
     VEHICLES = "vehicles"
     LAPTOPS = "laptops"
     BOOKS = "books"
+    JEWELRY = "jewelry"
+    ACCESSORIES = "accessories"
+    CLOTHING = "clothing"
+    BEAUTY = "beauty"
 
 
 # --- Hard domain keywords (deterministic, checked first) ---
@@ -39,27 +44,64 @@ DESKTOP_PC_PHRASES = [
     "desktop", "desktops", "tower", "workstation"
 ]
 LAPTOP_KEYWORDS = [
-    "laptop", "laptops", "computer", "computers", "macbook", "notebook",
-    "notebooks", "chromebook", "thinkpad", "xps", "pc", "pcs"
+    "laptop", "laptops", "lapto", "lpatop",
+    "computer", "computers", "computr",
+    "notebook", "notebooks", "notbook", "notbooks",
+    "macbook", "chromebook", "thinkpad", "xps", 
+    "pc", "pcs"
 ]
 BOOK_KEYWORDS = [
     "book", "books", "novel", "novels", "textbook", "textbooks", "reading",
     "genre", "author", "fiction", "mystery", "romance", "looking for books",
     "show me books", "find books"
 ]
+JEWELRY_KEYWORDS = [
+    "jewelry", "jewellery", "necklace", "necklaces", "earrings", "bracelet",
+    "bracelets", "ring", "rings", "pendant", "chain", "brooch"
+]
+ACCESSORIES_KEYWORDS = [
+    "accessories", "accessory", "scarf", "scarves", "hat", "hats", "belt",
+    "belts", "bag", "bags", "watch", "watches", "sunglasses"
+]
+CLOTHING_KEYWORDS = [
+    "clothing", "clothes", "apparel", "dress", "dresses", "shirt", "shirts",
+    "pants", "jeans", "blouse", "blouses", "t-shirt", "tshirt", "hoodie",
+    "jacket", "jackets", "shorts", "skirt", "tops", "fashion"
+]
+BEAUTY_KEYWORDS = [
+    "beauty", "cosmetics", "makeup", "lipstick", "lipstick", "eyeshadow",
+    "mascara", "foundation", "blush", "skincare", "moisturizer", "serum"
+]
 
 # Short domain intents: treat as mode switch → start interview Q1
+# Include common misspellings
 DOMAIN_INTENT_PATTERNS = {
     Domain.BOOKS: re.compile(
-        r"^(books?|novels?|reading|looking for books?|show me books?|find books?|bookss?)$",
+        r"^(books?s*|novels?|reading|looking for books?|show me books?|find books?|bookss+|boks?|buk)$",
         re.IGNORECASE
     ),
     Domain.LAPTOPS: re.compile(
-        r"^(laptops?|computers?|show me laptops?|show me computers?|looking for (a )?laptop(s)?)$",
+        r"^(laptops?s*|computers?|computr?|show me laptops?|show me computers?|looking for (a )?laptop(s)?|lapto|lpatop)$",
         re.IGNORECASE
     ),
     Domain.VEHICLES: re.compile(
-        r"^(cars?|vehicles?|suvs?|trucks?|show me (cars?|vehicles?|suvs?)|looking for (a )?car)$",
+        r"^(cars?s*|vehicles?|vehicl|suvs?|trucks?|show me (cars?|vehicles?|suvs?)|looking for (a )?car)$",
+        re.IGNORECASE
+    ),
+    Domain.JEWELRY: re.compile(
+        r"^(jewelry|jewellery|jewelries|show me jewelry|looking for jewelry)$",
+        re.IGNORECASE
+    ),
+    Domain.ACCESSORIES: re.compile(
+        r"^(accessories|accessory|show me accessories|looking for accessories)$",
+        re.IGNORECASE
+    ),
+    Domain.CLOTHING: re.compile(
+        r"^(clothing|clothes|apparel|show me clothing|looking for (clothing|clothes|apparel))$",
+        re.IGNORECASE
+    ),
+    Domain.BEAUTY: re.compile(
+        r"^(beauty|cosmetics|makeup|show me beauty|looking for (beauty|cosmetics|makeup))$",
         re.IGNORECASE
     ),
 }
@@ -96,9 +138,25 @@ def detect_domain(
                 return Domain.LAPTOPS, "filter_category"
         return Domain.NONE, "empty"
 
-    # 1) Explicit keywords — vehicle first, then desktop/PC (so "gaming PC" is not laptop)
+    # 1) Short domain intents (exact match first - highest confidence)
+    for domain, pat in DOMAIN_INTENT_PATTERNS.items():
+        if pat.match(msg):
+            return domain, "domain_intent"
+    
+    # 2) Fuzzy matching for misspellings (booksss → books, computr → laptop, notbook → laptop)
+    # Do this BEFORE keyword matching to avoid false matches like "book" in "notbook"
+    fuzzy_domain = fuzzy_match_domain(message)
+    if fuzzy_domain:
+        logger.info("fuzzy_domain_match", f"Fuzzy matched '{message}' to {fuzzy_domain}", {
+            "original": message,
+            "matched_domain": fuzzy_domain
+        })
+        return Domain(fuzzy_domain), "fuzzy_match"
+
+    # 3) Explicit keywords — vehicle first, then desktop/PC (so "gaming PC" is not laptop)
+    # Use word boundaries to avoid false matches (e.g., "book" in "notebook")
     for kw in VEHICLE_KEYWORDS:
-        if kw in msg:
+        if re.search(rf'\b{re.escape(kw)}\b', msg):
             return Domain.VEHICLES, "keyword_vehicle"
 
     for phrase in DESKTOP_PC_PHRASES:
@@ -106,27 +164,47 @@ def detect_domain(
             return Domain.LAPTOPS, "keyword_desktop"
 
     for kw in LAPTOP_KEYWORDS:
-        if kw in msg:
+        if re.search(rf'\b{re.escape(kw)}\b', msg):
             return Domain.LAPTOPS, "keyword_laptop"
 
     for kw in BOOK_KEYWORDS:
-        if kw in msg:
+        # Use word boundaries to prevent "book" matching in "notebook"
+        if re.search(rf'\b{re.escape(kw)}\b', msg):
             return Domain.BOOKS, "keyword_book"
 
-    # 2) Short domain intents (exact or near-exact)
-    for domain, pat in DOMAIN_INTENT_PATTERNS.items():
-        if pat.match(msg):
-            return domain, "domain_intent"
+    for kw in JEWELRY_KEYWORDS:
+        if re.search(rf'\b{re.escape(kw)}\b', msg):
+            return Domain.JEWELRY, "keyword_jewelry"
 
-    # 3) Filters category
+    for kw in ACCESSORIES_KEYWORDS:
+        if re.search(rf'\b{re.escape(kw)}\b', msg):
+            return Domain.ACCESSORIES, "keyword_accessories"
+
+    for kw in CLOTHING_KEYWORDS:
+        if re.search(rf'\b{re.escape(kw)}\b', msg):
+            return Domain.CLOTHING, "keyword_clothing"
+
+    for kw in BEAUTY_KEYWORDS:
+        if re.search(rf'\b{re.escape(kw)}\b', msg):
+            return Domain.BEAUTY, "keyword_beauty"
+
+    # 4) Filters category
     if filters_category:
         cat = filters_category.lower()
         if "book" in cat:
             return Domain.BOOKS, "filter_category"
         if "electronic" in cat:
             return Domain.LAPTOPS, "filter_category"
-
-    # 4) Active session continuation (quick replies like "School", "$500-$1000")
+        if "jewelry" in cat or "jewellery" in cat:
+            return Domain.JEWELRY, "filter_category"
+        if "accessor" in cat:
+            return Domain.ACCESSORIES, "filter_category"
+        if "cloth" in cat or "apparel" in cat:
+            return Domain.CLOTHING, "filter_category"
+        if "beauty" in cat or "cosmetic" in cat:
+            return Domain.BEAUTY, "filter_category"
+    
+    # 5) Active session continuation (quick replies like "School", "$500-$1000")
     if active_domain:
         return Domain(active_domain), "session_continuation"
 
