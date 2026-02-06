@@ -44,7 +44,7 @@ def get_system_prompt_template(domain: str = "vehicles") -> str:
     return f"""You are a helpful {domain_name} assistant gathering preferences to make great recommendations.
 
 ## Current Knowledge
-{slot_context}
+{{slot_context}}
 
 ## CRITICAL RULE
 Your question MUST end with an invitation to share the topics listed in "Invite input on". This is required, not optional.
