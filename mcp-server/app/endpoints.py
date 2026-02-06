@@ -314,6 +314,12 @@ async def search_products(
         try:
             sess = get_session_manager().get_session(request.session_id)
             active_domain_before = sess.active_domain
+            # Merge session explicit_filters so Beauty/Jewelry/Clothing/Accessories flows have category, subcategory, etc.
+            # Without this, query="NARS" alone has no category -> domain not detected -> brand not extracted -> loop
+            if sess.explicit_filters:
+                for k, v in sess.explicit_filters.items():
+                    if k not in filters and v is not None and not str(k).startswith("_"):
+                        filters[k] = v
         except Exception:
             pass
 
@@ -554,6 +560,13 @@ async def search_products(
             if mapped_subcategory:
                 filters["subcategory"] = mapped_subcategory
                 filters["use_case"] = mapped_subcategory  # Also set use_case for compatibility
+
+    # Apply extracted subcategory/item_type for Beauty/Jewelry/Clothing/Accessories (e.g. "Foundation", "Lipstick")
+    if extracted_info.get("subcategory") or extracted_info.get("item_type"):
+        val = extracted_info.get("subcategory") or extracted_info.get("item_type")
+        if val and filters.get("category") in ("Beauty", "Jewelry", "Accessories", "Clothing"):
+            filters["subcategory"] = val
+            filters["item_type"] = val
     
     # Set product type hint for desktop/PC queries
     if extracted_info.get("product_type") == "desktop":
@@ -585,6 +598,18 @@ async def search_products(
         elif filters.get("category") == "Electronics" and not product_type:
             product_type = "laptop"
             extracted_info["product_type"] = "laptop"
+        elif filters.get("category") == "Beauty" and not product_type:
+            product_type = "beauty"
+            extracted_info["product_type"] = "beauty"
+        elif filters.get("category") == "Jewelry" and not product_type:
+            product_type = "jewelry"
+            extracted_info["product_type"] = "jewelry"
+        elif filters.get("category") == "Accessories" and not product_type:
+            product_type = "accessory"
+            extracted_info["product_type"] = "accessory"
+        elif filters.get("category") == "Clothing" and not product_type:
+            product_type = "clothing"
+            extracted_info["product_type"] = "clothing"
         
         # CRITICAL: Pass product_type to ensure questions match the category
         should_ask, missing_info = should_ask_followup(cleaned_query, filters, product_type)
@@ -718,16 +743,21 @@ async def search_products(
                     extracted_info["product_type"] = "book"
                 question, quick_replies = generate_followup_question(product_type, missing_info, filters)
 
-                # Books: use session_manager so question_count and filters persist; always return session_id
+                # Books/Beauty/Jewelry/Clothing/Accessories: persist session so filters accumulate
                 out_session_id = request.session_id
-                if is_book_query and request.session_id:
+                if request.session_id:
                     sm = get_session_manager()
-                    sm.set_active_domain(request.session_id, "books")
-                    sm.set_product_type(request.session_id, "book")
+                    if is_book_query:
+                        sm.set_active_domain(request.session_id, "books")
+                        sm.set_product_type(request.session_id, "book")
+                    elif product_type in ("beauty", "jewelry", "accessory", "clothing"):
+                        sm.set_active_domain(request.session_id, "accessories" if product_type == "accessory" else product_type)
+                        sm.set_product_type(request.session_id, product_type)
                     if filters:
                         sm.update_filters(request.session_id, filters)
-                    sm.add_message(request.session_id, "user", cleaned_query or "books")
-                    sm.add_question_asked(request.session_id, missing_info[0] if missing_info else "genre")
+                    sm.add_message(request.session_id, "user", cleaned_query or (product_type or "general"))
+                    if missing_info:
+                        sm.add_question_asked(request.session_id, missing_info[0])
 
                 timings["total"] = (time.time() - start_time) * 1000
                 _domain = "books" if is_book_query else "laptops" if (product_type or "") in ["laptop", "electronics"] else "vehicles"
@@ -761,14 +791,15 @@ async def search_products(
                 )
     
     # Update session state if we have session_id and filters (from quick replies)
-    # This ensures the interview system tracks user responses
+    # This ensures the interview system tracks user responses for all domains
     if request.session_id and filters:
-        is_laptop_or_electronics = (
+        is_interview_domain = (
             (filters.get("category") == "Electronics") or
-            extracted_info.get("product_type") in ["laptop", "electronics"]
+            extracted_info.get("product_type") in ["laptop", "electronics"] or
+            filters.get("category") in ("Beauty", "Jewelry", "Accessories", "Clothing", "Books")
         )
         
-        if is_laptop_or_electronics:
+        if is_interview_domain:
             from app.interview.session_manager import get_session_manager
             session_manager = get_session_manager()
             
