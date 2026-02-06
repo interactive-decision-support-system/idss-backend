@@ -7,24 +7,25 @@ Tests verify:
 - IDs-only execution rule
 - OUT_OF_STOCK constraint handling
 - Request tracing (request_id + timings)
-- End-to-end flow: search → get → add_to_cart → checkout
+- End-to-end flow: search -> get -> add_to_cart -> checkout
+
+Uses PostgreSQL (same as app) via DATABASE_URL.
 """
 
 import pytest
+import os
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.main import app
-from app.database import Base, get_db
+from app.database import Base, get_db, DATABASE_URL
 from app.models import Product, Price, Inventory, Cart
 
 
-# Create in-memory SQLite database for testing
-# This is faster than Postgres and doesn't require external dependencies
-TEST_DATABASE_URL = "sqlite:///./test.db"
-
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+# Use PostgreSQL (same as app) - tests run against real DB
+TEST_DATABASE_URL = os.getenv("DATABASE_URL", DATABASE_URL)
+engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -51,14 +52,22 @@ client = TestClient(app)
 @pytest.fixture(scope="function", autouse=True)
 def setup_database():
     """
-    Create fresh database for each test.
-    This ensures tests don't interfere with each other.
+    Create tables if needed and add test products for each test.
+    Cleans up test products after test (does not drop tables - preserves real data).
     """
-    # Create tables
+    # Ensure tables exist (PostgreSQL - they usually do from app)
     Base.metadata.create_all(bind=engine)
     
     # Add test products
     db = TestingSessionLocal()
+    test_ids = ["test-prod-001", "test-prod-002", "test-prod-003"]
+    
+    # Remove any leftover test products from previous run (child tables first)
+    for pid in test_ids:
+        db.query(Price).filter(Price.product_id == pid).delete(synchronize_session=False)
+        db.query(Inventory).filter(Inventory.product_id == pid).delete(synchronize_session=False)
+        db.query(Product).filter(Product.product_id == pid).delete(synchronize_session=False)
+    db.commit()
     
     # Product 1: In stock
     product1 = Product(
@@ -113,8 +122,14 @@ def setup_database():
     
     yield
     
-    # Clean up - drop all tables
-    Base.metadata.drop_all(bind=engine)
+    # Clean up - remove only our test products (do not drop tables)
+    db = TestingSessionLocal()
+    for pid in test_ids:
+        db.query(Price).filter(Price.product_id == pid).delete(synchronize_session=False)
+        db.query(Inventory).filter(Inventory.product_id == pid).delete(synchronize_session=False)
+        db.query(Product).filter(Product.product_id == pid).delete(synchronize_session=False)
+    db.commit()
+    db.close()
 
 
 # 
@@ -382,10 +397,10 @@ def test_end_to_end_flow():
     
     This proves the system works end-to-end as specified in Stage 1.
     """
-    # Step 1: Search for products
+    # Step 1: Search for products (use specific query to avoid ambiguous/greeting detection)
     search_response = client.post(
         "/api/search-products",
-        json={"query": "Test", "limit": 10}
+        json={"query": "laptop", "limit": 10}
     )
     
     assert search_response.status_code == 200
