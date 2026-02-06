@@ -264,7 +264,19 @@ async def search_products(
     })
     
     from app.query_parser import enhance_search_request
+    from app.or_filter_parser import detect_or_operation, parse_or_filters
+    
     cleaned_query, enhanced_filters = enhance_search_request(normalized_query, request.filters or {})
+    
+    # Check for OR operations in the query
+    if detect_or_operation(normalized_query):
+        or_filters = parse_or_filters(normalized_query, request.filters or {})
+        enhanced_filters.update(or_filters)
+        logger.info("or_operation_detected", "OR operation detected in query", {
+            "request_id": request_id,
+            "or_filters": {k: v for k, v in or_filters.items() if k != "_or_operation"}
+        })
+    
     timings["parse_ms"] = round((time.time() - parse_start) * 1000, 1)
     
     logger.info("processing_step", "Step 2 Result: Filters extracted", {
@@ -353,14 +365,14 @@ async def search_products(
                     message="What are you looking for?",
                     details={
                         "question": "What are you looking for?",
-                        "quick_replies": ["Laptops", "Books", "Vehicles"],
+                        "quick_replies": ["Laptops", "Books", "Vehicles", "Jewelry", "Accessories", "Clothing", "Beauty"],
                         "response_type": "question",
                         "question_id": "category",
                         "domain": "none",
                         "tool": "mcp_ecommerce",
                     },
                     allowed_fields=None,
-                    suggested_actions=["Laptops", "Books", "Vehicles"],
+                    suggested_actions=["Laptops", "Books", "Vehicles", "Jewelry", "Accessories", "Clothing", "Beauty"],
                 )
             ],
             trace=create_trace(request_id, False, timings, ["conversation_controller"]),
@@ -374,6 +386,14 @@ async def search_products(
         elif detected_domain == Domain.LAPTOPS:
             filters["category"] = "Electronics"
             filters["_product_type_hint"] = "laptop"
+        elif detected_domain == Domain.JEWELRY:
+            filters["category"] = "Jewelry"
+        elif detected_domain == Domain.ACCESSORIES:
+            filters["category"] = "Accessories"
+        elif detected_domain == Domain.CLOTHING:
+            filters["category"] = "Clothing"
+        elif detected_domain == Domain.BEAUTY:
+            filters["category"] = "Beauty"
 
     # Log routing decision (per bigerrorjan29.txt)
     active_domain_after = detected_domain.value if detected_domain != Domain.NONE else active_domain_before
@@ -557,14 +577,19 @@ async def search_products(
 
     # If query is NOT specific enough, return a follow-up question instead of searching
     if not is_specific:
-        should_ask, missing_info = should_ask_followup(cleaned_query, filters)
+        # Determine product type BEFORE calling should_ask_followup
+        product_type = extracted_info.get("product_type")
+        if filters.get("category") == "Books" and not product_type:
+            product_type = "book"
+            extracted_info["product_type"] = "book"
+        elif filters.get("category") == "Electronics" and not product_type:
+            product_type = "laptop"
+            extracted_info["product_type"] = "laptop"
+        
+        # CRITICAL: Pass product_type to ensure questions match the category
+        should_ask, missing_info = should_ask_followup(cleaned_query, filters, product_type)
         
         if should_ask:
-            product_type = extracted_info.get("product_type")
-            
-            if filters.get("category") == "Books" and not product_type:
-                product_type = "book"
-                extracted_info["product_type"] = "book"
             
             is_laptop_or_electronics = (
                 product_type in ["laptop", "electronics"] or
@@ -783,8 +808,13 @@ async def search_products(
         extracted_info.get("product_type") in ["laptop", "electronics"]
     )
     
+    # Check if this is a specific title search (e.g., "Dune", "The Hobbit")
+    # Specific title searches bypass IDSS interview and go directly to PostgreSQL
+    is_specific_title_search = extracted_info.get("specific_title_search", False)
+    
     # Route through IDSS backend if books or laptops (same complex system as vehicles)
-    if is_books or is_laptops:
+    # BUT: skip IDSS for specific book title searches - those go directly to PostgreSQL
+    if (is_books or is_laptops) and not is_specific_title_search:
         import httpx
         logger.info("routing_to_idss", f"Routing {detected_domain.value if detected_domain != Domain.NONE else 'books/laptops'} through IDSS backend for interview system", {
             "query": search_query[:100],
@@ -992,18 +1022,15 @@ async def search_products(
         .join(Inventory)
     )
     
-    # CRITICAL: Exclude demo/test products from search results
-    # Demo stores like "mc-demo.mybigcommerce.com" are not real products
-    # Filter out products from demo/test stores, but allow seed products (NULL scraped_from_url)
+    # Filter: allow seed products (NULL) and web-scraped (WooCommerce, Shopify, BigCommerce, Generic).
+    # Include mc-demo, pluginrepublic, etc. per user: all scraped products (iPods, MacBooks) should be searchable.
     base_query = base_query.filter(
         or_(
             Product.scraped_from_url.is_(None),  # Seed products (no scraped_from_url) are OK
             and_(
                 Product.scraped_from_url.isnot(None),  # Has scraped_from_url
-                ~Product.scraped_from_url.ilike("%demo%"),  # But not demo
-                ~Product.scraped_from_url.ilike("%test%"),  # And not test
-                ~Product.scraped_from_url.ilike("%example%"),  # And not example
-                ~Product.scraped_from_url.ilike("%mc-demo%"),  # And not mc-demo
+                ~Product.scraped_from_url.ilike("%test%"),  # Exclude obvious test URLs only
+                ~Product.scraped_from_url.ilike("%example.com%"),  # Exclude example.com only
             )
         )
     )
@@ -1229,12 +1256,23 @@ async def search_products(
 
         if "brand" in filters:
             brand = filters["brand"]
-            # For complex queries with brand (e.g., "gaming PC with NVIDIA"), also search in name/description
-            # This allows "NVIDIA" to match products with "NVIDIA" in name even if brand isn't set
-            brand_lower = brand.lower()
-            # Check if brand is a component brand (NVIDIA, AMD, Intel) - these often appear in descriptions
-            component_brands = ["nvidia", "amd", "intel", "geforce", "radeon", "rtx", "gtx"]
-            is_component_brand = any(comp in brand_lower for comp in component_brands)
+            
+            # Handle OR operations for brands (e.g., "Dell OR HP laptop")
+            if isinstance(brand, list) and filters.get("_or_operation"):
+                logger.info("applying_brand_or_filter", f"Applying brand OR filter: {' OR '.join(brand)}", {
+                    "brands": brand,
+                    "count": len(brand)
+                })
+                brand_conditions = [Product.brand == b for b in brand]
+                db_query = db_query.filter(or_(*brand_conditions))
+            elif isinstance(brand, str):
+                # Single brand filter logic
+                # For complex queries with brand (e.g., "gaming PC with NVIDIA"), also search in name/description
+                # This allows "NVIDIA" to match products with "NVIDIA" in name even if brand isn't set
+                brand_lower = brand.lower()
+                # Check if brand is a component brand (NVIDIA, AMD, Intel) - these often appear in descriptions
+                component_brands = ["nvidia", "amd", "intel", "geforce", "radeon", "rtx", "gtx"]
+                is_component_brand = any(comp in brand_lower for comp in component_brands)
             
             # Check if this is a desktop/gaming PC query - for these, be even more lenient
             is_desktop_query = (
@@ -1503,10 +1541,8 @@ async def search_products(
                 Product.scraped_from_url.is_(None),
                 and_(
                     Product.scraped_from_url.isnot(None),
-                    ~Product.scraped_from_url.ilike("%demo%"),
                     ~Product.scraped_from_url.ilike("%test%"),
-                    ~Product.scraped_from_url.ilike("%example%"),
-                    ~Product.scraped_from_url.ilike("%mc-demo%"),
+                    ~Product.scraped_from_url.ilike("%example.com%"),
                 ),
             )
         )

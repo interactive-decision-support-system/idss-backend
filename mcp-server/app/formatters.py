@@ -22,6 +22,10 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
         product_type = ProductType.LAPTOP
     elif domain == "books" or category == "Books":
         product_type = ProductType.BOOK
+    elif domain == "jewelry" or category == "Jewelry":
+        product_type = ProductType.JEWELRY
+    elif domain == "accessories" or category == "Accessories":
+        product_type = ProductType.ACCESSORY
 
     # 2. Extract Common Fields
     # ID mapping: vehicles use 'vin', others use 'product_id' or 'id'
@@ -65,7 +69,18 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
         brand=product.get("brand") or product.get("make"),
         price=price,
         image=image_info,
-        url=product.get("url") or product.get("vdp")
+        url=product.get("url") or product.get("vdp"),
+        
+        # Additional fields for frontend display
+        description=product.get("description"),
+        category=product.get("category"),
+        subcategory=product.get("subcategory"),
+        color=product.get("color"),
+        rating=_calculate_rating(product.get("reviews")),
+        reviews_count=_count_reviews(product.get("reviews")),
+        reviews=product.get("reviews"),  # Pass through for frontend to display
+        available_qty=product.get("available_qty"),
+        available=(product.get("available_qty") or 1) > 0,
     )
     
     # 3. Add Type-Specific Details
@@ -80,6 +95,10 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
     elif product_type == ProductType.BOOK:
         unified.book = _extract_book_details(product)
         unified.retailListing = _create_legacy_listing_for_non_vehicle(product, price, image_url, "Books")
+    elif product_type in (ProductType.JEWELRY, ProductType.ACCESSORY):
+        unified.retailListing = _create_legacy_listing_for_non_vehicle(
+            product, price, image_url, category or "Accessories"
+        )
 
     return unified
 
@@ -170,3 +189,72 @@ def _extract_spec(p: Dict, key: str) -> Optional[str]:
     if match:
         return match.group(1).strip()
     return None
+
+def _calculate_rating(reviews: Optional[str]) -> Optional[float]:
+    """Calculate average rating from reviews text or JSON."""
+    if not reviews:
+        return None
+    
+    import json
+    import re
+    
+    # Try parsing as JSON first (new format)
+    try:
+        reviews_list = json.loads(reviews)
+        if isinstance(reviews_list, list) and len(reviews_list) > 0:
+            ratings = [r.get("rating", 0) for r in reviews_list if isinstance(r, dict) and r.get("rating")]
+            if ratings:
+                avg_rating = sum(ratings) / len(ratings)
+                return round(avg_rating, 1)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    
+    # Fallback: parse as plain text (old format)
+    # Look for ratings like "Rating: 4.5" or "4.5/5" or "★★★★☆"
+    rating_pattern = r"(?:rating[:\s]+)?(\d+(?:\.\d+)?)\s*(?:/\s*5)?(?:\s*stars?)?"
+    matches = re.findall(rating_pattern, reviews, re.IGNORECASE)
+    
+    if matches:
+        ratings = [float(m) for m in matches if 0 <= float(m) <= 5]
+        if ratings:
+            avg_rating = sum(ratings) / len(ratings)
+            return round(avg_rating, 1)
+    
+    # Count star symbols
+    star_count = reviews.count("★") + reviews.count("⭐")
+    if star_count > 0:
+        return min(5.0, float(star_count))
+    
+    return None
+
+def _count_reviews(reviews: Optional[str]) -> Optional[int]:
+    """Count number of reviews from reviews text or JSON."""
+    if not reviews:
+        return None
+    
+    import json
+    import re
+    
+    # Try parsing as JSON first (new format)
+    try:
+        reviews_list = json.loads(reviews)
+        if isinstance(reviews_list, list):
+            return len(reviews_list)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    
+    # Fallback: parse as plain text (old format)
+    # Look for explicit review count like "23 reviews" or "Review #5"
+    count_pattern = r"(\d+)\s*reviews?"
+    matches = re.findall(count_pattern, reviews, re.IGNORECASE)
+    
+    if matches:
+        return int(matches[0])
+    
+    # Count number of review entries (simple heuristic: newlines or separators)
+    review_separators = reviews.count("\n\n") + reviews.count("---")
+    if review_separators > 0:
+        return review_separators + 1
+    
+    # If reviews exist but no clear count, assume 1 review
+    return 1 if reviews.strip() else None

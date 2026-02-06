@@ -345,6 +345,8 @@ class ProductType(str, Enum):
     VEHICLE = "vehicle"
     LAPTOP = "laptop"
     BOOK = "book"
+    JEWELRY = "jewelry"
+    ACCESSORY = "accessory"
     GENERIC = "generic"
 
 class ImageInfo(BaseModel):
@@ -425,6 +427,16 @@ class UnifiedProduct(BaseModel):
     image: ImageInfo = Field(default_factory=ImageInfo)
     url: Optional[str] = None
     available: bool = True
+    
+    # Additional product details for frontend display
+    description: Optional[str] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    color: Optional[str] = None
+    rating: Optional[float] = Field(None, description="Average rating (0-5)")
+    reviews_count: Optional[int] = Field(None, description="Number of reviews")
+    reviews: Optional[str] = Field(None, description="Raw reviews JSON or text for display")
+    available_qty: Optional[int] = Field(None, description="Quantity in stock")
     
     # Domain specific details (only one set should be populated)
     vehicle: Optional[VehicleDetails] = None

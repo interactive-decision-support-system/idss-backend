@@ -1,6 +1,10 @@
 """
 Session state management for laptop/electronics/book interviews.
 
+Per kg.txt: track intent at 2 levels (big goal vs next move).
+- Session intent: Explore | Decide today | Execute purchase
+- Step intent: Research | Compare | Negotiate | Schedule | Return/post-purchase
+
 Tracks conversation history, filters, questions asked.
 Persists to Redis (mcp:session:{session_id}) per bigerrorjan29.txt.
 Stores active_domain (vehicles|laptops|books|none), stage (INTERVIEW|RECOMMENDATIONS), question_index.
@@ -22,6 +26,18 @@ STAGE_INTERVIEW = "INTERVIEW"
 STAGE_RECOMMENDATIONS = "RECOMMENDATIONS"
 STAGE_CHECKOUT = "CHECKOUT"
 
+# Session intent (kg.txt): overall mode for this shopping session
+SESSION_INTENT_EXPLORE = "Explore"
+SESSION_INTENT_DECIDE = "Decide today"
+SESSION_INTENT_EXECUTE = "Execute purchase"
+
+# Step intent (kg.txt): next action user wants right now
+STEP_INTENT_RESEARCH = "Research"
+STEP_INTENT_COMPARE = "Compare"
+STEP_INTENT_NEGOTIATE = "Negotiate"
+STEP_INTENT_SCHEDULE = "Schedule"
+STEP_INTENT_RETURN = "Return/post-purchase"
+
 
 @dataclass
 class InterviewSessionState:
@@ -34,6 +50,13 @@ class InterviewSessionState:
     active_domain: Optional[str] = None  # "laptops", "books", "vehicles", "none"
     stage: str = STAGE_INTERVIEW  # INTERVIEW | RECOMMENDATIONS | CHECKOUT
     question_index: int = 0  # 0-based slot (Q1, Q2, Q3)
+    # User action tracking for refinement
+    favorite_product_ids: List[str] = field(default_factory=list)  # Hearts/likes
+    clicked_product_ids: List[str] = field(default_factory=list)  # View details clicks
+    last_recommendation_ids: List[str] = field(default_factory=list)  # For Research/Compare (product IDs from last recs)
+    # kg.txt: intent at 2 levels
+    session_intent: Optional[str] = None  # Explore | Decide today | Execute purchase
+    step_intent: Optional[str] = None  # Research | Compare | Negotiate | Schedule | Return
 
 
 class InterviewSessionManager:
@@ -47,6 +70,7 @@ class InterviewSessionManager:
         """Initialize session manager (in-memory + Redis persistence)."""
         self.sessions: Dict[str, InterviewSessionState] = {}
         self._agent_cache = None
+        self._last_kg_persist: Dict[str, float] = {}  # session_id -> timestamp (throttle)
         if logger:
             logger.info("InterviewSessionManager initialized")
 
@@ -70,6 +94,11 @@ class InterviewSessionManager:
             "active_domain": state.active_domain,
             "stage": state.stage,
             "question_index": state.question_index,
+            "favorite_product_ids": getattr(state, "favorite_product_ids", []),
+            "clicked_product_ids": getattr(state, "clicked_product_ids", []),
+            "last_recommendation_ids": getattr(state, "last_recommendation_ids", []),
+            "session_intent": getattr(state, "session_intent", None),
+            "step_intent": getattr(state, "step_intent", None),
         }
 
     def _dict_to_state(self, d: Dict[str, Any]) -> InterviewSessionState:
@@ -82,10 +111,57 @@ class InterviewSessionManager:
             active_domain=d.get("active_domain"),
             stage=d.get("stage", STAGE_INTERVIEW),
             question_index=d.get("question_index", 0),
+            favorite_product_ids=d.get("favorite_product_ids", []),
+            clicked_product_ids=d.get("clicked_product_ids", []),
+            last_recommendation_ids=d.get("last_recommendation_ids", []),
+            session_intent=d.get("session_intent"),
+            step_intent=d.get("step_intent"),
         )
 
+    def add_favorite(self, session_id: str, product_id: str) -> None:
+        """Record that user favorited a product (for preference refinement)."""
+        session = self.get_session(session_id)
+        if product_id not in session.favorite_product_ids:
+            session.favorite_product_ids.append(product_id)
+        self._persist(session_id)
+
+    def remove_favorite(self, session_id: str, product_id: str) -> None:
+        """Record that user unfavorited a product."""
+        session = self.get_session(session_id)
+        session.favorite_product_ids = [p for p in session.favorite_product_ids if p != product_id]
+        self._persist(session_id)
+
+    def add_click(self, session_id: str, product_id: str) -> None:
+        """Record that user clicked/viewed a product (for interest refinement)."""
+        session = self.get_session(session_id)
+        if product_id not in session.clicked_product_ids:
+            session.clicked_product_ids.append(product_id)
+        self._persist(session_id)
+
+    def set_last_recommendations(self, session_id: str, product_ids: List[str]) -> None:
+        """Store product IDs from last recommendations (for Research/Compare and exclude in 'Show more like these')."""
+        session = self.get_session(session_id)
+        session.last_recommendation_ids = list(product_ids)[:24]  # Up to 24 (accumulated across show-more rounds)
+        self._persist(session_id)
+
+    def recall_session_memory(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Recall session memory from Neo4j KG (kg.txt: "next time we meet, we can discuss this further").
+        Returns session_intent, step_intent, important_info or None if unavailable.
+        """
+        try:
+            from app.neo4j_config import get_connection
+            from app.knowledge_graph import KnowledgeGraphBuilder
+            conn = get_connection()
+            if not conn.verify_connectivity():
+                return None
+            builder = KnowledgeGraphBuilder(conn)
+            return builder.get_session_memory(session_id)
+        except Exception:
+            return None
+
     def get_session(self, session_id: str) -> InterviewSessionState:
-        """Get or create a session. Load from Redis if available."""
+        """Get or create a session. Load from Redis if available. Hydrate from KG when returning user has no Redis data."""
         if session_id in self.sessions:
             return self.sessions[session_id]
         cache = self._get_agent_cache()
@@ -97,16 +173,64 @@ class InterviewSessionManager:
                 if logger:
                     logger.info(f"Loaded session from Redis: {session_id}")
                 return state
-        self.sessions[session_id] = InterviewSessionState()
+        # New session (no Redis data): try to recall from KG for returning users (kg.txt)
+        state = InterviewSessionState()
+        kg_memory = self.recall_session_memory(session_id)
+        if kg_memory and kg_memory.get("important_info"):
+            info = kg_memory["important_info"]
+            if isinstance(info, dict):
+                if info.get("active_domain") and not state.active_domain:
+                    state.active_domain = info.get("active_domain")
+                if info.get("filters") and not state.explicit_filters:
+                    state.explicit_filters = dict(info.get("filters", {}))
+                if info.get("session_intent") and not state.session_intent:
+                    state.session_intent = info.get("session_intent")
+                if info.get("step_intent") and not state.step_intent:
+                    state.step_intent = info.get("step_intent")
+                if info.get("stage") and state.stage == STAGE_INTERVIEW:
+                    state.stage = info.get("stage", state.stage)
+                if logger:
+                    logger.info(f"Hydrated session from KG memory: {session_id}")
+        self.sessions[session_id] = state
         if logger:
             logger.info(f"Created new session: {session_id}")
-        return self.sessions[session_id]
+        return state
 
     def _persist(self, session_id: str) -> None:
-        """Persist session to Redis."""
+        """Persist session to Redis and optionally to Neo4j (kg.txt session memory)."""
         cache = self._get_agent_cache()
         if cache and session_id in self.sessions:
             cache.set_session_data(session_id, self._state_to_dict(self.sessions[session_id]))
+        # Persist to Neo4j KG when available (MemOS-style: save after agent)
+        self._persist_to_kg(session_id)
+
+    def _persist_to_kg(self, session_id: str) -> None:
+        """Persist session memory to Neo4j when available (kg.txt, MemOS/OpenClaw pattern). Throttled to once per 30s per session."""
+        import time
+        now = time.time()
+        if now - self._last_kg_persist.get(session_id, 0) < 30:
+            return
+        try:
+            from app.neo4j_config import get_connection
+            from app.knowledge_graph import KnowledgeGraphBuilder
+            conn = get_connection()
+            if not conn.verify_connectivity():
+                return
+            builder = KnowledgeGraphBuilder(conn)
+            state = self.sessions.get(session_id)
+            if not state:
+                return
+            important = self.get_important_info_for_next_meeting(session_id)
+            builder.create_session_memory(
+                session_id=session_id,
+                user_id=None,
+                session_intent=getattr(state, "session_intent", None) or "Explore",
+                step_intent=getattr(state, "step_intent", None) or "Research",
+                important_info=important,
+            )
+            self._last_kg_persist[session_id] = now
+        except Exception:
+            pass  # Neo4j optional
     
     def update_filters(self, session_id: str, filters: Dict[str, Any]) -> None:
         """Update filters for a session."""
@@ -153,6 +277,30 @@ class InterviewSessionManager:
         session = self.get_session(session_id)
         session.product_type = product_type
         self._persist(session_id)
+
+    def set_session_intent(self, session_id: str, intent: str) -> None:
+        """Set session intent (kg.txt): Explore | Decide today | Execute purchase."""
+        session = self.get_session(session_id)
+        session.session_intent = intent
+        self._persist(session_id)
+
+    def set_step_intent(self, session_id: str, intent: str) -> None:
+        """Set step intent (kg.txt): Research | Compare | Negotiate | Schedule | Return."""
+        session = self.get_session(session_id)
+        session.step_intent = intent
+        self._persist(session_id)
+
+    def get_important_info_for_next_meeting(self, session_id: str) -> Dict[str, Any]:
+        """Collect important info to track across session for next meeting (kg.txt)."""
+        session = self.get_session(session_id)
+        return {
+            "active_domain": session.active_domain,
+            "filters": session.explicit_filters,
+            "session_intent": getattr(session, "session_intent", None),
+            "step_intent": getattr(session, "step_intent", None),
+            "favorite_product_ids": getattr(session, "favorite_product_ids", []),
+            "stage": session.stage,
+        }
 
     def reset_session(self, session_id: str) -> None:
         """Reset a session (in-memory and Redis). Domain switch calls this."""
@@ -208,6 +356,8 @@ class InterviewSessionManager:
             "product_type": session.product_type,
             "active_domain": session.active_domain,
             "stage": session.stage,
+            "session_intent": getattr(session, "session_intent", None),
+            "step_intent": getattr(session, "step_intent", None),
             "conversation_length": len(session.conversation_history)
         }
 
