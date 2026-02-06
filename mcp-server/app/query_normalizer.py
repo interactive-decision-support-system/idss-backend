@@ -182,7 +182,7 @@ def normalize_query(query: str) -> Tuple[str, Dict[str, object]]:
         expanded = expand_synonyms(word, DEFAULT_SYNONYMS)
         if len(expanded) > 1:
             expansions[word] = expanded
-            changed = True
+            # Don't set changed=True for expansions - only for text modifications
 
     metadata = {
         "changed": changed,
