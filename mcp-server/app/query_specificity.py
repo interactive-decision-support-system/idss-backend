@@ -290,7 +290,7 @@ def is_specific_query(query: str, filters: Dict[str, object]) -> Tuple[bool, Dic
 
     # Clothing/Beauty brand detection (when in that domain)
     if domain == "clothing":
-        clothing_brands = {"nike": "Nike", "levi": "Levi's", "patagonia": "Patagonia", "uniqlo": "Uniqlo"}
+        clothing_brands = {"nike": "Nike", "patagonia": "Patagonia", "uniqlo": "Uniqlo"}
         for key, brand in clothing_brands.items():
             if re.search(rf"\b{re.escape(key)}\b", text):
                 extracted_info["brand"] = brand
