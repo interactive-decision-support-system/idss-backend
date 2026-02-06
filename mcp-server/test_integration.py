@@ -242,7 +242,7 @@ async def test_get_vehicle_detail():
         assert response.data is not None, "Data should exist"
         
         product = response.data
-        print(f"\n✅ Detail retrieval successful")
+        print(f"\n Detail retrieval successful")
         print(f"   Name: {product.name}")
         print(f"   Price: ${product.price_cents / 100:,.2f}")
         print(f"   Description: {product.description}")
@@ -317,7 +317,7 @@ async def run_all_tests():
     print(f"\nResult: {passed}/{total} tests passed")
     
     if passed == total:
-        print("\n🎉 All tests passed! The adapter is working correctly.")
+        print("\n All tests passed! The adapter is working correctly.")
     else:
         print("\n[WARN] Some tests failed. Check the output above.")
     

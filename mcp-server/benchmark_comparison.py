@@ -226,7 +226,7 @@ async def run_benchmark():
     
     # Run tests
     for i, query in enumerate(TEST_QUERIES, 1):
-        print(f"\n📊 Test {i}/{len(TEST_QUERIES)}: '{query}'")
+        print(f"\n Test {i}/{len(TEST_QUERIES)}: '{query}'")
         print("-" * 80)
         
         # Run multiple iterations
@@ -268,13 +268,13 @@ async def run_benchmark():
             accuracy_results.append(accuracy)
             
             print(f"\n  Data Preservation:")
-            print(f"    Count match:      {'✅' if accuracy['count_match'] else '❌'} ({accuracy['direct_count']} IDSS → {accuracy['mcp_count']} MCP)")
+            print(f"    Count match:      {'' if accuracy['count_match'] else '[FAIL]'} ({accuracy['direct_count']} IDSS → {accuracy['mcp_count']} MCP)")
             if accuracy.get("details"):
-                print(f"    Make preserved:   {'✅' if accuracy['details']['make_preserved'] else '❌'}")
-                print(f"    Price accurate:   {'✅' if accuracy['details']['price_match'] else '❌'}")
-                print(f"    Metadata added:   {'✅' if accuracy['details']['metadata_added'] else '❌'}")
-                print(f"    Product type:     {'✅' if accuracy['details']['product_type_added'] else '❌'}")
-                print(f"    VIN in ID:        {'✅' if accuracy['details']['vin_in_id'] else '❌'}")
+                print(f"    Make preserved:   {'' if accuracy['details']['make_preserved'] else '[FAIL]'}")
+                print(f"    Price accurate:   {'' if accuracy['details']['price_match'] else '[FAIL]'}")
+                print(f"    Metadata added:   {'' if accuracy['details']['metadata_added'] else '[FAIL]'}")
+                print(f"    Product type:     {'' if accuracy['details']['product_type_added'] else '[FAIL]'}")
+                print(f"    VIN in ID:        {'' if accuracy['details']['vin_in_id'] else '[FAIL]'}")
     
     # Overall Statistics
     print("\n" + "=" * 80)
@@ -310,14 +310,14 @@ async def run_benchmark():
         
         print(f"\n  MCP Overhead:")
         print(f"    Mean:     {overhead_mean:7.2f}ms ({overhead_pct:+.1f}%)")
-        print(f"    Analysis: {'✅ Acceptable' if overhead_pct < 20 else '⚠️  High' if overhead_pct < 50 else '❌ Very High'}")
+        print(f"    Analysis: {' Acceptable' if overhead_pct < 20 else '[WARN]  High' if overhead_pct < 50 else '[FAIL] Very High'}")
     
     # Accuracy Summary
     if accuracy_results:
         count_matches = sum(1 for r in accuracy_results if r.get('count_match'))
         data_preserved = sum(1 for r in accuracy_results if r.get('data_preserved'))
         
-        print(f"\n📊 Accuracy Statistics (n={len(accuracy_results)}):")
+        print(f"\n Accuracy Statistics (n={len(accuracy_results)}):")
         print(f"    Count matches:    {count_matches}/{len(accuracy_results)} ({count_matches/len(accuracy_results)*100:.1f}%)")
         print(f"    Data preserved:   {data_preserved}/{len(accuracy_results)} ({data_preserved/len(accuracy_results)*100:.1f}%)")
     
@@ -327,12 +327,12 @@ async def run_benchmark():
     print("=" * 80)
     
     print(f"\n🎯 What MCP Adds:")
-    print(f"    ✅ Product type identification (enables multi-product UIs)")
-    print(f"    ✅ Rich metadata (15+ fields vs basic vehicle data)")
-    print(f"    ✅ Standardized response format (MCP envelope)")
-    print(f"    ✅ Request tracing (debugging & monitoring)")
-    print(f"    ✅ Multi-backend support (vehicles + e-commerce + more)")
-    print(f"    ✅ Frontend abstraction (one UI for all product types)")
+    print(f"     Product type identification (enables multi-product UIs)")
+    print(f"     Rich metadata (15+ fields vs basic vehicle data)")
+    print(f"     Standardized response format (MCP envelope)")
+    print(f"     Request tracing (debugging & monitoring)")
+    print(f"     Multi-backend support (vehicles + e-commerce + more)")
+    print(f"     Frontend abstraction (one UI for all product types)")
     
     print(f"\n💰 Trade-offs:")
     if direct_latencies and mcp_latencies:
@@ -340,13 +340,13 @@ async def run_benchmark():
         print(f"    Benefit: Data enrichment + multi-product support + standardization")
         
         if overhead_pct < 15:
-            print(f"    Verdict: ✅ EXCELLENT - Minimal overhead for significant value")
+            print(f"    Verdict:  EXCELLENT - Minimal overhead for significant value")
         elif overhead_pct < 30:
-            print(f"    Verdict: ✅ GOOD - Acceptable overhead for features gained")
+            print(f"    Verdict:  GOOD - Acceptable overhead for features gained")
         elif overhead_pct < 50:
-            print(f"    Verdict: ⚠️  ACCEPTABLE - Consider optimization if latency-critical")
+            print(f"    Verdict: [WARN]  ACCEPTABLE - Consider optimization if latency-critical")
         else:
-            print(f"    Verdict: ❌ REVIEW - High overhead, investigate bottlenecks")
+            print(f"    Verdict: [FAIL] REVIEW - High overhead, investigate bottlenecks")
     
     print("\n" + "=" * 80)
     print("RECOMMENDATIONS")
@@ -354,11 +354,11 @@ async def run_benchmark():
     
     if direct_latencies and mcp_latencies:
         if overhead_pct < 30:
-        print(f"\n✅ MCP adapter adds valuable features with acceptable overhead")
+        print(f"\n MCP adapter adds valuable features with acceptable overhead")
         print(f"   • Use for: Multi-product UIs, rich metadata needs")
         print(f"   • Skip for: Ultra-low latency requirements (< 100ms target)")
         elif overhead_pct >= 30:
-        print(f"\n⚠️  Consider optimizations:")
+        print(f"\n[WARN]  Consider optimizations:")
         print(f"   • Add Redis caching")
         print(f"   • Optimize transformation logic")
         print(f"   • Use connection pooling")
@@ -372,16 +372,16 @@ async def run_benchmark():
 # ============================================================================
 
 if __name__ == "__main__":
-    print("\n🚀 Starting Benchmark...")
+    print("\n Starting Benchmark...")
     print("   Note: IDSS backend must be running on port 8000")
     print("   Note: This will take ~30-60 seconds to complete\n")
     
     try:
         asyncio.run(run_benchmark())
-        print("\n✅ Benchmark complete!\n")
+        print("\n Benchmark complete!\n")
     except KeyboardInterrupt:
-        print("\n\n⚠️  Benchmark interrupted by user\n")
+        print("\n\n[WARN]  Benchmark interrupted by user\n")
     except Exception as e:
-        print(f"\n\n❌ Benchmark failed: {e}\n")
+        print(f"\n\n[FAIL] Benchmark failed: {e}\n")
         import traceback
         traceback.print_exc()

@@ -114,7 +114,7 @@ def benchmark_transformation_speed(iterations=1000):
     print(f"Total transformations: {iterations * len(SAMPLE_VEHICLES):,}")
     
     # Benchmark Summary transformation
-    print("\n📊 Testing: vehicle_to_product_summary()")
+    print("\n Testing: vehicle_to_product_summary()")
     start = time.time()
     for _ in range(iterations):
         for vehicle in SAMPLE_VEHICLES:
@@ -127,7 +127,7 @@ def benchmark_transformation_speed(iterations=1000):
     print(f"   Throughput:        {(iterations * len(SAMPLE_VEHICLES)) / summary_time:,.0f} vehicles/sec")
     
     # Benchmark Detail transformation
-    print("\n📊 Testing: vehicle_to_product_detail()")
+    print("\n Testing: vehicle_to_product_detail()")
     start = time.time()
     for _ in range(iterations):
         for vehicle in SAMPLE_VEHICLES:
@@ -168,21 +168,21 @@ def benchmark_data_enrichment():
     # Metadata fields
     metadata_fields = len(product_detail.metadata) if product_detail.metadata else 0
     
-    print(f"\n📊 Field Count Comparison:")
+    print(f"\n Field Count Comparison:")
     print(f"   Original vehicle:      {len(original_fields)} fields")
     print(f"   Product summary:       {len(summary_fields)} fields")
     print(f"   Product detail:        {len(detail_fields)} fields")
     print(f"   Metadata dict:         {metadata_fields} fields")
     
     print(f"\n✨ Features Added by MCP:")
-    print(f"   ✅ product_type:       '{product_summary.product_type}'")
-    print(f"   ✅ Standard format:    MCP ProductSummary schema")
-    print(f"   ✅ VIN prefix:         '{product_summary.product_id[:10]}...'")
-    print(f"   ✅ Price in cents:     {product_summary.price_cents:,} cents")
-    print(f"   ✅ Metadata dict:      {metadata_fields} structured fields")
+    print(f"    product_type:       '{product_summary.product_type}'")
+    print(f"    Standard format:    MCP ProductSummary schema")
+    print(f"    VIN prefix:         '{product_summary.product_id[:10]}...'")
+    print(f"    Price in cents:     {product_summary.price_cents:,} cents")
+    print(f"    Metadata dict:      {metadata_fields} structured fields")
     
     if product_detail.metadata:
-        print(f"\n📋 Metadata Fields:")
+        print(f"\n Metadata Fields:")
         for key in sorted(product_detail.metadata.keys()):
             value = product_detail.metadata[key]
             if isinstance(value, str) and len(str(value)) > 40:
@@ -217,11 +217,11 @@ def benchmark_grid_flattening():
     flatten_time = time.time() - start
     per_operation = (flatten_time / iterations) * 1000  # ms
     
-    print(f"\n📊 Flattening Performance ({iterations:,} iterations):")
+    print(f"\n Flattening Performance ({iterations:,} iterations):")
     print(f"   Total time:        {flatten_time:.3f} seconds")
     print(f"   Per operation:     {per_operation:.4f} ms")
     print(f"   Throughput:        {iterations / flatten_time:,.0f} ops/sec")
-    print(f"\n   ✅ Bug fixed: Correctly handles 2D grid structure")
+    print(f"\n    Bug fixed: Correctly handles 2D grid structure")
     
     return per_operation
 
@@ -254,7 +254,7 @@ def benchmark_overhead_calculation():
     total_time = idss_backend_time + adapter_time
     overhead_pct = (adapter_time / idss_backend_time) * 100
     
-    print(f"\n📊 End-to-End Latency Breakdown:")
+    print(f"\n End-to-End Latency Breakdown:")
     print(f"   IDSS backend:      {idss_backend_time:7.1f} ms  (semantic parsing + ranking + diversification)")
     print(f"   MCP adapter:       {adapter_time:7.1f} ms  (grid flattening + transformation)")
     print(f"   ────────────────────────────────")
@@ -262,13 +262,13 @@ def benchmark_overhead_calculation():
     print(f"\n   MCP overhead:      {adapter_time:7.1f} ms  ({overhead_pct:+.1f}% of backend time)")
     
     if overhead_pct < 5:
-        assessment = "✅ EXCELLENT - Negligible overhead"
+        assessment = " EXCELLENT - Negligible overhead"
     elif overhead_pct < 15:
-        assessment = "✅ VERY GOOD - Minimal overhead"
+        assessment = " VERY GOOD - Minimal overhead"
     elif overhead_pct < 30:
-        assessment = "✅ GOOD - Acceptable overhead"
+        assessment = " GOOD - Acceptable overhead"
     else:
-        assessment = "⚠️  REVIEW - Consider optimization"
+        assessment = "[WARN]  REVIEW - Consider optimization"
     
     print(f"\n   Assessment:        {assessment}")
     
@@ -303,7 +303,7 @@ def run_benchmark():
     print("SUMMARY & RECOMMENDATIONS")
     print("="*80)
     
-    print(f"\n📊 Performance Metrics:")
+    print(f"\n Performance Metrics:")
     print(f"   Transformation time:   {summary_ms:.4f} ms per vehicle")
     print(f"   Grid flattening:       {flatten_ms:.4f} ms per operation")
     print(f"   Total MCP overhead:    {overhead['adapter_time']:.1f} ms ({overhead['overhead_pct']:+.1f}%)")
@@ -311,24 +311,24 @@ def run_benchmark():
     print(f"\n✨ Value Added:")
     print(f"   Data fields:           {original_fields} → {enriched_fields} (+{enriched_fields - original_fields})")
     print(f"   Metadata fields:       {metadata_count} structured fields")
-    print(f"   Product type:          ✅ Enables multi-product UIs")
-    print(f"   Standard format:       ✅ MCP response envelope")
-    print(f"   Tracing:               ✅ Request timing & debugging")
-    print(f"   Extensibility:         ✅ Easy to add new product types")
+    print(f"   Product type:           Enables multi-product UIs")
+    print(f"   Standard format:        MCP response envelope")
+    print(f"   Tracing:                Request timing & debugging")
+    print(f"   Extensibility:          Easy to add new product types")
     
     print(f"\n🎯 Trade-off Analysis:")
     print(f"   Cost:     {overhead['adapter_time']:.1f}ms latency overhead ({overhead['overhead_pct']:.1f}% of backend time)")
     print(f"   Benefit:  Rich metadata + multi-product support + standardization")
     
     if overhead['overhead_pct'] < 15:
-        print(f"\n   ✅ VERDICT: MCP adapter adds significant value with minimal overhead")
+        print(f"\n    VERDICT: MCP adapter adds significant value with minimal overhead")
         print(f"      Recommended for: All use cases")
     elif overhead['overhead_pct'] < 30:
-        print(f"\n   ✅ VERDICT: Good value-to-overhead ratio")
+        print(f"\n    VERDICT: Good value-to-overhead ratio")
         print(f"      Recommended for: Most use cases")
         print(f"      Consider skipping for: Ultra-low latency requirements (< 50ms target)")
     else:
-        print(f"\n   ⚠️  VERDICT: High overhead, but valuable features")
+        print(f"\n   [WARN]  VERDICT: High overhead, but valuable features")
         print(f"      Recommended for: Feature-rich UIs, multi-product catalogs")
         print(f"      Optimize: Add caching, profile transformations")
     
@@ -341,13 +341,13 @@ def run_benchmark():
 
 
 if __name__ == "__main__":
-    print("\n🚀 Starting MCP Overhead Benchmark...")
+    print("\n Starting MCP Overhead Benchmark...")
     print("   (This runs with synthetic data, no database required)\n")
     
     try:
         run_benchmark()
-        print("\n✅ Benchmark complete!\n")
+        print("\n Benchmark complete!\n")
     except Exception as e:
-        print(f"\n❌ Benchmark failed: {e}\n")
+        print(f"\n[FAIL] Benchmark failed: {e}\n")
         import traceback
         traceback.print_exc()
