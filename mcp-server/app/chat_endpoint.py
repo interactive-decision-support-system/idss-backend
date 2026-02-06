@@ -145,12 +145,15 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             "error_message": None,
         }
     # Fast bypass: post-recommendation quick replies (Broaden search, Different category, etc.)
+    # Include NO_MATCH quick replies so "Show me all X" / "Increase my budget" work when no results
     elif session.stage == STAGE_RECOMMENDATIONS and session.active_domain:
         _post_rec_answers = [
             "broaden search", "different category", "show more like these",
             "see similar items", "anything else", "compare items", "rate recommendations", "help with checkout",
             "research", "explain features", "check compatibility", "summarize reviews", "compare these",
             "5 stars", "4 stars", "3 stars", "2 stars", "1 star", "could be better",
+            "show me all jewelry", "show me all accessories", "show me all clothing", "show me all beauty",
+            "show me all laptops", "show me all books", "increase my budget", "try a different brand", "try a different type",
         ]
         if msg_lower in _post_rec_answers or any(a in msg_lower for a in _post_rec_answers):
             validation_result = {
@@ -174,9 +177,10 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             "dress", "dresses", "shirt", "shirts", "pants", "jacket", "sweater", "top", "jeans", "skirt",
             "pandora", "tiffany", "swarovski", "kay jewelers", "zales", "jared",
             "tiffany & co", "tiffany and co", "mac", "nars", "colourpop", "fenty beauty",
+            "nike", "patagonia", "uniqlo",
             "no preference", "specific brand",
             "under $50", "$50-$150", "$150-$300", "over $300",
-            "under $20", "$20-$50", "$50-$100", "over $100",
+            "under $20", "$20-$50", "$50-$100", "over $100", "$100-$200", "over $200",
             "under $15", "$15-$30", "any price",
             "gaming", "work", "school", "creative", "apple", "dell", "lenovo", "hp",
             "fiction", "mystery", "sci-fi", "hardcover", "paperback", "e-book", "audiobook",
@@ -206,9 +210,10 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             "dress", "dresses", "shirt", "shirts", "pants", "jacket", "sweater", "top", "jeans", "skirt",
             "pandora", "tiffany", "swarovski", "kay jewelers", "zales", "jared",
             "tiffany & co", "tiffany and co", "mac", "nars", "colourpop", "fenty beauty",
+            "nike", "patagonia", "uniqlo",
             "no preference", "specific brand",
             "under $50", "$50-$150", "$150-$300", "over $300",
-            "under $20", "$20-$50", "$50-$100", "over $100",
+            "under $20", "$20-$50", "$50-$100", "over $100", "$100-$200", "over $200",
             "under $15", "$15-$30", "any price",
             "gaming", "work", "school", "creative", "apple", "dell", "lenovo", "hp",
             "fiction", "mystery", "sci-fi", "hardcover", "paperback", "e-book", "audiobook",
@@ -593,7 +598,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
     
     # Check if user explicitly wants to reset/restart
     message_lower = request.message.lower().strip()
-    reset_keywords = ['reset', 'restart', 'start over', 'new search', 'clear']
+    reset_keywords = ['reset', 'restart', 'start over', 'new search', 'clear', 'different category']
     is_explicit_reset = any(keyword == message_lower or keyword in message_lower for keyword in reset_keywords)
     
     # Check if it's a standalone greeting (hi, hello) with no other context
@@ -1327,30 +1332,61 @@ async def _search_ecommerce_products(
         category_count = db.query(Product).filter(Product.category == category).count()
         logger.info("search_category_count", f"Products in category {category}: {category_count}", {})
 
-        # Apply filters
+        # First try: full filters
+        query = db.query(Product).filter(Product.category == category)
+        if exclude_ids:
+            query = query.filter(~Product.product_id.in_(exclude_ids))
         if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
             query = query.filter(Product.brand == filters["brand"])
         if filters.get("subcategory"):
             query = query.filter(Product.subcategory == filters["subcategory"])
-        # product_type filter: skip for Jewelry/Accessories/Clothing/Beauty (DB may use subcategory instead)
         if filters.get("product_type") and category not in ("Jewelry", "Accessories", "Clothing", "Beauty"):
             query = query.filter(Product.product_type == filters["product_type"])
         if filters.get("color"):
             query = query.filter(Product.color == filters["color"])
         if filters.get("gpu_vendor"):
             query = query.filter(Product.gpu_vendor == filters["gpu_vendor"])
-
-        # Join with prices for price filtering
         query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
-
         if filters.get("price_min_cents"):
             query = query.filter(Price.price_cents >= filters["price_min_cents"])
         if filters.get("price_max_cents"):
             query = query.filter(Price.price_cents <= filters["price_max_cents"])
-
-        # Order by price and limit
         query = query.order_by(Price.price_cents.asc())
-        products = query.limit(n_rows * n_per_row * 2).all()  # Get extra for bucketing
+        products = query.limit(n_rows * n_per_row * 2).all()
+
+        # Fallback: relax price_min (e.g. user said $50-$100 but products are $20-$40)
+        if not products and filters.get("price_min_cents") and category in ("Beauty", "Jewelry", "Accessories", "Clothing", "Books"):
+            logger.info("search_relax_price_min", "No results with price_min, trying without", {"price_min": filters["price_min_cents"]})
+            query = db.query(Product).filter(Product.category == category)
+            if exclude_ids:
+                query = query.filter(~Product.product_id.in_(exclude_ids))
+            if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
+                query = query.filter(Product.brand == filters["brand"])
+            if filters.get("subcategory"):
+                query = query.filter(Product.subcategory == filters["subcategory"])
+            if filters.get("color"):
+                query = query.filter(Product.color == filters["color"])
+            query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
+            if filters.get("price_max_cents"):
+                query = query.filter(Price.price_cents <= filters["price_max_cents"])
+            query = query.order_by(Price.price_cents.asc())
+            products = query.limit(n_rows * n_per_row * 2).all()
+
+        # Fallback: relax subcategory (e.g. no Levi's Shirts & Blouses, but we have other Levi's)
+        if not products and filters.get("subcategory") and category in ("Beauty", "Jewelry", "Accessories", "Clothing"):
+            logger.info("search_relax_subcategory", "No results with subcategory, trying category+brand only", {"subcategory": filters["subcategory"]})
+            query = db.query(Product).filter(Product.category == category)
+            if exclude_ids:
+                query = query.filter(~Product.product_id.in_(exclude_ids))
+            if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
+                query = query.filter(Product.brand == filters["brand"])
+            query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
+            if filters.get("price_max_cents"):
+                query = query.filter(Price.price_cents <= filters["price_max_cents"])
+            if filters.get("price_min_cents"):
+                query = query.filter(Price.price_cents >= filters["price_min_cents"])
+            query = query.order_by(Price.price_cents.asc())
+            products = query.limit(n_rows * n_per_row * 2).all()
 
         logger.info("search_query_result", f"Query returned {len(products)} products", {
             "brand_filter": filters.get("brand"),
