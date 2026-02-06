@@ -282,7 +282,7 @@ CLOTHING_SCHEMA = DomainSchema(
             priority=SlotPriority.MEDIUM,
             description="Preferred clothing brand.",
             example_question="Do you have a preferred brand?",
-            example_replies=["No preference", "Nike", "Levi's", "Patagonia", "Uniqlo"],
+            example_replies=["No preference", "Nike", "Patagonia", "Uniqlo"],
             filter_key="brand"
         ),
         PreferenceSlot(
