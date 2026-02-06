@@ -101,14 +101,11 @@ class KnowledgeGraphService:
         
         try:
             with self.driver.session() as session:
-                # Build Cypher query based on filters
                 cypher_query = self._build_cypher_query(query, filters, limit)
-                
-                result = session.run(cypher_query, {
-                    "query": query,
-                    "limit": limit,
-                    **self._extract_filters(filters or {})
-                })
+                params = {"limit": limit, **self._extract_filters(filters or {})}
+                if query and len(query) >= 2:
+                    params["q"] = query.lower()[:50]
+                result = session.run(cypher_query, params)
                 
                 product_ids = []
                 explanation_path = {
@@ -149,87 +146,58 @@ class KnowledgeGraphService:
         - Price-performance relationships
         - Brand/product line relationships
         """
-        # Base query: Match products with relationships
-        cypher = """
-        MATCH (p:Product)
-        WHERE p.category = 'Electronics'
-        """
-        
-        # Add filters
-        conditions = []
-        params = {}
-        
+        # Match our KG schema: Product nodes with product_id, name, brand, price (dollars), category, subcategory
+        # Supports all categories: Electronics, Books, Jewelry, Accessories, etc.
+        category = (filters or {}).get("category", "Electronics")
+        conditions = ["p.category = $category"]
+
         if filters:
-            if "category" in filters:
-                conditions.append("p.category = $category")
-                params["category"] = filters["category"]
-            
-            if "brand" in filters:
+            if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
                 conditions.append("p.brand = $brand")
-                params["brand"] = filters["brand"]
-            
-            if "price_max" in filters:
-                conditions.append("p.price_cents <= $price_max")
-                params["price_max"] = int(filters["price_max"] * 100)  # Convert to cents
-            
-            if "price_min" in filters:
-                conditions.append("p.price_cents >= $price_min")
-                params["price_min"] = int(filters["price_min"] * 100)
-        
-        # Use case matching (from query text)
-        use_cases = []
-        query_lower = query.lower()
-        
-        if "gaming" in query_lower:
-            use_cases.append("Gaming")
-        if "video editing" in query_lower or "video" in query_lower:
-            use_cases.append("VideoEditing")
-        if "work" in query_lower or "business" in query_lower:
-            use_cases.append("Work")
-        if "school" in query_lower or "student" in query_lower:
-            use_cases.append("School")
-        
-        if use_cases:
-            # Match products with USE_CASE relationships
-            cypher = """
-            MATCH (p:Product)-[:SUITABLE_FOR]->(uc:UseCase)
-            WHERE p.category = 'Electronics'
-            AND uc.name IN $use_cases
-            """
-            params["use_cases"] = use_cases
-        
-        # Add WHERE conditions
-        if conditions:
-            cypher += " AND " + " AND ".join(conditions)
-        
-        # Score by relevance (use case match, price-performance, etc.)
-        cypher += """
-        WITH p, 
-             CASE 
-               WHEN EXISTS((p)-[:SUITABLE_FOR]->(:UseCase)) THEN 1.0
-               ELSE 0.5
-             END AS relevance_score
-        ORDER BY relevance_score DESC, p.price_cents ASC
+            if filters.get("subcategory"):
+                conditions.append("p.subcategory = $subcategory")
+            if filters.get("price_max") is not None or filters.get("price_max_cents") is not None:
+                conditions.append("p.price <= $price_max")
+            if filters.get("price_min") is not None or filters.get("price_min_cents") is not None:
+                conditions.append("p.price >= $price_min")
+
+        where_clause = " AND ".join(conditions)
+        # Optional text search: match query terms in name/subcategory/description
+        if query and len(query) >= 2:
+            conditions.append(
+                "(toLower(coalesce(p.subcategory, '')) CONTAINS $q OR "
+                "toLower(coalesce(p.name, '')) CONTAINS $q OR "
+                "toLower(coalesce(p.description, '')) CONTAINS $q)"
+            )
+            where_clause = " AND ".join(conditions)
+
+        cypher = f"""
+        MATCH (p:Product)
+        WHERE {where_clause}
+        WITH p
+        ORDER BY p.price ASC
         LIMIT $limit
-        RETURN p.product_id AS product_id, relevance_score AS score, 
-               [p.name] AS path
+        RETURN p.product_id AS product_id, 1.0 AS score, [p.name] AS path
         """
-        
         return cypher
     
     def _extract_filters(self, filters: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract and normalize filters for Cypher query."""
+        """Extract and normalize filters for Cypher query. KG stores price in dollars."""
         params = {}
-        
-        if "category" in filters:
-            params["category"] = filters["category"]
-        if "brand" in filters:
-            params["brand"] = filters["brand"]
-        if "price_max" in filters:
-            params["price_max"] = int(filters["price_max"] * 100)
-        if "price_min" in filters:
-            params["price_min"] = int(filters["price_min"] * 100)
-        
+        params["category"] = (filters or {}).get("category", "Electronics")
+        f = filters or {}
+        if f.get("brand") and str(f["brand"]).lower() not in ("no preference", "specific brand"):
+            params["brand"] = f["brand"]
+        if "subcategory" in f:
+            params["subcategory"] = f["subcategory"]
+        if "price_max_cents" in f:
+            params["price_max"] = f["price_max_cents"] / 100.0
+        elif "price_max" in f:
+            params["price_max"] = float(f["price_max"])
+        if "price_min_cents" in f:
+            params["price_min"] = f["price_min_cents"] / 100.0
+        elif "price_min" in f:
+            params["price_min"] = float(f["price_min"])
         return params
     
     def get_compatible_components(
