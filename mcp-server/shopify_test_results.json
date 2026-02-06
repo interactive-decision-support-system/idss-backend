@@ -1,0 +1,260 @@
+[
+  {
+    "store": "Allbirds",
+    "domain": "allbirds.com",
+    "success": true,
+    "products_found": 30,
+    "data_structure": {
+      "total_products": 30,
+      "sample_product": {
+        "id": 7205191417936,
+        "title": "Men's Cruiser Canvas - Warm White (Natural White Sole)",
+        "vendor": "Allbirds",
+        "product_type": "Shoes",
+        "has_images": true,
+        "has_variants": true,
+        "price_range": {
+          "min": "95.00",
+          "max": "95.00"
+        }
+      },
+      "available_fields": [
+        "id",
+        "title",
+        "handle",
+        "body_html",
+        "published_at",
+        "created_at",
+        "updated_at",
+        "vendor",
+        "product_type",
+        "tags",
+        "variants",
+        "images",
+        "options"
+      ]
+    }
+  },
+  {
+    "store": "Gymshark",
+    "domain": "gymshark.com",
+    "success": true,
+    "products_found": 30,
+    "data_structure": {
+      "total_products": 30,
+      "sample_product": {
+        "id": 6805465432266,
+        "title": "Gymshark Everyday Racer Back Tank With Shelf - Black",
+        "vendor": "Gymshark | Be a visionary.",
+        "product_type": "Womens Tank",
+        "has_images": true,
+        "has_variants": true,
+        "price_range": {
+          "min": "38.00",
+          "max": "38.00"
+        }
+      },
+      "available_fields": [
+        "id",
+        "title",
+        "handle",
+        "body_html",
+        "published_at",
+        "created_at",
+        "updated_at",
+        "vendor",
+        "product_type",
+        "tags",
+        "variants",
+        "images",
+        "options"
+      ]
+    }
+  },
+  {
+    "store": "ColourPop",
+    "domain": "colourpop.com",
+    "success": true,
+    "products_found": 30,
+    "data_structure": {
+      "total_products": 30,
+      "sample_product": {
+        "id": 7420903981138,
+        "title": "A Shadow of Secrets Collection",
+        "vendor": "ColourPop",
+        "product_type": "Full Collection Set",
+        "has_images": true,
+        "has_variants": true,
+        "price_range": {
+          "min": "118.00",
+          "max": "118.00"
+        }
+      },
+      "available_fields": [
+        "id",
+        "title",
+        "handle",
+        "body_html",
+        "published_at",
+        "created_at",
+        "updated_at",
+        "vendor",
+        "product_type",
+        "tags",
+        "variants",
+        "images",
+        "options"
+      ]
+    }
+  },
+  {
+    "store": "MVMT Watches",
+    "domain": "mvmt.com",
+    "success": false,
+    "error": "HTTP 410"
+  },
+  {
+    "store": "Kylie Cosmetics",
+    "domain": "kyliecosmetics.com",
+    "success": true,
+    "products_found": 30,
+    "data_structure": {
+      "total_products": 30,
+      "sample_product": {
+        "id": 8950475587826,
+        "title": "Lip Butter Bundle",
+        "vendor": "kylie-skin",
+        "product_type": "Bundle",
+        "has_images": true,
+        "has_variants": true,
+        "price_range": {
+          "min": "75.60",
+          "max": "75.60"
+        }
+      },
+      "available_fields": [
+        "id",
+        "title",
+        "handle",
+        "body_html",
+        "published_at",
+        "created_at",
+        "updated_at",
+        "vendor",
+        "product_type",
+        "tags",
+        "variants",
+        "images",
+        "options"
+      ]
+    }
+  },
+  {
+    "store": "Fashion Nova",
+    "domain": "fashionnova.com",
+    "success": true,
+    "products_found": 30,
+    "data_structure": {
+      "total_products": 30,
+      "sample_product": {
+        "id": 6545309204604,
+        "title": "Slim Cipher Ascend Cargo Pant - Grey",
+        "vendor": "Fashion Nova",
+        "product_type": "Mens Pants",
+        "has_images": true,
+        "has_variants": true,
+        "price_range": {
+          "min": "31.99",
+          "max": "31.99"
+        }
+      },
+      "available_fields": [
+        "id",
+        "title",
+        "handle",
+        "body_html",
+        "published_at",
+        "created_at",
+        "updated_at",
+        "vendor",
+        "product_type",
+        "tags",
+        "variants",
+        "images",
+        "options"
+      ]
+    }
+  },
+  {
+    "store": "Tattly",
+    "domain": "tattly.com",
+    "success": true,
+    "products_found": 30,
+    "data_structure": {
+      "total_products": 30,
+      "sample_product": {
+        "id": 7618356969538,
+        "title": "Peanuts Tattoo Jumbo Party Pack",
+        "vendor": "PEANUTS",
+        "product_type": "Jumbo Party Pack",
+        "has_images": true,
+        "has_variants": true,
+        "price_range": {
+          "min": "25.00",
+          "max": "25.00"
+        }
+      },
+      "available_fields": [
+        "id",
+        "title",
+        "handle",
+        "body_html",
+        "published_at",
+        "created_at",
+        "updated_at",
+        "vendor",
+        "product_type",
+        "tags",
+        "variants",
+        "images",
+        "options"
+      ]
+    }
+  },
+  {
+    "store": "Pura Vida",
+    "domain": "puravidabracelets.com",
+    "success": true,
+    "products_found": 30,
+    "data_structure": {
+      "total_products": 30,
+      "sample_product": {
+        "id": 7449064276054,
+        "title": "Sustainable Shipping",
+        "vendor": "EcoCart",
+        "product_type": "Carbon Offset",
+        "has_images": true,
+        "has_variants": true,
+        "price_range": {
+          "min": "1.00",
+          "max": "1.00"
+        }
+      },
+      "available_fields": [
+        "id",
+        "title",
+        "handle",
+        "body_html",
+        "published_at",
+        "created_at",
+        "updated_at",
+        "vendor",
+        "product_type",
+        "tags",
+        "variants",
+        "images",
+        "options"
+      ]
+    }
+  }
+]

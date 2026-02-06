@@ -1,0 +1,2097 @@
+﻿[
+  {
+    "p": {
+      "start": {
+        "identity": 1181,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://woocommerce-demo.com/wp-content/uploads/2020/05/RMD8U00562-13573-3-300x300.jpg",
+          "price": 500000.0,
+          "product_id": "ce4e9eb0-e685-4c4b-9f6c-49b1b3245c9a",
+          "available": true,
+          "name": "7 Carat Diamond Engagement Ring",
+          "description": "Elegant 7 Carat Diamond Engagement Ring. High-quality craftsmanship with premium materials. Makes a perfect gift for special occasions.",
+          "created_at": "2026-02-06T09:22:32.540000000Z",
+          "subcategory": "Jewelry",
+          "category": "Jewelry",
+          "brand": "WooCommerce Official"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1181"
+      },
+      "end": {
+        "identity": 1182,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "WooCommerce Official"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1182"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1181,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://woocommerce-demo.com/wp-content/uploads/2020/05/RMD8U00562-13573-3-300x300.jpg",
+              "price": 500000.0,
+              "product_id": "ce4e9eb0-e685-4c4b-9f6c-49b1b3245c9a",
+              "available": true,
+              "name": "7 Carat Diamond Engagement Ring",
+              "description": "Elegant 7 Carat Diamond Engagement Ring. High-quality craftsmanship with premium materials. Makes a perfect gift for special occasions.",
+              "created_at": "2026-02-06T09:22:32.540000000Z",
+              "subcategory": "Jewelry",
+              "category": "Jewelry",
+              "brand": "WooCommerce Official"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1181"
+          },
+          "relationship": {
+            "identity": 5828,
+            "start": 1181,
+            "end": 1182,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5828",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1181",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1182"
+          },
+          "end": {
+            "identity": 1182,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "WooCommerce Official"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1182"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1190,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-13.jpg",
+          "price": 138.41,
+          "product_id": "2af9604e-d556-4cc9-be84-2337fa766032",
+          "available": true,
+          "name": "Swarovski Silver Brooch",
+          "description": "High-quality brooch from Swarovski. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.602000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1190"
+      },
+      "end": {
+        "identity": 1191,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1190,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-13.jpg",
+              "price": 138.41,
+              "product_id": "2af9604e-d556-4cc9-be84-2337fa766032",
+              "available": true,
+              "name": "Swarovski Silver Brooch",
+              "description": "High-quality brooch from Swarovski. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.602000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1190"
+          },
+          "relationship": {
+            "identity": 5839,
+            "start": 1190,
+            "end": 1191,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5839",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1190",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          },
+          "end": {
+            "identity": 1191,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1194,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-12.jpg",
+          "price": 43.55,
+          "product_id": "3a712d79-2cd3-4565-88ea-58a9ab6963d7",
+          "available": true,
+          "name": "Pandora Black Brooch",
+          "description": "High-quality brooch from Pandora. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.621000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Pandora"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1194"
+      },
+      "end": {
+        "identity": 1195,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Pandora"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1194,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-12.jpg",
+              "price": 43.55,
+              "product_id": "3a712d79-2cd3-4565-88ea-58a9ab6963d7",
+              "available": true,
+              "name": "Pandora Black Brooch",
+              "description": "High-quality brooch from Pandora. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.621000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Pandora"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1194"
+          },
+          "relationship": {
+            "identity": 5842,
+            "start": 1194,
+            "end": 1195,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5842",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1194",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+          },
+          "end": {
+            "identity": 1195,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Pandora"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1196,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-2.jpg",
+          "price": 89.72,
+          "product_id": "645e30ef-1e90-45e2-b98a-09eb132748ad",
+          "available": true,
+          "name": "Swarovski Black Pendant",
+          "description": "High-quality pendant from Swarovski. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.638000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1196"
+      },
+      "end": {
+        "identity": 1191,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1196,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-2.jpg",
+              "price": 89.72,
+              "product_id": "645e30ef-1e90-45e2-b98a-09eb132748ad",
+              "available": true,
+              "name": "Swarovski Black Pendant",
+              "description": "High-quality pendant from Swarovski. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.638000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1196"
+          },
+          "relationship": {
+            "identity": 5844,
+            "start": 1196,
+            "end": 1191,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5844",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1196",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          },
+          "end": {
+            "identity": 1191,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1197,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-8.jpg",
+          "price": 194.5,
+          "product_id": "70a020b9-c1e2-43db-b26d-aa3841f9704a",
+          "available": true,
+          "name": "Pandora White Pendant",
+          "description": "High-quality pendant from Pandora. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.640000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Pandora"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1197"
+      },
+      "end": {
+        "identity": 1195,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Pandora"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1197,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-8.jpg",
+              "price": 194.5,
+              "product_id": "70a020b9-c1e2-43db-b26d-aa3841f9704a",
+              "available": true,
+              "name": "Pandora White Pendant",
+              "description": "High-quality pendant from Pandora. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.640000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Pandora"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1197"
+          },
+          "relationship": {
+            "identity": 5846,
+            "start": 1197,
+            "end": 1195,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5846",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1197",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+          },
+          "end": {
+            "identity": 1195,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Pandora"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1198,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-7.jpg",
+          "price": 73.38,
+          "product_id": "8b5079f3-f8b7-455f-9b18-362aca09ff8b",
+          "available": true,
+          "name": "Tiffany & Co White Necklace",
+          "description": "High-quality necklace from Tiffany & Co. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.642000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Tiffany & Co"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1198"
+      },
+      "end": {
+        "identity": 1199,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Tiffany & Co"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1199"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1198,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-7.jpg",
+              "price": 73.38,
+              "product_id": "8b5079f3-f8b7-455f-9b18-362aca09ff8b",
+              "available": true,
+              "name": "Tiffany & Co White Necklace",
+              "description": "High-quality necklace from Tiffany & Co. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.642000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Tiffany & Co"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1198"
+          },
+          "relationship": {
+            "identity": 5848,
+            "start": 1198,
+            "end": 1199,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5848",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1198",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1199"
+          },
+          "end": {
+            "identity": 1199,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Tiffany & Co"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1199"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1200,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-10.jpg",
+          "price": 142.57,
+          "product_id": "a5be52aa-16dd-4057-92f7-fcf50a5d0eb9",
+          "available": true,
+          "name": "Swarovski Black Earrings",
+          "description": "High-quality earrings from Swarovski. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.659000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1200"
+      },
+      "end": {
+        "identity": 1191,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1200,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-10.jpg",
+              "price": 142.57,
+              "product_id": "a5be52aa-16dd-4057-92f7-fcf50a5d0eb9",
+              "available": true,
+              "name": "Swarovski Black Earrings",
+              "description": "High-quality earrings from Swarovski. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.659000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1200"
+          },
+          "relationship": {
+            "identity": 5850,
+            "start": 1200,
+            "end": 1191,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5850",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1200",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          },
+          "end": {
+            "identity": 1191,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1201,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-15.jpg",
+          "price": 165.35,
+          "product_id": "a6c953f3-2c7f-4a46-8506-7efe7aea9505",
+          "available": true,
+          "name": "Pandora Red Necklace",
+          "description": "High-quality necklace from Pandora. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.661000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Pandora"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1201"
+      },
+      "end": {
+        "identity": 1195,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Pandora"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1201,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-15.jpg",
+              "price": 165.35,
+              "product_id": "a6c953f3-2c7f-4a46-8506-7efe7aea9505",
+              "available": true,
+              "name": "Pandora Red Necklace",
+              "description": "High-quality necklace from Pandora. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.661000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Pandora"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1201"
+          },
+          "relationship": {
+            "identity": 5852,
+            "start": 1201,
+            "end": 1195,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5852",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1201",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+          },
+          "end": {
+            "identity": 1195,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Pandora"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1202,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-14.jpg",
+          "price": 168.05,
+          "product_id": "ae6dad13-40e1-4987-93d2-9bff4a019687",
+          "available": true,
+          "name": "Tiffany & Co Black Pendant",
+          "description": "High-quality pendant from Tiffany & Co. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.663000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Tiffany & Co"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1202"
+      },
+      "end": {
+        "identity": 1199,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Tiffany & Co"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1199"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1202,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-14.jpg",
+              "price": 168.05,
+              "product_id": "ae6dad13-40e1-4987-93d2-9bff4a019687",
+              "available": true,
+              "name": "Tiffany & Co Black Pendant",
+              "description": "High-quality pendant from Tiffany & Co. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.663000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Tiffany & Co"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1202"
+          },
+          "relationship": {
+            "identity": 5854,
+            "start": 1202,
+            "end": 1199,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5854",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1202",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1199"
+          },
+          "end": {
+            "identity": 1199,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Tiffany & Co"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1199"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1203,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-1.jpg",
+          "price": 157.4,
+          "product_id": "b5ec2d92-1dd0-4d35-b967-b5a835867dd9",
+          "available": true,
+          "name": "Swarovski White Pendant",
+          "description": "High-quality pendant from Swarovski. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.666000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1203"
+      },
+      "end": {
+        "identity": 1191,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1203,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-1.jpg",
+              "price": 157.4,
+              "product_id": "b5ec2d92-1dd0-4d35-b967-b5a835867dd9",
+              "available": true,
+              "name": "Swarovski White Pendant",
+              "description": "High-quality pendant from Swarovski. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.666000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1203"
+          },
+          "relationship": {
+            "identity": 5856,
+            "start": 1203,
+            "end": 1191,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5856",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1203",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          },
+          "end": {
+            "identity": 1191,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1204,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-5.jpg",
+          "price": 99.62,
+          "product_id": "c1ce265b-c129-4b3f-9d77-31d057fc3ea9",
+          "available": true,
+          "name": "Swarovski Red Chain",
+          "description": "High-quality chain from Swarovski. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.667000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1204"
+      },
+      "end": {
+        "identity": 1191,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1204,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-5.jpg",
+              "price": 99.62,
+              "product_id": "c1ce265b-c129-4b3f-9d77-31d057fc3ea9",
+              "available": true,
+              "name": "Swarovski Red Chain",
+              "description": "High-quality chain from Swarovski. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.667000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1204"
+          },
+          "relationship": {
+            "identity": 5858,
+            "start": 1204,
+            "end": 1191,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5858",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1204",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          },
+          "end": {
+            "identity": 1191,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1205,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-9.jpg",
+          "price": 157.35,
+          "product_id": "d36c3b90-9b72-4dd4-898e-143a8c19315f",
+          "available": true,
+          "name": "Pandora Silver Chain",
+          "description": "High-quality chain from Pandora. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.669000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Pandora"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1205"
+      },
+      "end": {
+        "identity": 1195,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Pandora"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1205,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-9.jpg",
+              "price": 157.35,
+              "product_id": "d36c3b90-9b72-4dd4-898e-143a8c19315f",
+              "available": true,
+              "name": "Pandora Silver Chain",
+              "description": "High-quality chain from Pandora. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.669000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Pandora"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1205"
+          },
+          "relationship": {
+            "identity": 5860,
+            "start": 1205,
+            "end": 1195,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5860",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1205",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+          },
+          "end": {
+            "identity": 1195,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Pandora"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1206,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-3.jpg",
+          "price": 181.73,
+          "product_id": "ede39640-8df7-4d84-9b56-2260ccce9772",
+          "available": true,
+          "name": "Swarovski Red Earrings",
+          "description": "High-quality earrings from Swarovski. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.670000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1206"
+      },
+      "end": {
+        "identity": 1191,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1206,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-3.jpg",
+              "price": 181.73,
+              "product_id": "ede39640-8df7-4d84-9b56-2260ccce9772",
+              "available": true,
+              "name": "Swarovski Red Earrings",
+              "description": "High-quality earrings from Swarovski. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.670000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1206"
+          },
+          "relationship": {
+            "identity": 5863,
+            "start": 1206,
+            "end": 1191,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5863",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1206",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          },
+          "end": {
+            "identity": 1191,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1207,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-4.jpg",
+          "price": 173.01,
+          "product_id": "ef404fb1-9b3f-4f9d-a66b-8ab5b9ed0051",
+          "available": true,
+          "name": "Swarovski Blue Brooch",
+          "description": "High-quality brooch from Swarovski. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.672000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1207"
+      },
+      "end": {
+        "identity": 1191,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Swarovski"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1207,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-4.jpg",
+              "price": 173.01,
+              "product_id": "ef404fb1-9b3f-4f9d-a66b-8ab5b9ed0051",
+              "available": true,
+              "name": "Swarovski Blue Brooch",
+              "description": "High-quality brooch from Swarovski. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.672000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1207"
+          },
+          "relationship": {
+            "identity": 5865,
+            "start": 1207,
+            "end": 1191,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5865",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1207",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          },
+          "end": {
+            "identity": 1191,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Swarovski"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1191"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1208,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-11.jpg",
+          "price": 174.07,
+          "product_id": "f381eaab-6553-4814-8dab-f3080c53741b",
+          "available": true,
+          "name": "Pandora Blue Necklace",
+          "description": "High-quality necklace from Pandora. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.674000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Pandora"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1208"
+      },
+      "end": {
+        "identity": 1195,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Pandora"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1208,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-11.jpg",
+              "price": 174.07,
+              "product_id": "f381eaab-6553-4814-8dab-f3080c53741b",
+              "available": true,
+              "name": "Pandora Blue Necklace",
+              "description": "High-quality necklace from Pandora. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.674000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Pandora"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1208"
+          },
+          "relationship": {
+            "identity": 5867,
+            "start": 1208,
+            "end": 1195,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5867",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1208",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+          },
+          "end": {
+            "identity": 1195,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Pandora"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1195"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1209,
+        "labels": [
+          "Jewelry",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/jewelry/item-6.jpg",
+          "price": 171.14,
+          "product_id": "f69d99ab-b4b6-4420-8545-bebc17532ca3",
+          "available": true,
+          "name": "Kay Jewelers Black Chain",
+          "description": "High-quality chain from Kay Jewelers. Durable and stylish.",
+          "created_at": "2026-02-06T09:22:32.675000000Z",
+          "subcategory": "General",
+          "category": "Jewelry",
+          "brand": "Kay Jewelers"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1209"
+      },
+      "end": {
+        "identity": 1210,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Kay Jewelers"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1210"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1209,
+            "labels": [
+              "Product",
+              "Jewelry"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/jewelry/item-6.jpg",
+              "price": 171.14,
+              "product_id": "f69d99ab-b4b6-4420-8545-bebc17532ca3",
+              "available": true,
+              "name": "Kay Jewelers Black Chain",
+              "description": "High-quality chain from Kay Jewelers. Durable and stylish.",
+              "created_at": "2026-02-06T09:22:32.675000000Z",
+              "subcategory": "General",
+              "category": "Jewelry",
+              "brand": "Kay Jewelers"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1209"
+          },
+          "relationship": {
+            "identity": 5869,
+            "start": 1209,
+            "end": 1210,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5869",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1209",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1210"
+          },
+          "end": {
+            "identity": 1210,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Kay Jewelers"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1210"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1211,
+        "labels": [
+          "Accessory",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://cdn.dummyjson.com/product-images/mens-watches/rolex-cellini-date-black-dial/1.webp",
+          "price": 8999.99,
+          "product_id": "prod-prod-024a05622d22422e",
+          "available": true,
+          "name": "Rolex Cellini Date Black Dial",
+          "description": "The Rolex Cellini Date with Black Dial is a classic and prestigious watch. With a black dial and date complication, it exudes sophistication and is a symbol of Rolex's heritage.",
+          "created_at": "2026-02-06T09:22:32.676000000Z",
+          "subcategory": "Accessories",
+          "category": "Accessories",
+          "brand": "Rolex"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1211"
+      },
+      "end": {
+        "identity": 1212,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Rolex"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1212"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1211,
+            "labels": [
+              "Product",
+              "Accessory"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://cdn.dummyjson.com/product-images/mens-watches/rolex-cellini-date-black-dial/1.webp",
+              "price": 8999.99,
+              "product_id": "prod-prod-024a05622d22422e",
+              "available": true,
+              "name": "Rolex Cellini Date Black Dial",
+              "description": "The Rolex Cellini Date with Black Dial is a classic and prestigious watch. With a black dial and date complication, it exudes sophistication and is a symbol of Rolex's heritage.",
+              "created_at": "2026-02-06T09:22:32.676000000Z",
+              "subcategory": "Accessories",
+              "category": "Accessories",
+              "brand": "Rolex"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1211"
+          },
+          "relationship": {
+            "identity": 5871,
+            "start": 1211,
+            "end": 1212,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5871",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1211",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1212"
+          },
+          "end": {
+            "identity": 1212,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Rolex"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1212"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1214,
+        "labels": [
+          "Accessory",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/accessories/anklets-1.jpg",
+          "price": 141.88,
+          "product_id": "5269ca21-78e4-483d-ae15-80846d63d1a9",
+          "available": true,
+          "name": "Silver Boho Anklet",
+          "description": "Boho anklets made from 14K Gold. Perfect for everyday wear or special occasions.",
+          "created_at": "2026-02-06T09:22:32.690000000Z",
+          "subcategory": "Anklets",
+          "category": "Accessories",
+          "brand": "David Yurman"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1214"
+      },
+      "end": {
+        "identity": 1215,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "David Yurman"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1215"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1214,
+            "labels": [
+              "Product",
+              "Accessory"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/accessories/anklets-1.jpg",
+              "price": 141.88,
+              "product_id": "5269ca21-78e4-483d-ae15-80846d63d1a9",
+              "available": true,
+              "name": "Silver Boho Anklet",
+              "description": "Boho anklets made from 14K Gold. Perfect for everyday wear or special occasions.",
+              "created_at": "2026-02-06T09:22:32.690000000Z",
+              "subcategory": "Anklets",
+              "category": "Accessories",
+              "brand": "David Yurman"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1214"
+          },
+          "relationship": {
+            "identity": 5873,
+            "start": 1214,
+            "end": 1215,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5873",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1214",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1215"
+          },
+          "end": {
+            "identity": 1215,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "David Yurman"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1215"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1217,
+        "labels": [
+          "Accessory",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://example.com/accessories/anklets-7.jpg",
+          "price": 28.11,
+          "product_id": "1928b2ac-fc5d-4648-a80f-27626beb636a",
+          "available": true,
+          "name": "Platinum Modern Anklet",
+          "description": "Modern anklets made from 14K Gold. Perfect for everyday wear or special occasions.",
+          "created_at": "2026-02-06T09:22:32.703000000Z",
+          "subcategory": "Anklets",
+          "category": "Accessories",
+          "brand": "Tiffany & Co"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1217"
+      },
+      "end": {
+        "identity": 1199,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Tiffany & Co"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1199"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1217,
+            "labels": [
+              "Product",
+              "Accessory"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://example.com/accessories/anklets-7.jpg",
+              "price": 28.11,
+              "product_id": "1928b2ac-fc5d-4648-a80f-27626beb636a",
+              "available": true,
+              "name": "Platinum Modern Anklet",
+              "description": "Modern anklets made from 14K Gold. Perfect for everyday wear or special occasions.",
+              "created_at": "2026-02-06T09:22:32.703000000Z",
+              "subcategory": "Anklets",
+              "category": "Accessories",
+              "brand": "Tiffany & Co"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1217"
+          },
+          "relationship": {
+            "identity": 5875,
+            "start": 1217,
+            "end": 1199,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5875",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1217",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1199"
+          },
+          "end": {
+            "identity": 1199,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Tiffany & Co"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1199"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1218,
+        "labels": [
+          "Accessory",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://cdn.dummyjson.com/product-images/mens-watches/rolex-datejust/1.webp",
+          "price": 10999.99,
+          "product_id": "prod-prod-0bc9a35200004b9a",
+          "available": true,
+          "name": "Rolex Datejust",
+          "description": "The Rolex Datejust is an iconic and versatile timepiece with a date window. Known for its timeless design and reliability, it's a symbol of Rolex's watchmaking excellence.",
+          "created_at": "2026-02-06T09:22:32.706000000Z",
+          "subcategory": "Accessories",
+          "category": "Accessories",
+          "brand": "Rolex"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1218"
+      },
+      "end": {
+        "identity": 1212,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Rolex"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1212"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1218,
+            "labels": [
+              "Product",
+              "Accessory"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://cdn.dummyjson.com/product-images/mens-watches/rolex-datejust/1.webp",
+              "price": 10999.99,
+              "product_id": "prod-prod-0bc9a35200004b9a",
+              "available": true,
+              "name": "Rolex Datejust",
+              "description": "The Rolex Datejust is an iconic and versatile timepiece with a date window. Known for its timeless design and reliability, it's a symbol of Rolex's watchmaking excellence.",
+              "created_at": "2026-02-06T09:22:32.706000000Z",
+              "subcategory": "Accessories",
+              "category": "Accessories",
+              "brand": "Rolex"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1218"
+          },
+          "relationship": {
+            "identity": 5877,
+            "start": 1218,
+            "end": 1212,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5877",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1218",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1212"
+          },
+          "end": {
+            "identity": 1212,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Rolex"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1212"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1219,
+        "labels": [
+          "Accessory",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://cdn.shopify.com/s/files/1/0297/6313/files/53428GOLD_1.jpg?v=1733390713",
+          "price": 8.0,
+          "product_id": "4679c85b-e3af-4feb-b67d-154d0bdc614d",
+          "available": true,
+          "name": "Harper Pearl Shell Charm",
+          "description": "<p>Make waves with our Harper Pearl Shell Charm! Inspired by the playful beauty of the ocean, this charm features a gleaming IP gold or silver-plated finish that perfectly highlights its charming pearl detail. Available in both silver and gold, it’s the ideal way to add a splash of seaside fun to your jewelry collection. Wear it solo for a cute coastal vibe or mix it with your favorite charms for a personalized treasure trove! Dive into your love for the sea and let this shell charm bring a chee",
+          "created_at": "2026-02-06T09:22:32.708000000Z",
+          "subcategory": "Jewelry",
+          "category": "Accessories",
+          "brand": "Harper Charm"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1219"
+      },
+      "end": {
+        "identity": 1220,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Harper Charm"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1219,
+            "labels": [
+              "Product",
+              "Accessory"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://cdn.shopify.com/s/files/1/0297/6313/files/53428GOLD_1.jpg?v=1733390713",
+              "price": 8.0,
+              "product_id": "4679c85b-e3af-4feb-b67d-154d0bdc614d",
+              "available": true,
+              "name": "Harper Pearl Shell Charm",
+              "description": "<p>Make waves with our Harper Pearl Shell Charm! Inspired by the playful beauty of the ocean, this charm features a gleaming IP gold or silver-plated finish that perfectly highlights its charming pearl detail. Available in both silver and gold, it’s the ideal way to add a splash of seaside fun to your jewelry collection. Wear it solo for a cute coastal vibe or mix it with your favorite charms for a personalized treasure trove! Dive into your love for the sea and let this shell charm bring a chee",
+              "created_at": "2026-02-06T09:22:32.708000000Z",
+              "subcategory": "Jewelry",
+              "category": "Accessories",
+              "brand": "Harper Charm"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1219"
+          },
+          "relationship": {
+            "identity": 5879,
+            "start": 1219,
+            "end": 1220,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5879",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1219",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+          },
+          "end": {
+            "identity": 1220,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Harper Charm"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1221,
+        "labels": [
+          "Accessory",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://cdn.shopify.com/s/files/1/0297/6313/files/53437GOLD_1-min.jpg?v=1733336958",
+          "price": 8.0,
+          "product_id": "6e9b05be-2424-4294-bea4-1fd6077b3958",
+          "available": true,
+          "name": "Harper Cherry Charm",
+          "description": "<p>Add a pop of playful sweetness to your collection with our Harper Cherry Charm! This delightful piece embodies fun and freshness with its charming cherry design, perfect for those who love a touch of whimsy. Crafted from waterproof IP gold or silver-plated stainless steel, it’s as vibrant as it is durable! Wear it alone for a cute statement or mix it with your favorite charms for a fun, fruity flair. Perfect for bringing a cheerful vibe to your jewelry, let this cherry charm brighten your sty",
+          "created_at": "2026-02-06T09:22:32.722000000Z",
+          "subcategory": "Jewelry",
+          "category": "Accessories",
+          "brand": "Harper Charm"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1221"
+      },
+      "end": {
+        "identity": 1220,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Harper Charm"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1221,
+            "labels": [
+              "Product",
+              "Accessory"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://cdn.shopify.com/s/files/1/0297/6313/files/53437GOLD_1-min.jpg?v=1733336958",
+              "price": 8.0,
+              "product_id": "6e9b05be-2424-4294-bea4-1fd6077b3958",
+              "available": true,
+              "name": "Harper Cherry Charm",
+              "description": "<p>Add a pop of playful sweetness to your collection with our Harper Cherry Charm! This delightful piece embodies fun and freshness with its charming cherry design, perfect for those who love a touch of whimsy. Crafted from waterproof IP gold or silver-plated stainless steel, it’s as vibrant as it is durable! Wear it alone for a cute statement or mix it with your favorite charms for a fun, fruity flair. Perfect for bringing a cheerful vibe to your jewelry, let this cherry charm brighten your sty",
+              "created_at": "2026-02-06T09:22:32.722000000Z",
+              "subcategory": "Jewelry",
+              "category": "Accessories",
+              "brand": "Harper Charm"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1221"
+          },
+          "relationship": {
+            "identity": 5881,
+            "start": 1221,
+            "end": 1220,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5881",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1221",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+          },
+          "end": {
+            "identity": 1220,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Harper Charm"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1222,
+        "labels": [
+          "Accessory",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://cdn.shopify.com/s/files/1/0297/6313/files/54211GOLD_1.jpg?v=1768421614",
+          "price": 18.0,
+          "product_id": "0445d113-71d2-41bb-a7fe-c46fb801f5df",
+          "available": true,
+          "name": "Stripes Woven Bracelet",
+          "description": "<p data-start=\"353\" data-end=\"582\">Built for everyday wins. The Stripes Woven Bracelet features a red, white, and blue woven cord finished with subtle gold details for an easy pop of color and shine. Lightweight and comfortable enough to wear nonstop. <meta charset=\"utf-8\">Inspired by movement, momentum, and showing up strong, this bracelet layers effortlessly with your daily stack or stands out on its own. Easy to style, easy to wear, and made to keep the good energy going.</p>",
+          "created_at": "2026-02-06T09:22:32.724000000Z",
+          "subcategory": "Jewelry",
+          "category": "Accessories",
+          "brand": "Pura Vida Bracelets"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1222"
+      },
+      "end": {
+        "identity": 1223,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Pura Vida Bracelets"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1223"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1222,
+            "labels": [
+              "Product",
+              "Accessory"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://cdn.shopify.com/s/files/1/0297/6313/files/54211GOLD_1.jpg?v=1768421614",
+              "price": 18.0,
+              "product_id": "0445d113-71d2-41bb-a7fe-c46fb801f5df",
+              "available": true,
+              "name": "Stripes Woven Bracelet",
+              "description": "<p data-start=\"353\" data-end=\"582\">Built for everyday wins. The Stripes Woven Bracelet features a red, white, and blue woven cord finished with subtle gold details for an easy pop of color and shine. Lightweight and comfortable enough to wear nonstop. <meta charset=\"utf-8\">Inspired by movement, momentum, and showing up strong, this bracelet layers effortlessly with your daily stack or stands out on its own. Easy to style, easy to wear, and made to keep the good energy going.</p>",
+              "created_at": "2026-02-06T09:22:32.724000000Z",
+              "subcategory": "Jewelry",
+              "category": "Accessories",
+              "brand": "Pura Vida Bracelets"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1222"
+          },
+          "relationship": {
+            "identity": 5883,
+            "start": 1222,
+            "end": 1223,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5883",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1222",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1223"
+          },
+          "end": {
+            "identity": 1223,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Pura Vida Bracelets"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1223"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1224,
+        "labels": [
+          "Accessory",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://cdn.shopify.com/s/files/1/0297/6313/files/54216GOLD_1.jpg?v=1768421651",
+          "price": 12.0,
+          "product_id": "12def9ee-1571-4948-b8c0-c3a1144edf4b",
+          "available": true,
+          "name": "Harper Ice Skate Charm",
+          "description": "<div role=\"tabpanel\">
+<div role=\"tabpanel\">
+<p data-start=\"654\" data-end=\"868\">A fun nod to winter sport style. The Harper Ice Skate Charm brings a sleek skate silhouette with glossy enamel and polished metal details. Designed to mix easily with your favorite Harper charms and Harper Bases for every day wear.</p>
+<meta charset=\"utf-8\">
+<p data-pm-slice=\"1 1 []\"><strong>How it works:</strong></p>
+<p id=\"isPasted\"><strong><img src=\"https://cdn.shopify.com/s/files/1/0297/6313/files/icon-harper-clic",
+          "created_at": "2026-02-06T09:22:32.725000000Z",
+          "subcategory": "Jewelry",
+          "category": "Accessories",
+          "brand": "Harper Charm"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1224"
+      },
+      "end": {
+        "identity": 1220,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Harper Charm"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1224,
+            "labels": [
+              "Product",
+              "Accessory"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://cdn.shopify.com/s/files/1/0297/6313/files/54216GOLD_1.jpg?v=1768421651",
+              "price": 12.0,
+              "product_id": "12def9ee-1571-4948-b8c0-c3a1144edf4b",
+              "available": true,
+              "name": "Harper Ice Skate Charm",
+              "description": "<div role=\"tabpanel\">
+<div role=\"tabpanel\">
+<p data-start=\"654\" data-end=\"868\">A fun nod to winter sport style. The Harper Ice Skate Charm brings a sleek skate silhouette with glossy enamel and polished metal details. Designed to mix easily with your favorite Harper charms and Harper Bases for every day wear.</p>
+<meta charset=\"utf-8\">
+<p data-pm-slice=\"1 1 []\"><strong>How it works:</strong></p>
+<p id=\"isPasted\"><strong><img src=\"https://cdn.shopify.com/s/files/1/0297/6313/files/icon-harper-clic",
+              "created_at": "2026-02-06T09:22:32.725000000Z",
+              "subcategory": "Jewelry",
+              "category": "Accessories",
+              "brand": "Harper Charm"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1224"
+          },
+          "relationship": {
+            "identity": 5885,
+            "start": 1224,
+            "end": 1220,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5885",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1224",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+          },
+          "end": {
+            "identity": 1220,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Harper Charm"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  },
+  {
+    "p": {
+      "start": {
+        "identity": 1225,
+        "labels": [
+          "Accessory",
+          "Product"
+        ],
+        "properties": {
+          "color": "",
+          "image_url": "https://cdn.shopify.com/s/files/1/0297/6313/files/54218GOLD_1.jpg?v=1768421549",
+          "price": 12.0,
+          "product_id": "1cb19797-6ba9-4b45-b9ec-7c3755040a92",
+          "available": true,
+          "name": "Harper Skis Charm",
+          "description": "<div role=\"tabpanel\">
+<div role=\"tabpanel\">
+<p data-start=\"207\" data-end=\"499\">Made for chasing that winning feeling. The Harper Skis Charm features a sleek, dimensional ski design with glossy enamel details, finished in gold for an elevated, sporty look. It adds an easy pop to your Harper charm stack and clips on effortlessly for everyday wear.</p>
+<meta charset=\"utf-8\">
+<p data-pm-slice=\"1 1 []\"><strong>How it works:</strong></p>
+<p id=\"isPasted\"><strong><img src=\"https://cdn.shopify.com/s/fil",
+          "created_at": "2026-02-06T09:22:32.727000000Z",
+          "subcategory": "Jewelry",
+          "category": "Accessories",
+          "brand": "Harper Charm"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1225"
+      },
+      "end": {
+        "identity": 1220,
+        "labels": [
+          "Brand"
+        ],
+        "properties": {
+          "name": "Harper Charm"
+        },
+        "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+      },
+      "segments": [
+        {
+          "start": {
+            "identity": 1225,
+            "labels": [
+              "Product",
+              "Accessory"
+            ],
+            "properties": {
+              "color": "",
+              "image_url": "https://cdn.shopify.com/s/files/1/0297/6313/files/54218GOLD_1.jpg?v=1768421549",
+              "price": 12.0,
+              "product_id": "1cb19797-6ba9-4b45-b9ec-7c3755040a92",
+              "available": true,
+              "name": "Harper Skis Charm",
+              "description": "<div role=\"tabpanel\">
+<div role=\"tabpanel\">
+<p data-start=\"207\" data-end=\"499\">Made for chasing that winning feeling. The Harper Skis Charm features a sleek, dimensional ski design with glossy enamel details, finished in gold for an elevated, sporty look. It adds an easy pop to your Harper charm stack and clips on effortlessly for everyday wear.</p>
+<meta charset=\"utf-8\">
+<p data-pm-slice=\"1 1 []\"><strong>How it works:</strong></p>
+<p id=\"isPasted\"><strong><img src=\"https://cdn.shopify.com/s/fil",
+              "created_at": "2026-02-06T09:22:32.727000000Z",
+              "subcategory": "Jewelry",
+              "category": "Accessories",
+              "brand": "Harper Charm"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1225"
+          },
+          "relationship": {
+            "identity": 5887,
+            "start": 1225,
+            "end": 1220,
+            "type": "BRANDED_BY",
+            "properties": {
+
+            },
+            "elementId": "5:92229a25-7b8a-415b-92dd-2d4bdbc06eee:5887",
+            "startNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1225",
+            "endNodeElementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+          },
+          "end": {
+            "identity": 1220,
+            "labels": [
+              "Brand"
+            ],
+            "properties": {
+              "name": "Harper Charm"
+            },
+            "elementId": "4:92229a25-7b8a-415b-92dd-2d4bdbc06eee:1220"
+          }
+        }
+      ],
+      "length": 1.0
+    }
+  }
+]
