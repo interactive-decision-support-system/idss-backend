@@ -32,7 +32,10 @@ from app.query_specificity import (
     should_ask_followup,
     generate_followup_question,
 )
+from app.domain_registry import get_domain_schema, DOMAIN_REGISTRY
 from app.structured_logger import StructuredLogger
+from app.complex_query import is_complex_query
+from app.universal_agent import UniversalAgent
 
 logger = StructuredLogger("chat_endpoint")
 
@@ -96,6 +99,89 @@ class ChatResponse(BaseModel):
 # Map: session_id -> UniversalAgent
 active_agents: Dict[str, Any] = {}
 
+# Richer KG / complex-query: known agent slot names that map to search filter keys
+_AGENT_BUDGET_SLOT = "budget"
+_AGENT_USE_CASE_SLOT = "use_case"
+_AGENT_GENRE_SLOT = "genre"
+
+
+def _domain_to_category_for_agent(domain: Optional[str]) -> str:
+    """Map domain to category string for search (same logic as _domain_to_category, for use in agent filter mapping)."""
+    if not domain:
+        return "Electronics"
+    m = {"vehicles": "Vehicles", "laptops": "Electronics", "books": "Books", "phones": "Electronics"}
+    return m.get(domain, "Electronics")
+
+
+def _agent_filters_to_search_filters(domain: str, agent_filters: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Map UniversalAgent slot-based filters to MCP search filters (category, price_max_cents, brand, subcategory, etc.).
+    Used when is_complex_query → UniversalAgent → recommendations_ready; we need to run _search_ecommerce_products.
+    """
+    import re
+    filters: Dict[str, Any] = {}
+    category = _domain_to_category_for_agent(domain)
+    if category:
+        filters["category"] = category
+    if not agent_filters:
+        return filters
+    schema = get_domain_schema(domain)
+    for slot_name, value in agent_filters.items():
+        if not value or not isinstance(value, str):
+            continue
+        value = value.strip()
+        if slot_name == _AGENT_BUDGET_SLOT:
+            # Parse "$500", "$1000-$2000", "Under $700", "Over $2000"
+            value_clean = value.replace(",", "")
+            numbers = re.findall(r"\$?\s*(\d+)", value_clean)
+            if numbers:
+                nums = [int(n) for n in numbers]
+                if nums:
+                    if "under" in value.lower() or "max" in value.lower() or len(nums) == 1:
+                        filters["price_max_cents"] = max(nums) * 100
+                    elif "over" in value.lower() or "min" in value.lower():
+                        filters["price_min_cents"] = min(nums) * 100
+                    else:
+                        filters["price_min_cents"] = min(nums) * 100
+                        filters["price_max_cents"] = max(nums) * 100
+        elif slot_name == _AGENT_USE_CASE_SLOT:
+            filters["subcategory"] = value
+            filters["use_case"] = value
+        elif slot_name == _AGENT_GENRE_SLOT:
+            filters["genre"] = value
+            filters["subcategory"] = value
+        elif slot_name == "brand":
+            filters["brand"] = value
+        elif slot_name == "format":
+            filters["format"] = value
+        elif slot_name == "good_for_ml":
+            filters["good_for_ml"] = value.lower() in ("yes", "true", "1", "y", "need it", "need")
+        elif slot_name == "good_for_gaming":
+            filters["good_for_gaming"] = value.lower() in ("yes", "true", "1", "y", "gaming")
+        elif slot_name == "good_for_web_dev":
+            filters["good_for_web_dev"] = value.lower() in ("yes", "true", "1", "y", "web dev", "coding")
+        elif slot_name == "good_for_creative":
+            filters["good_for_creative"] = value.lower() in ("yes", "true", "1", "y", "creative", "video", "photo")
+        elif slot_name == "battery_life":
+            # "8+ hours", "10+ hours", "6+ hours" -> battery_life_min_hours
+            nums = re.findall(r"\d+", value)
+            if nums:
+                filters["battery_life_min_hours"] = int(nums[0])
+        elif slot_name in ("body_style", "fuel_type", "condition"):
+            # Vehicles: pass through if we ever support complex→search for vehicles
+            filters[slot_name] = value
+        elif slot_name in ("os", "screen_size", "item_type", "material", "color"):
+            if slot_name == "item_type":
+                filters["subcategory"] = value
+            else:
+                filters[slot_name] = value
+        elif schema:
+            slot = next((s for s in schema.slots if s.name == slot_name), None)
+            if slot and slot.filter_key:
+                filters[slot.filter_key] = value
+    return filters
+
+
 async def process_chat(request: ChatRequest) -> ChatResponse:
     """
     Process a chat message with strict interview flow for laptops/books.
@@ -107,6 +193,57 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
     session_id = request.session_id or str(uuid.uuid4())
     session_manager = get_session_manager()
     session = session_manager.get_session(session_id)
+
+    # CRITICAL: "Show me all X" / "phones" / "laptops" / "books" - handle FIRST, before validation or any other logic
+    # This catches clicks on no-results quick replies and simple domain selection
+    _show_all = " ".join(request.message.strip().lower().split()).rstrip(".!?")
+    if _show_all in ("show me all laptops", "show me all books", "show me all phones", "phones", "phone", "laptops", "books"):
+        active_domain = "laptops" if "laptop" in _show_all else "books" if "book" in _show_all else "phones" if ("phone" in _show_all or _show_all == "phones") else "laptops"
+        category = _domain_to_category(active_domain)
+        filters = {"category": category}
+        if active_domain == "laptops":
+            filters["product_type"] = "laptop"
+        elif active_domain == "phones":
+            filters["product_type"] = "phone"
+        session_manager.set_active_domain(session_id, active_domain)
+        session_manager.update_filters(session_id, filters)
+        session_manager.add_message(session_id, "user", request.message)
+        recs, labels = await _search_ecommerce_products(
+            filters, category, n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3
+        )
+        if recs:
+            session_manager.set_stage(session_id, STAGE_RECOMMENDATIONS)
+            all_ids = []
+            for row in recs:
+                for item in row:
+                    pid = item.get("product_id") or item.get("id") or (item.get("_product") or {}).get("product_id")
+                    if pid and pid not in all_ids:
+                        all_ids.append(pid)
+            session_manager.set_last_recommendations(session_id, all_ids)
+            product_label = "laptops" if active_domain == "laptops" else "books" if active_domain == "books" else "phones"
+            return ChatResponse(
+                response_type="recommendations",
+                message=f"Here are all {product_label} we have. What would you like to do next?",
+                session_id=session_id,
+                domain=active_domain,
+                recommendations=recs,
+                bucket_labels=labels,
+                filters=filters,
+                preferences={},
+                question_count=session.question_count,
+                quick_replies=["See similar items", "Research", "Compare items", "Help with checkout"],
+            )
+        session_manager.reset_session(session_id)
+        return ChatResponse(
+            response_type="question",
+            message=f"We don't have any {active_domain} in our catalog yet. Would you like to try another category?",
+            session_id=session_id,
+            quick_replies=["Cars", "Laptops", "Books", "Phones"],
+            filters={},
+            preferences={},
+            question_count=0,
+            domain=None,
+        )
     
     # Process user actions (favorites, clicks) for preference refinement
     if request.user_actions:
@@ -121,11 +258,35 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 elif act_type == "click":
                     session_manager.add_click(session_id, product_id)
     
-    # Fast bypass: exact domain quick-reply options are always valid (e.g. user clicked "Jewelry")
-    _domain_options = ["vehicles", "laptops", "books", "jewelry", "accessories", "clothing", "beauty"]
+    # Fast bypass: exact domain quick-reply options are always valid (e.g. user clicked "Laptops")
+    _domain_options = ["vehicles", "laptops", "books", "phones", "cars", "car"]
     msg_stripped = request.message.strip()
     msg_lower = msg_stripped.lower()
-    if msg_lower in _domain_options:
+    # Normalize dashes (unicode en-dash/em-dash -> hyphen) so "Self–Help" matches "self-help"
+    msg_lower = msg_lower.replace("\u2013", "-").replace("\u2014", "-")
+    # Universal: accept any quick reply from any domain schema (Self-Help, Fiction, Non-Fiction, etc.)
+    _is_quick_reply = False
+    for schema in DOMAIN_REGISTRY.values():
+        for slot in schema.slots:
+            for r in (slot.example_replies or []):
+                if r and msg_lower == (r or "").lower().strip().replace("\u2013", "-").replace("\u2014", "-"):
+                    _is_quick_reply = True
+                    validation_result = {
+                        "is_valid": True,
+                        "corrected_input": msg_stripped,
+                        "confidence": 1.0,
+                        "detected_intent": "filter_response",
+                        "suggestions": [],
+                        "error_message": None,
+                    }
+                    break
+            if _is_quick_reply:
+                break
+        if _is_quick_reply:
+            break
+    if _is_quick_reply:
+        pass  # validation_result already set above
+    elif msg_lower in _domain_options:
         validation_result = {
             "is_valid": True,
             "corrected_input": msg_lower,
@@ -152,7 +313,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             "see similar items", "anything else", "compare items", "rate recommendations", "help with checkout",
             "research", "explain features", "check compatibility", "summarize reviews", "compare these",
             "5 stars", "4 stars", "3 stars", "2 stars", "1 star", "could be better",
-            "show me all jewelry", "show me all accessories", "show me all clothing", "show me all beauty",
+            "show me all phones",
             "show me all laptops", "show me all books", "increase my budget", "try a different brand", "try a different type",
         ]
         if msg_lower in _post_rec_answers or any(a in msg_lower for a in _post_rec_answers):
@@ -170,25 +331,42 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             validation_result = llm_validator.validate_and_correct(request.message, context)
     # Fast bypass: interview follow-up answers (brand, type, budget options) when in active session
     elif session.active_domain and session.stage == STAGE_INTERVIEW:
-        _interview_answers = [
-            "necklace", "earrings", "bracelet", "ring", "pendant",
-            "scarf", "hat", "belt", "bag", "watch", "sunglasses",
-            "lipstick", "eyeshadow", "mascara", "skincare", "foundation", "blush",
-            "dress", "dresses", "shirt", "shirts", "pants", "jacket", "sweater", "top", "jeans", "skirt",
-            "pandora", "tiffany", "swarovski", "kay jewelers", "zales", "jared",
-            "tiffany & co", "tiffany and co", "mac", "nars", "colourpop", "fenty beauty",
-            "nike", "patagonia", "uniqlo",
-            "no preference", "specific brand",
-            "under $50", "$50-$150", "$150-$300", "over $300",
-            "under $20", "$20-$50", "$50-$100", "over $100", "$100-$200", "over $200",
-            "under $15", "$15-$30", "any price",
-            "gaming", "work", "school", "creative", "apple", "dell", "lenovo", "hp",
-            "fiction", "mystery", "sci-fi", "hardcover", "paperback", "e-book", "audiobook",
-            "show me all jewelry", "show me all accessories", "show me all clothing", "show me all beauty",
-            "show me all laptops", "show me all books", "increase my budget", "try a different brand", "try a different type",
-        ]
-        _msg_normalized = " ".join(msg_lower.split())  # collapse spaces
-        if any(ans in _msg_normalized or _msg_normalized == ans for ans in _interview_answers):
+        _accepted = False
+        # First: accept any example_reply from domain schema (guarantees quick replies like "Self-Help" work)
+        schema = get_domain_schema(session.active_domain)
+        if schema:
+            for slot in schema.slots:
+                for r in (slot.example_replies or []):
+                    if r:
+                        r_norm = (r or "").lower().strip().replace("\u2013", "-").replace("\u2014", "-")
+                        if msg_lower == r_norm:
+                            _accepted = True
+                            break
+                if _accepted:
+                    break
+        if not _accepted:
+            _interview_answers = [
+                "necklace", "earrings", "bracelet", "ring", "pendant",
+                "scarf", "hat", "belt", "bag", "watch", "sunglasses",
+                "lipstick", "eyeshadow", "mascara", "skincare", "foundation", "blush",
+                "dress", "dresses", "shirt", "shirts", "pants", "jacket", "sweater", "top", "jeans", "skirt",
+                "pandora", "tiffany", "swarovski", "kay jewelers", "zales", "jared",
+                "tiffany & co", "tiffany and co", "mac", "nars", "colourpop", "fenty beauty",
+                "nike", "patagonia", "uniqlo",
+                "no preference", "specific brand",
+                "under $50", "$50-$150", "$150-$300", "over $300",
+                "under $20", "$20-$50", "$50-$100", "over $100", "$100-$200", "over $200",
+                "under $15", "$15-$30", "any price",
+                "gaming", "work", "school", "creative", "apple", "dell", "lenovo", "hp",
+                "fiction", "mystery", "sci-fi", "non-fiction", "nonfiction", "self-help", "selfhelp",
+                "hardcover", "paperback", "e-book", "audiobook",
+                "show me all phones",
+                "show me all laptops", "show me all books", "increase my budget", "try a different brand", "try a different type",
+                "linux", "ubuntu", "macos", "windows", "chromeos", "no preference",
+            ]
+            _msg_normalized = " ".join(msg_lower.split())
+            _accepted = any(ans in _msg_normalized or _msg_normalized == ans for ans in _interview_answers)
+        if _accepted:
             validation_result = {
                 "is_valid": True,
                 "corrected_input": msg_stripped,
@@ -216,9 +394,11 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             "under $20", "$20-$50", "$50-$100", "over $100", "$100-$200", "over $200",
             "under $15", "$15-$30", "any price",
             "gaming", "work", "school", "creative", "apple", "dell", "lenovo", "hp",
-            "fiction", "mystery", "sci-fi", "hardcover", "paperback", "e-book", "audiobook",
-            "show me all jewelry", "show me all accessories", "show me all clothing", "show me all beauty",
+            "fiction", "mystery", "sci-fi", "non-fiction", "nonfiction", "self-help", "selfhelp",
+            "hardcover", "paperback", "e-book", "audiobook",
+            "show me all phones",
             "show me all laptops", "show me all books", "increase my budget", "try a different brand", "try a different type",
+            "linux", "ubuntu", "macos", "windows", "chromeos", "no preference",
         ]
         _msg_normalized = " ".join(msg_lower.split())
         if any(ans in _msg_normalized or _msg_normalized == ans for ans in _all_interview_answers):
@@ -247,7 +427,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
     # If LLM says invalid, reject
     if not validation_result["is_valid"]:
         error_msg = validation_result["error_message"] or "I didn't understand that. What are you looking for?"
-        suggestions = validation_result["suggestions"] or ["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"]
+        suggestions = validation_result["suggestions"] or ["Cars", "Laptops", "Books", "Phones"]
         return ChatResponse(
             response_type="question",
             message=error_msg,
@@ -298,6 +478,53 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
         )
 
     if session.stage == STAGE_RECOMMENDATIONS and session.active_domain:
+        # "Show me all X" - clear filters and show everything in category (handles no-results recovery)
+        if msg_lower in ("show me all laptops", "show me all books", "show me all phones"):
+            session_manager.add_message(session_id, "user", msg)
+            active_domain = "laptops" if "laptop" in msg_lower else "books" if "book" in msg_lower else "phones"
+            category = _domain_to_category(active_domain)
+            filters = {"category": category}
+            if active_domain == "laptops":
+                filters["product_type"] = "laptop"
+            elif active_domain == "phones":
+                filters["product_type"] = "phone"
+            session_manager.set_active_domain(session_id, active_domain)
+            session_manager.update_filters(session_id, filters)
+            recs, labels = await _search_ecommerce_products(
+                filters, category, n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3
+            )
+            if recs:
+                all_ids = []
+                for row in recs:
+                    for item in row:
+                        pid = item.get("product_id") or item.get("id") or (item.get("_product") or {}).get("product_id")
+                        if pid and pid not in all_ids:
+                            all_ids.append(pid)
+                session_manager.set_last_recommendations(session_id, all_ids)
+                product_label = "laptops" if active_domain == "laptops" else "books" if active_domain == "books" else "phones"
+                return ChatResponse(
+                    response_type="recommendations",
+                    message=f"Here are all {product_label} we have. What would you like to do next?",
+                    session_id=session_id,
+                    domain=active_domain,
+                    recommendations=recs,
+                    bucket_labels=labels,
+                    filters=filters,
+                    preferences={},
+                    question_count=session.question_count,
+                    quick_replies=["See similar items", "Research", "Compare items", "Help with checkout"],
+                )
+            session_manager.reset_session(session_id)
+            return ChatResponse(
+                response_type="question",
+                message=f"We don't have any {active_domain} in our catalog yet. Would you like to try another category?",
+                session_id=session_id,
+                quick_replies=["Cars", "Laptops", "Books", "Phones"],
+                filters={},
+                preferences={},
+                question_count=0,
+                domain=None,
+            )
         # Map quick-reply style intents to helpful responses
         if "see similar" in msg_lower or "similar items" in msg_lower:
             session_manager.add_message(session_id, "user", msg)
@@ -320,7 +547,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 relaxed["price_max_cents"] = min(int(relaxed["price_max_cents"] * 1.5), 999999)  # Widen by 50%
             relaxed.pop("price_min_cents", None)
             session_manager.update_filters(session_id, relaxed)
-            if session.active_domain in ("laptops", "books", "jewelry", "accessories", "clothing", "beauty"):
+            if session.active_domain in ("laptops", "books", "phones"):
                 category = _domain_to_category(session.active_domain)
                 recs, labels = await _search_ecommerce_products(relaxed, category, n_rows=3, n_per_row=3)
                 if recs:
@@ -340,7 +567,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 response_type="question",
                 message="I couldn't find more options. Would you like to try a different category?",
                 session_id=session_id,
-                quick_replies=["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"],
+                quick_replies=["Cars", "Laptops", "Books", "Phones"],
                 filters=relaxed,
                 preferences={},
                 question_count=session.question_count,
@@ -353,7 +580,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 response_type="question",
                 message="What are you looking for today?",
                 session_id=session_id,
-                quick_replies=["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"],
+                quick_replies=["Cars", "Laptops", "Books", "Phones"],
                 filters={},
                 preferences={},
                 question_count=0,
@@ -361,7 +588,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             )
         if "show more like these" in msg_lower:
             session_manager.add_message(session_id, "user", msg)
-            if session.active_domain in ("laptops", "books", "jewelry", "accessories", "clothing", "beauty"):
+            if session.active_domain in ("laptops", "books", "phones"):
                 category = _domain_to_category(session.active_domain)
                 exclude_ids = list(session.last_recommendation_ids or [])
                 recs, labels = await _search_ecommerce_products(
@@ -478,28 +705,41 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 if not product_ids and getattr(session, "last_recommendation_ids", None):
                     product_ids = session.last_recommendation_ids[:4]
                 if product_ids:
-                    products = _fetch_products_by_ids(product_ids)
-                    if products:
-                        comparison = build_comparison_table(products)
-                        # Format products same as search (image.primary, retailListing, price) for frontend
-                        fmt_domain = (
-                            "books" if category == "Books"
-                            else "jewelry" if category == "Jewelry"
-                            else "accessories" if category == "Accessories"
-                            else "laptops"
-                        )
-                        from app.formatters import format_product
-                        formatted = [format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True) for p in products]
-                        rec_rows = [formatted]
-                        labels = [p.get("name", "Product")[:20] for p in products]
+                    try:
+                        products = _fetch_products_by_ids(product_ids)
+                        if products:
+                            comparison = build_comparison_table(products)
+                            # Format products same as search (image.primary, retailListing, price) for frontend
+                            first_ptype = (products[0].get("product_type") or "").lower() if products else ""
+                            fmt_domain = (
+                                "books" if category == "Books"
+                                else "phones" if category == "Electronics" and first_ptype in ("phone", "smartphone")
+                                else "laptops"
+                            )
+                            from app.formatters import format_product
+                            formatted = [format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True) for p in products]
+                            rec_rows = [formatted]
+                            labels = [p.get("name", "Product")[:20] for p in products]
+                            return ChatResponse(
+                                response_type="compare",
+                                message="Side-by-side comparison of your selected items:",
+                                session_id=session_id,
+                                comparison_data=comparison,
+                                recommendations=rec_rows,
+                                bucket_labels=labels,
+                                quick_replies=["See similar items", "Research", "Help with checkout"],
+                                filters=session.explicit_filters,
+                                preferences={},
+                                question_count=session.question_count,
+                                domain=session.active_domain,
+                            )
+                    except Exception as e:
+                        logger.error("compare_items_error", f"Compare items failed: {e}", {"error": str(e), "product_ids": product_ids})
                         return ChatResponse(
-                            response_type="compare",
-                            message="Side-by-side comparison of your selected items:",
+                            response_type="question",
+                            message="I had trouble comparing those items. Please try selecting 2–4 products again and click Compare items.",
                             session_id=session_id,
-                            comparison_data=comparison,
-                            recommendations=rec_rows,
-                            bucket_labels=labels,
-                            quick_replies=["See similar items", "Research", "Help with checkout"],
+                            quick_replies=["See similar items", "Compare by price", "Help with checkout"],
                             filters=session.explicit_filters,
                             preferences={},
                             question_count=session.question_count,
@@ -622,12 +862,198 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             response_type="question",
             message="What are you looking for today?",
             session_id=session_id,
-            quick_replies=["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"],
+            quick_replies=["Cars", "Laptops", "Books", "Phones"],
             filters={},
             preferences={},
             question_count=0,
             domain=None,
         )
+
+    # "Show me all X" / "phones" / "laptops" / "books" - ALWAYS bypass complex path; show all products in category
+    msg_lower_early = request.message.strip().lower()
+    if msg_lower_early in ("show me all laptops", "show me all books", "show me all phones", "phones", "phone", "laptops", "books"):
+        active_domain = "laptops" if "laptop" in msg_lower_early else "books" if "book" in msg_lower_early else "phones" if ("phone" in msg_lower_early or msg_lower_early == "phones") else "laptops"
+        category = _domain_to_category(active_domain)
+        filters = {"category": category}
+        if active_domain == "laptops":
+            filters["product_type"] = "laptop"
+        elif active_domain == "phones":
+            filters["product_type"] = "phone"
+        session_manager.set_active_domain(session_id, active_domain)
+        session_manager.update_filters(session_id, filters)
+        session_manager.add_message(session_id, "user", request.message)
+        recs, labels = await _search_ecommerce_products(
+            filters, category, n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3
+        )
+        if recs:
+            session_manager.set_stage(session_id, STAGE_RECOMMENDATIONS)
+            all_ids = []
+            for row in recs:
+                for item in row:
+                    pid = item.get("product_id") or item.get("id") or (item.get("_product") or {}).get("product_id")
+                    if pid and pid not in all_ids:
+                        all_ids.append(pid)
+            session_manager.set_last_recommendations(session_id, all_ids)
+            product_label = "laptops" if active_domain == "laptops" else "books" if active_domain == "books" else "phones"
+            return ChatResponse(
+                response_type="recommendations",
+                message=f"Here are all {product_label} we have. What would you like to do next?",
+                session_id=session_id,
+                domain=active_domain,
+                recommendations=recs,
+                bucket_labels=labels,
+                filters=filters,
+                preferences={},
+                question_count=session.question_count,
+                quick_replies=["See similar items", "Research", "Compare items", "Help with checkout"],
+            )
+        session_manager.reset_session(session_id)
+        return ChatResponse(
+            response_type="question",
+            message=f"We don't have any {active_domain} in our catalog yet. Would you like to try another category?",
+            session_id=session_id,
+            quick_replies=["Cars", "Laptops", "Books", "Phones"],
+            filters={},
+            preferences={},
+            question_count=0,
+            domain=None,
+        )
+
+    # Complex-query branch (§8): when message is complex, use UniversalAgent then MCP search with its filters
+    if is_complex_query(request.message, session.explicit_filters):
+        session = session_manager.get_session(session_id)
+        history = getattr(session, "conversation_history", None) or []
+        agent = active_agents.get(session_id)
+        if agent is None:
+            agent = UniversalAgent(session_id=session_id, history=history)
+            active_agents[session_id] = agent
+        else:
+            agent.history = history
+        try:
+            agent_response = agent.process_message(request.message)
+        except Exception as e:
+            logger.warning("complex_query_agent_error", f"UniversalAgent failed: {e}", {"error": str(e)})
+            agent_response = None
+        if agent_response:
+            response_type = agent_response.get("response_type") or "question"
+            session_manager.add_message(session_id, "user", request.message)
+            if response_type == "recommendations_ready":
+                domain = agent_response.get("domain")
+                filters_agent = agent_response.get("filters") or {}
+                if domain and domain in ("laptops", "books", "phones"):
+                    search_filters = _agent_filters_to_search_filters(domain, filters_agent)
+                    search_filters["product_type"] = "laptop" if domain == "laptops" else "book" if domain == "books" else "phone"
+                    category = _domain_to_category_for_agent(domain)
+                    session_manager.set_active_domain(session_id, domain)
+                    session_manager.update_filters(session_id, search_filters)
+                    session_manager.set_stage(session_id, STAGE_RECOMMENDATIONS)
+                    recs, labels = await _search_ecommerce_products(
+                        search_filters,
+                        category,
+                        n_rows=request.n_rows or 2,
+                        n_per_row=request.n_per_row or 3,
+                    )
+                    if recs:
+                        all_ids = []
+                        for row in recs:
+                            for item in row:
+                                pid = item.get("product_id") or item.get("id") or (item.get("_product") or {}).get("product_id")
+                                if pid and pid not in all_ids:
+                                    all_ids.append(pid)
+                        session_manager.set_last_recommendations(session_id, all_ids)
+                        session_manager.add_message(session_id, "assistant", agent_response.get("message", "Here are some options."))
+                        product_label = "laptops" if domain == "laptops" else "books" if domain == "books" else "phones"
+                        return ChatResponse(
+                            response_type="recommendations",
+                            message=agent_response.get("message") or f"Here are {product_label} that match your criteria.",
+                            session_id=session_id,
+                            domain=domain,
+                            recommendations=recs,
+                            bucket_labels=labels or [],
+                            filters=search_filters,
+                            preferences={},
+                            question_count=agent_response.get("question_count", 0),
+                            quick_replies=["See similar items", "Research", "Compare items", "Help with checkout"],
+                        )
+                    # No results: fall through to show a question or no-results message
+                    session_manager.add_message(session_id, "assistant", "I couldn't find exact matches. Here are some options to consider.")
+                    recs, labels = await _search_ecommerce_products(
+                        {"category": category, "product_type": search_filters.get("product_type", "laptop")},
+                        category,
+                        n_rows=request.n_rows or 2,
+                        n_per_row=request.n_per_row or 3,
+                    )
+                    if recs:
+                        all_ids = []
+                        for row in recs:
+                            for item in row:
+                                pid = item.get("product_id") or item.get("id")
+                                if pid and pid not in all_ids:
+                                    all_ids.append(pid)
+                        session_manager.set_last_recommendations(session_id, all_ids)
+                        return ChatResponse(
+                            response_type="recommendations",
+                            message="I couldn't find an exact match; here are some options you might like.",
+                            session_id=session_id,
+                            domain=domain,
+                            recommendations=recs,
+                            bucket_labels=labels or [],
+                            filters=search_filters,
+                            preferences={},
+                            question_count=agent_response.get("question_count", 0),
+                            quick_replies=["See similar items", "Research", "Compare items"],
+                        )
+                    # No results even with relaxed search
+                    session_manager.add_message(session_id, "assistant", "I couldn't find matching options. Try broadening your criteria.")
+                    domain_quick = (
+                        ["Show me all laptops", "Show me all books", "Show me all phones", "Different category"]
+                        if domain in ("laptops", "books", "phones")
+                        else ["Show me all laptops", "Show me all books", "Different category"]
+                    )
+                    msg = (
+                        "I couldn't find any options matching those criteria. Would you like to try a different budget, brand, or use case?"
+                        if domain == "laptops"
+                        else "I couldn't find any options matching those criteria. Would you like to try a different budget or brand?"
+                        if domain == "phones"
+                        else "I couldn't find any options matching those criteria. Would you like to try a different genre or budget?"
+                        if domain == "books"
+                        else "I couldn't find any options matching those criteria. Would you like to try a different budget, brand, or use case?"
+                    )
+                    return ChatResponse(
+                        response_type="question",
+                        message=msg,
+                        session_id=session_id,
+                        domain=domain,
+                        quick_replies=domain_quick,
+                        filters=search_filters,
+                        preferences={},
+                        question_count=agent_response.get("question_count", 0),
+                    )
+                # Vehicles or no laptops/books: fall through to normal detect_domain flow
+            if response_type == "question":
+                session_manager.add_message(session_id, "assistant", agent_response.get("message", ""))
+                session_manager.set_active_domain(session_id, agent_response.get("domain") or session.active_domain or "laptops")
+                return ChatResponse(
+                    response_type="question",
+                    message=agent_response.get("message", ""),
+                    session_id=session_id,
+                    quick_replies=agent_response.get("quick_replies"),
+                    filters=agent_response.get("filters", session.explicit_filters),
+                    preferences={},
+                    question_count=agent_response.get("question_count", session.question_count),
+                    domain=agent_response.get("domain") or session.active_domain,
+                )
+            if response_type == "error":
+                return ChatResponse(
+                    response_type="question",
+                    message=agent_response.get("message", "Something went wrong. Please try again."),
+                    session_id=session_id,
+                    quick_replies=["Laptops", "Books", "Vehicles"],
+                    filters=session.explicit_filters,
+                    preferences={},
+                    question_count=session.question_count,
+                    domain=session.active_domain,
+                )
     
     # IMPORTANT: Don't detect domain switches for short answers in active sessions
     # When user is answering followup questions (e.g., "Paperback", "Dell", "Gaming"),
@@ -667,7 +1093,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             response_type="question",
             message="What are you looking for today?",
             session_id=session_id,
-            quick_replies=["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"],
+            quick_replies=["Cars", "Laptops", "Books", "Phones"],
             filters=session.explicit_filters,
             preferences={},
             question_count=session.question_count,
@@ -676,18 +1102,23 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
 
     active_domain = detected_domain.value if detected_domain != Domain.NONE else session.active_domain or "vehicles"
 
-    if active_domain in ["laptops", "books", "jewelry", "accessories", "clothing", "beauty"]:
+    if active_domain in ["laptops", "books", "phones"]:
         category = _domain_to_category(active_domain)
         filters = dict(session.explicit_filters)
         filters["category"] = category
 
         # "Show me all X" - clear restrictive filters and show everything in category
-        if msg_lower in ("show me all jewelry", "show me all accessories", "show me all clothing", "show me all beauty", "show me all laptops", "show me all books"):
+        if msg_lower in ("show me all phones", "show me all laptops", "show me all books"):
             filters.pop("brand", None)
             filters.pop("subcategory", None)
             filters.pop("item_type", None)
             filters.pop("price_max_cents", None)
             filters.pop("price_min_cents", None)
+            # Set product_type so we get laptops (not phones) or phones (not laptops)
+            if active_domain == "laptops":
+                filters["product_type"] = "laptop"
+            elif active_domain == "phones":
+                filters["product_type"] = "phone"
             session_manager.update_filters(session_id, filters)
             session_manager.add_message(session_id, "user", request.message)
             recs, labels = await _search_ecommerce_products(filters, category, n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3)
@@ -719,21 +1150,19 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 response_type="question",
                 message=f"We don't have any {active_domain} in our catalog yet. Would you like to try another category?",
                 session_id=session_id,
-                quick_replies=["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"],
+                quick_replies=["Cars", "Laptops", "Books", "Phones"],
                 filters={},
                 preferences={},
                 question_count=0,
                 domain=None,
             )
 
-        # All e-commerce domains: run interview flow (laptops, books, jewelry, accessories)
+        # All e-commerce domains: run interview flow (laptops, books, phones)
         is_specific, extracted_info = is_specific_query(request.message, filters)
         product_type = (
             "book" if active_domain == "books"
-            else "jewelry" if active_domain == "jewelry"
-            else "accessory" if active_domain == "accessories"
-            else "clothing" if active_domain == "clothing"
-            else "beauty" if active_domain == "beauty"
+            else "phone" if active_domain == "phones"
+            else "laptop" if active_domain == "laptops"
             else str(extracted_info.get("product_type") or "laptop")
         )
         filters["product_type"] = product_type
@@ -759,6 +1188,13 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             filters["format"] = extracted_info["format"]
         if extracted_info.get("subcategory") or extracted_info.get("item_type"):
             filters["subcategory"] = extracted_info.get("subcategory") or extracted_info.get("item_type")
+        # OS quick reply (Linux, Ubuntu, macOS, Windows, ChromeOS) - map to filters
+        if active_domain == "laptops":
+            _os_msg = request.message.strip().lower()
+            if _os_msg in ("linux", "ubuntu", "macos", "windows", "chromeos", "no preference"):
+                filters["os"] = _os_msg.title() if _os_msg != "no preference" else "No preference"
+                if _os_msg in ("linux", "ubuntu"):
+                    filters["good_for_linux"] = True
         attributes = extracted_info.get("attributes")
         if isinstance(attributes, list) and attributes:
             attribute_map = {
@@ -834,21 +1270,15 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 price_max_dollars = filters['price_max_cents'] / 100
                 filter_desc.append(f"under ${price_max_dollars:.0f}")
             if filters.get("subcategory"):
-                if active_domain in ("jewelry", "accessories", "clothing", "beauty"):
-                    filter_desc.append(f"{filters['subcategory'].lower()}")
-                else:
-                    filter_desc.append(f"{filters['subcategory'].lower()} use")
+                filter_desc.append(f"{filters['subcategory'].lower()} use")
             
             filter_text = " with " + ", ".join(filter_desc) if filter_desc else ""
             message = f"I couldn't find any {active_domain}{filter_text}. Try adjusting your filters or budget."
             no_results_replies = (
-                ["Show me all jewelry", "Increase my budget", "Try a different brand"] if active_domain == "jewelry"
-                else ["Show me all accessories", "Increase my budget", "Try a different brand"] if active_domain == "accessories"
-                else ["Show me all clothing", "Increase my budget", "Try a different type"] if active_domain == "clothing"
-                else ["Show me all beauty", "Increase my budget", "Try a different brand"] if active_domain == "beauty"
-                else ["Show me all laptops", "Increase my budget", "Try a different brand"] if active_domain == "laptops"
-                else ["Show me all books", "Increase my budget", "Try a different genre"] if active_domain == "books"
-                else ["Show me all", "Increase my budget", "Try a different brand"]
+                ["Show me all laptops", "Different category", "Try a different brand"] if active_domain == "laptops"
+                else ["Show me all books", "Different category", "Try a different genre"] if active_domain == "books"
+                else ["Show me all phones", "Different category", "Try a different brand"] if active_domain == "phones"
+                else ["Cars", "Laptops", "Books", "Phones"]
             )
             return ChatResponse(
                 response_type="question",
@@ -874,10 +1304,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
         product_label = (
             "laptops" if active_domain == "laptops"
             else "books" if active_domain == "books"
-            else "jewelry" if active_domain == "jewelry"
-            else "accessories" if active_domain == "accessories"
-            else "clothing" if active_domain == "clothing"
-            else "beauty" if active_domain == "beauty"
+            else "phones" if active_domain == "phones"
             else "vehicles"
         )
         return ChatResponse(
@@ -937,10 +1364,14 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             # Add post-recommendation follow-ups for vehicles if not present
             if response_type == "recommendations" and not quick_replies:
                 quick_replies = ["See similar items", "Anything else?", "Compare items", "Rate recommendations", "Help with checkout"]
-            # Track that user received recommendations (for post-recommendation flow)
+            # CRITICAL: Always set active_domain (and stage) for vehicles so the next message stays in the car flow.
+            # Previously we only set these on recommendations, so follow-up answers (e.g. "$35k-$50k") were routed to laptops.
+            session_manager.set_active_domain(session_id, domain)
+            session_manager.update_filters(session_id, {"category": "Vehicles"})  # So detect_domain doesn't use stale Electronics
             if response_type == "recommendations":
-                session_manager.set_active_domain(session_id, domain)
                 session_manager.set_stage(session_id, STAGE_RECOMMENDATIONS)
+            else:
+                session_manager.set_stage(session_id, STAGE_INTERVIEW)
 
             return ChatResponse(
                 response_type=response_type,
@@ -1060,10 +1491,7 @@ def _domain_to_category(active_domain: Optional[str]) -> str:
     m = {
         "laptops": "Electronics",
         "books": "Books",
-        "jewelry": "Jewelry",
-        "accessories": "Accessories",
-        "clothing": "Clothing",
-        "beauty": "Beauty",
+        "phones": "Electronics",  # Phones in Electronics with product_type=phone
     }
     return m.get(active_domain, "Electronics")
 
@@ -1085,25 +1513,14 @@ def _format_product_as_vehicle(product_dict: Dict[str, Any], category: str) -> D
     price = product_dict.get("price", 0)
     image_url = product_dict.get("image_url")
 
-    # Determine product type
+    # Determine product type (only: laptops, books, phones - real scraped)
+    pt = (product_dict.get("product_type") or "").lower()
     if category == "Electronics":
-        product_type = "laptop"
+        product_type = "phone" if pt in ("phone", "smartphone") else "laptop"
         body_style = "Electronics"
     elif category == "Books":
         product_type = "book"
         body_style = "Books"
-    elif category == "Jewelry":
-        product_type = "jewelry"
-        body_style = "Jewelry"
-    elif category == "Accessories":
-        product_type = "accessory"
-        body_style = "Accessories"
-    elif category == "Clothing":
-        product_type = "clothing"
-        body_style = "Clothing"
-    elif category == "Beauty":
-        product_type = "beauty"
-        body_style = "Beauty"
     else:
         product_type = "generic"
         body_style = category
@@ -1260,14 +1677,6 @@ def _build_kg_search_query(filters: Dict[str, Any], category: str) -> str:
         parts.append("laptop")
     elif category == "Books":
         parts.append("book")
-    elif category == "Jewelry":
-        parts.append("jewelry")
-    elif category == "Accessories":
-        parts.append("accessory")
-    elif category == "Clothing":
-        parts.append("clothing")
-    elif category == "Beauty":
-        parts.append("beauty")
     return " ".join(parts) if parts else ""
 
 
@@ -1320,8 +1729,13 @@ async def _search_ecommerce_products(
 
     db = SessionLocal()
     try:
-        # Build query
+        # Real scraped products only (exclude Seed/fake) - must have scraped_from_url
         query = db.query(Product).filter(Product.category == category)
+        query = query.filter(
+            Product.scraped_from_url.isnot(None),
+            ~Product.scraped_from_url.ilike("%test%"),
+            ~Product.scraped_from_url.ilike("%example.com%"),
+        )
 
         # Exclude already-shown products (for "Show more like these" to return different items)
         if exclude_ids:
@@ -1332,20 +1746,51 @@ async def _search_ecommerce_products(
         category_count = db.query(Product).filter(Product.category == category).count()
         logger.info("search_category_count", f"Products in category {category}: {category_count}", {})
 
-        # First try: full filters
+        # First try: full filters (real scraped only)
         query = db.query(Product).filter(Product.category == category)
+        query = query.filter(Product.scraped_from_url.isnot(None), ~Product.scraped_from_url.ilike("%test%"), ~Product.scraped_from_url.ilike("%example.com%"))
         if exclude_ids:
             query = query.filter(~Product.product_id.in_(exclude_ids))
         if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
             query = query.filter(Product.brand == filters["brand"])
         if filters.get("subcategory"):
             query = query.filter(Product.subcategory == filters["subcategory"])
-        if filters.get("product_type") and category not in ("Jewelry", "Accessories", "Clothing", "Beauty"):
-            query = query.filter(Product.product_type == filters["product_type"])
+        if filters.get("product_type"):
+            pt = filters["product_type"]
+            if pt == "laptop":
+                query = query.filter(Product.product_type.in_(["laptop", "gaming_laptop"]))
+            elif pt in ("phone", "smartphone"):
+                query = query.filter(Product.product_type.in_(["phone", "smartphone"]))
+            else:
+                query = query.filter(Product.product_type == pt)
         if filters.get("color"):
             query = query.filter(Product.color == filters["color"])
         if filters.get("gpu_vendor"):
             query = query.filter(Product.gpu_vendor == filters["gpu_vendor"])
+        # Richer KG (§7): filter by kg_features when present (good_for_ml, good_for_gaming, battery_life_min, etc.)
+        kg_col = getattr(Product, "kg_features", None)
+        if kg_col is not None:
+            try:
+                if filters.get("good_for_ml"):
+                    query = query.filter(kg_col["good_for_ml"].astext == "true")
+                if filters.get("good_for_gaming"):
+                    query = query.filter(kg_col["good_for_gaming"].astext == "true")
+                if filters.get("good_for_web_dev"):
+                    query = query.filter(kg_col["good_for_web_dev"].astext == "true")
+                if filters.get("good_for_creative"):
+                    query = query.filter(kg_col["good_for_creative"].astext == "true")
+                if filters.get("good_for_linux"):
+                    query = query.filter(kg_col["good_for_linux"].astext == "true")
+                if filters.get("repairable"):
+                    query = query.filter(kg_col["repairable"].astext == "true")
+                if filters.get("refurbished"):
+                    query = query.filter(kg_col["refurbished"].astext == "true")
+                if filters.get("battery_life_min_hours") is not None:
+                    from sqlalchemy import cast, Integer
+                    min_hrs = int(filters["battery_life_min_hours"])
+                    query = query.filter(cast(kg_col["battery_life_hours"].astext, Integer) >= min_hrs)
+            except Exception:
+                pass  # SQLite or missing JSON operators: skip kg_features filters
         query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
         if filters.get("price_min_cents"):
             query = query.filter(Price.price_cents >= filters["price_min_cents"])
@@ -1355,15 +1800,25 @@ async def _search_ecommerce_products(
         products = query.limit(n_rows * n_per_row * 2).all()
 
         # Fallback: relax price_min (e.g. user said $50-$100 but products are $20-$40)
-        if not products and filters.get("price_min_cents") and category in ("Beauty", "Jewelry", "Accessories", "Clothing", "Books"):
+        # Keep product_type so phones never fall back to laptops
+        if not products and filters.get("price_min_cents") and category in ("Books", "Electronics"):
             logger.info("search_relax_price_min", "No results with price_min, trying without", {"price_min": filters["price_min_cents"]})
             query = db.query(Product).filter(Product.category == category)
+            query = query.filter(Product.scraped_from_url.isnot(None), ~Product.scraped_from_url.ilike("%test%"), ~Product.scraped_from_url.ilike("%example.com%"))
             if exclude_ids:
                 query = query.filter(~Product.product_id.in_(exclude_ids))
             if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
                 query = query.filter(Product.brand == filters["brand"])
             if filters.get("subcategory"):
                 query = query.filter(Product.subcategory == filters["subcategory"])
+            if filters.get("product_type"):
+                pt = filters["product_type"]
+                if pt == "laptop":
+                    query = query.filter(Product.product_type.in_(["laptop", "gaming_laptop"]))
+                elif pt in ("phone", "smartphone"):
+                    query = query.filter(Product.product_type.in_(["phone", "smartphone"]))
+                else:
+                    query = query.filter(Product.product_type == pt)
             if filters.get("color"):
                 query = query.filter(Product.color == filters["color"])
             query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
@@ -1372,19 +1827,100 @@ async def _search_ecommerce_products(
             query = query.order_by(Price.price_cents.asc())
             products = query.limit(n_rows * n_per_row * 2).all()
 
-        # Fallback: relax subcategory (e.g. no Levi's Shirts & Blouses, but we have other Levi's)
-        if not products and filters.get("subcategory") and category in ("Beauty", "Jewelry", "Accessories", "Clothing"):
+        # Fallback: relax subcategory (Electronics)
+        if not products and filters.get("subcategory") and category == "Electronics":
             logger.info("search_relax_subcategory", "No results with subcategory, trying category+brand only", {"subcategory": filters["subcategory"]})
             query = db.query(Product).filter(Product.category == category)
+            query = query.filter(Product.scraped_from_url.isnot(None), ~Product.scraped_from_url.ilike("%test%"), ~Product.scraped_from_url.ilike("%example.com%"))
             if exclude_ids:
                 query = query.filter(~Product.product_id.in_(exclude_ids))
             if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
                 query = query.filter(Product.brand == filters["brand"])
+            if filters.get("product_type"):
+                pt = filters["product_type"]
+                if pt == "laptop":
+                    query = query.filter(Product.product_type.in_(["laptop", "gaming_laptop"]))
+                elif pt in ("phone", "smartphone"):
+                    query = query.filter(Product.product_type.in_(["phone", "smartphone"]))
+                else:
+                    query = query.filter(Product.product_type == pt)
             query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
             if filters.get("price_max_cents"):
                 query = query.filter(Price.price_cents <= filters["price_max_cents"])
             if filters.get("price_min_cents"):
                 query = query.filter(Price.price_cents >= filters["price_min_cents"])
+            query = query.order_by(Price.price_cents.asc())
+            products = query.limit(n_rows * n_per_row * 2).all()
+
+        # Fallback: relax subcategory (Books - show all books when genre filter returns none)
+        if not products and filters.get("subcategory") and category == "Books":
+            logger.info("search_relax_subcategory_books", "No results with genre, showing all books", {"subcategory": filters["subcategory"]})
+            query = db.query(Product).filter(Product.category == category)
+            query = query.filter(Product.scraped_from_url.isnot(None), ~Product.scraped_from_url.ilike("%test%"), ~Product.scraped_from_url.ilike("%example.com%"))
+            if exclude_ids:
+                query = query.filter(~Product.product_id.in_(exclude_ids))
+            query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
+            if filters.get("price_max_cents"):
+                query = query.filter(Price.price_cents <= filters["price_max_cents"])
+            if filters.get("price_min_cents"):
+                query = query.filter(Price.price_cents >= filters["price_min_cents"])
+            query = query.order_by(Price.price_cents.asc())
+            products = query.limit(n_rows * n_per_row * 2).all()
+
+        # Fallback: relax brand (laptops - user picked HP but we have System76, Framework, etc.)
+        if not products and filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand") and category == "Electronics":
+            logger.info("search_relax_brand", "No results with brand, showing all laptops in category", {"brand": filters["brand"]})
+            query = db.query(Product).filter(Product.category == category)
+            query = query.filter(Product.scraped_from_url.isnot(None), ~Product.scraped_from_url.ilike("%test%"), ~Product.scraped_from_url.ilike("%example.com%"))
+            if exclude_ids:
+                query = query.filter(~Product.product_id.in_(exclude_ids))
+            if filters.get("product_type"):
+                pt = filters["product_type"]
+                if pt == "laptop":
+                    query = query.filter(Product.product_type.in_(["laptop", "gaming_laptop"]))
+                elif pt in ("phone", "smartphone"):
+                    query = query.filter(Product.product_type.in_(["phone", "smartphone"]))
+                else:
+                    query = query.filter(Product.product_type == pt)
+            query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
+            if filters.get("price_max_cents"):
+                query = query.filter(Price.price_cents <= filters["price_max_cents"])
+            if filters.get("price_min_cents"):
+                query = query.filter(Price.price_cents >= filters["price_min_cents"])
+            query = query.order_by(Price.price_cents.asc())
+            products = query.limit(n_rows * n_per_row * 2).all()
+
+        # Fallback: relax ALL filters - show any products in category (last resort)
+        if not products and (filters.get("brand") or filters.get("subcategory") or filters.get("price_min_cents") or filters.get("price_max_cents") or filters.get("product_type")):
+            logger.info("search_relax_all", "No results with filters, showing all in category", {"category": category})
+            query = db.query(Product).filter(Product.category == category)
+            query = query.filter(Product.scraped_from_url.isnot(None), ~Product.scraped_from_url.ilike("%test%"), ~Product.scraped_from_url.ilike("%example.com%"))
+            if exclude_ids:
+                query = query.filter(~Product.product_id.in_(exclude_ids))
+            if filters.get("product_type"):
+                pt = filters["product_type"]
+                if pt == "laptop":
+                    query = query.filter(Product.product_type.in_(["laptop", "gaming_laptop"]))
+                elif pt in ("phone", "smartphone"):
+                    query = query.filter(Product.product_type.in_(["phone", "smartphone"]))
+                else:
+                    query = query.filter(Product.product_type == pt)
+            query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
+            query = query.filter(Price.price_cents > 0)
+            query = query.order_by(Price.price_cents.asc())
+            products = query.limit(n_rows * n_per_row * 2).all()
+
+        # Final fallback for Electronics: drop product_type ONLY for laptops (never for phones)
+        # When user asked for phones, we must only show phones - never fall back to laptops/accessories
+        pt_filter = filters.get("product_type")
+        if not products and category == "Electronics" and pt_filter and pt_filter not in ("phone", "smartphone"):
+            logger.info("search_relax_product_type", "No results with product_type, showing all Electronics", {"product_type": pt_filter})
+            query = db.query(Product).filter(Product.category == category)
+            query = query.filter(Product.scraped_from_url.isnot(None), ~Product.scraped_from_url.ilike("%test%"), ~Product.scraped_from_url.ilike("%example.com%"))
+            if exclude_ids:
+                query = query.filter(~Product.product_id.in_(exclude_ids))
+            query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
+            query = query.filter(Price.price_cents > 0)
             query = query.order_by(Price.price_cents.asc())
             products = query.limit(n_rows * n_per_row * 2).all()
 
@@ -1398,12 +1934,19 @@ async def _search_ecommerce_products(
             logger.info("search_no_products", "No products found, returning empty", {})
             return [], []
 
-        # Convert to product dicts (intermediate format)
+        # Convert to product dicts (intermediate format), exclude $0 prices (real scraped only)
         product_dicts = []
         for product in products:
-            # Get price
+            # Get price (skip products with $0 - real scraped prices only)
             price = db.query(Price).filter(Price.product_id == product.product_id).first()
             price_cents = price.price_cents if price else 0
+            # When showing "all" in category, include products without price (use 1 cent placeholder)
+            if not price_cents or price_cents <= 0:
+                if not filters.get("brand") and not filters.get("subcategory") and not filters.get("price_min_cents") and not filters.get("price_max_cents"):
+                    price_cents = 1  # Placeholder so product shows (avoids empty "show all" results)
+                else:
+                    logger.info("search_skip_zero_price", f"Skipping product with no price", {"product_id": product.product_id})
+                    continue
 
             # Get inventory
             inventory = db.query(Inventory).filter(Inventory.product_id == product.product_id).first()
@@ -1490,10 +2033,9 @@ async def _search_ecommerce_products(
                 # Convert products to unified format using helper
                 # We determine domain based on category for the formatter
                 fmt_domain = (
-                    "laptops" if category == "Electronics"
+                    "phones" if filters.get("product_type") in ("phone", "smartphone")
+                    else "laptops" if category == "Electronics"
                     else "books" if category == "Books"
-                    else "jewelry" if category == "Jewelry"
-                    else "accessories" if category == "Accessories"
                     else "laptops"
                 )
                 

@@ -318,11 +318,33 @@ def stable_product_id_for_source(source: str, source_product_id: str, category: 
     return f"prod-{cat}-{h}"
 
 
+def _normalize_price(product: Dict[str, Any]) -> Optional[int]:
+    """Ensure price_cents is set from price (dollars) if needed. Returns cents or None if invalid."""
+    pc = product.get("price_cents")
+    if pc is not None and isinstance(pc, (int, float)) and int(pc) > 0:
+        return int(pc)
+    p = product.get("price")
+    if p is not None:
+        try:
+            val = float(p)
+            if val > 0:
+                return int(val * 100)  # Assume dollars -> cents
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
 def normalize_structured_specs(product: Dict[str, Any]) -> Dict[str, Any]:
     """
     Extract product_type, gpu_vendor, tags from name+description so hard filters work.
+    Normalize price: ensure price_cents from price (dollars) if needed.
     Run after building product dict; mutates and returns product.
     """
+    # Price normalization: price (dollars) -> price_cents
+    pc = _normalize_price(product)
+    if pc is not None:
+        product["price_cents"] = pc
+
     name = (product.get("name") or "").lower()
     desc = (product.get("description") or "").lower()
     text = f"{name} {desc}"
@@ -394,6 +416,10 @@ def populate_database(products: List[Dict[str, Any]], clear_existing: bool = Fal
         
         for idx, product in enumerate(products):
             product = normalize_structured_specs(dict(product))
+            price_cents = product.get("price_cents") or _normalize_price(product)
+            if not price_cents or price_cents <= 0:
+                print(f"  [SKIP] {product.get('name', '')[:50]} - no valid price from scrape")
+                continue
             source = product.get("source") or "Seed"
             source_product_id = product.get("source_product_id")
             if source and source_product_id:
@@ -412,6 +438,8 @@ def populate_database(products: List[Dict[str, Any]], clear_existing: bool = Fal
             # tags as list for PostgreSQL array
             tags = product.get("tags")
             tags_sql = tags if isinstance(tags, list) else ([tags] if tags else None)
+            kg_features = product.get("kg_features")
+            kg_features_sql = json.dumps(kg_features) if isinstance(kg_features, dict) else (kg_features if kg_features else None)
             insert_params = {
                 "product_id": product_id,
                 "name": product["name"],
@@ -428,14 +456,15 @@ def populate_database(products: List[Dict[str, Any]], clear_existing: bool = Fal
                 "tags": tags_sql,
                 "image_url": product.get("image_url"),
                 "source_product_id": product.get("source_product_id"),
+                "kg_features": kg_features_sql,
             }
             try:
                 db.execute(
                     text("""
                         INSERT INTO products (product_id, name, description, category, subcategory, brand, source, color, scraped_from_url,
-                            product_type, gpu_vendor, gpu_model, tags, image_url, source_product_id)
+                            product_type, gpu_vendor, gpu_model, tags, image_url, source_product_id, kg_features)
                         VALUES (:product_id, :name, :description, :category, :subcategory, :brand, :source, :color, :scraped_from_url,
-                            :product_type, :gpu_vendor, :gpu_model, :tags, :image_url, :source_product_id)
+                            :product_type, :gpu_vendor, :gpu_model, :tags, :image_url, :source_product_id, :kg_features::jsonb)
                         ON CONFLICT (product_id) DO UPDATE SET
                             name = EXCLUDED.name,
                             description = EXCLUDED.description,
@@ -451,37 +480,63 @@ def populate_database(products: List[Dict[str, Any]], clear_existing: bool = Fal
                             tags = EXCLUDED.tags,
                             image_url = EXCLUDED.image_url,
                             source_product_id = EXCLUDED.source_product_id,
+                            kg_features = EXCLUDED.kg_features,
                             updated_at = CURRENT_TIMESTAMP
                     """),
                     insert_params,
                 )
             except Exception as e:
                 db.rollback()
-                if "product_type" in str(e) or "gpu_vendor" in str(e) or "column" in str(e).lower():
-                    # Fallback: table lacks new columns; run psql mcp_ecommerce -f scripts/add_structured_specs.sql
-                    db.execute(
-                        text("""
-                            INSERT INTO products (product_id, name, description, category, subcategory, brand, source, color, scraped_from_url)
-                            VALUES (:product_id, :name, :description, :category, :subcategory, :brand, :source, :color, :scraped_from_url)
-                            ON CONFLICT (product_id) DO UPDATE SET
-                                name = EXCLUDED.name,
-                                description = EXCLUDED.description,
-                                category = EXCLUDED.category,
-                                subcategory = EXCLUDED.subcategory,
-                                brand = EXCLUDED.brand,
-                                source = EXCLUDED.source,
-                                color = EXCLUDED.color,
-                                scraped_from_url = EXCLUDED.scraped_from_url,
-                                updated_at = CURRENT_TIMESTAMP
-                        """),
-                        {k: insert_params[k] for k in ("product_id", "name", "description", "category", "subcategory", "brand", "source", "color", "scraped_from_url")},
-                    )
+                if "product_type" in str(e) or "gpu_vendor" in str(e) or "column" in str(e).lower() or "kg_features" in str(e):
+                    # Fallback: table lacks kg_features or other columns
+                    fallback_keys = ("product_id", "name", "description", "category", "subcategory", "brand", "source", "color", "scraped_from_url", "product_type", "image_url")
+                    fallback_params = {k: insert_params.get(k) for k in fallback_keys if k in insert_params}
+                    try:
+                        db.execute(
+                            text("""
+                                INSERT INTO products (product_id, name, description, category, subcategory, brand, source, color, scraped_from_url, product_type, image_url)
+                                VALUES (:product_id, :name, :description, :category, :subcategory, :brand, :source, :color, :scraped_from_url, :product_type, :image_url)
+                                ON CONFLICT (product_id) DO UPDATE SET
+                                    name = EXCLUDED.name,
+                                    description = EXCLUDED.description,
+                                    category = EXCLUDED.category,
+                                    subcategory = EXCLUDED.subcategory,
+                                    brand = EXCLUDED.brand,
+                                    source = EXCLUDED.source,
+                                    color = EXCLUDED.color,
+                                    scraped_from_url = EXCLUDED.scraped_from_url,
+                                    product_type = EXCLUDED.product_type,
+                                    image_url = EXCLUDED.image_url,
+                                    updated_at = CURRENT_TIMESTAMP
+                            """),
+                            fallback_params,
+                        )
+                    except Exception:
+                        fallback_params = {k: insert_params[k] for k in ("product_id", "name", "description", "category", "subcategory", "brand", "source", "color", "scraped_from_url")}
+                        db.execute(
+                            text("""
+                                INSERT INTO products (product_id, name, description, category, subcategory, brand, source, color, scraped_from_url)
+                                VALUES (:product_id, :name, :description, :category, :subcategory, :brand, :source, :color, :scraped_from_url)
+                                ON CONFLICT (product_id) DO UPDATE SET
+                                    name = EXCLUDED.name,
+                                    description = EXCLUDED.description,
+                                    category = EXCLUDED.category,
+                                    subcategory = EXCLUDED.subcategory,
+                                    brand = EXCLUDED.brand,
+                                    source = EXCLUDED.source,
+                                    color = EXCLUDED.color,
+                                    scraped_from_url = EXCLUDED.scraped_from_url,
+                                    updated_at = CURRENT_TIMESTAMP
+                            """),
+                            fallback_params,
+                        )
                     if idx == 0:
-                        print("  (Table missing product_type/gpu_vendor columns; run: psql mcp_ecommerce -f scripts/add_structured_specs.sql)")
+                        print("  (Table missing product_type/gpu_vendor/kg_features columns; run migrations)")
+                    db.commit()  # Persist fallback insert so next rollback doesn't lose it
                 else:
                     raise
             
-            # Insert price
+            # Insert price (already validated above)
             db.execute(
                 text("""
                     INSERT INTO prices (product_id, price_cents, currency)
@@ -492,7 +547,7 @@ def populate_database(products: List[Dict[str, Any]], clear_existing: bool = Fal
                 """),
                 {
                     "product_id": product_id,
-                    "price_cents": product["price_cents"],
+                    "price_cents": price_cents,
                 }
             )
             

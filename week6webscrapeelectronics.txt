@@ -1,0 +1,205 @@
+403 is the site saying “I’m rejecting this client.” Most modern commerce sites block some combination of: obvious bot UAs, missing cookies/JS, datacenter IPs, or “no-storefront-JSON-for-you” unless you use their intended APIs.
+
+Here are the practical ways to fix it (pick the least heavy that works):
+
+## 1) Prefer the site’s “intended” data sources (best, most reliable)
+
+### Shopify (Framework looks like Shopify)
+
+Instead of scraping HTML, hit the public storefront endpoints Shopify exposes:
+
+**Option A — Product JSON (often works)**
+
+* `https://<domain>/products/<handle>.js`
+* `https://<domain>/products/<handle>.json`
+
+**Option B — Collections JSON**
+
+* `https://<domain>/collections/<collection-handle>/products.json?limit=250&page=1`
+
+If these return 403 too, they’re gating by bot detection or geofencing. Then you need either (a) real browser session cookies or (b) official API access.
+
+### BigCommerce / others
+
+* Many have “catalog” JSON endpoints or GraphQL their frontend uses.
+* Open DevTools → Network tab → filter `json`, `graphql`, `products` while loading the page, then copy the exact request (URL + headers + cookies) and replay it.
+
+**Why this helps:** you’re not guessing HTML structure, and these endpoints change less often.
+
+## 2) Make your HTTP client look like a real browser (often enough)
+
+Common reasons you got 403:
+
+* default `python-requests` User-Agent
+* no Accept-Language / Accept / Referer
+* missing cookies set by the first page load
+* TLS fingerprinting (requests/urllib3 looks “non-browser”)
+
+**Do this:**
+
+* Use a real Chrome UA string
+* Add typical headers: `Accept`, `Accept-Language`, `Referer`, `Sec-Fetch-*` (optional), `DNT`
+* Use a cookie jar: do an initial GET to homepage, then request the product/collection endpoint with the same session
+* Respect rate limits: random jitter, avoid parallel bursts per domain
+
+If they’re doing TLS fingerprinting, headers alone won’t help.
+
+## 3) Use a “real browser” fetch when the site requires JS / bot checks
+
+If you see Cloudflare / PerimeterX / DataDome / Akamai Bot Manager, you’ll typically need:
+
+* Playwright (recommended) or Selenium
+* Wait for network to finish
+* Extract the JSON from the page or call the same backend endpoint the page calls
+* Cache aggressively so you’re not repeatedly hitting the merchant
+
+**Implementation pattern**
+
+* For each domain: try `requests` → if 403 or empty → fallback to Playwright for that domain only.
+* In Playwright, intercept network responses and capture the product JSON response directly (fast), rather than scraping rendered DOM.
+
+## 4) Use rotating egress + residential IPs only if you truly need it
+
+Many merchants block datacenter IPs (AWS/GCP). If you run scrapers from a server, you’ll get 403 while your laptop works.
+
+Options:
+
+* Run scrapes from a residential connection (local dev machine) for ingestion jobs
+* Use a reputable proxy provider (residential) **only if permitted**
+* Keep per-domain concurrency = 1–2, add backoff
+
+## 5) Don’t fight “no scraping” sites — integrate or import instead
+
+For your “REAL-ONLY DATABASE” goal, you can avoid scraping wars by supporting:
+
+* Merchant feeds (CSV/Google Merchant Center product feed)
+* Affiliate feeds / data partners (where allowed)
+* “Bring your own catalog” flow for pilot merchants (upload products + policies)
+* Official APIs (Shopify Admin API requires merchant token; best for pilots)
+
+This is actually aligned with your MCP pitch: merchants expose structured “merchant tools” rather than you scraping.
+
+## 6) Add a robust “block detection + retry policy”
+
+Treat “Found 0 products” as a failure when you expected >0.
+
+**Heuristics**
+
+* HTTP 403/429/503 → blocked or rate-limited
+* HTML contains “captcha”, “Access denied”, “bot”, “Cloudflare”
+* Response is empty or not JSON when you expected JSON
+
+**Policy**
+
+* exponential backoff + jitter
+* stop after N tries
+* mark domain as “browser-required” and route to Playwright next run
+* store “last-success headers/cookies strategy” per domain
+
+## What I’d do specifically for your log
+
+* **Framework:** try `products/<handle>.js` / `.json`, and `collections/.../products.json`. If still blocked, use Playwright and capture Shopify JSON calls from Network.
+* **Back Market:** likely heavy bot protection; use browser-mode (Playwright) or skip and use partner/feeds. Scraping it reliably from a server is usually painful.
+* **Fairphone:** your scraper found 0; likely JS-rendered or blocked. Use Playwright and intercept product API calls, or look for a backend JSON endpoint.
+* **System76:** already working—keep as requests-based and cache.
+
+## Guardrails (so you don’t create a maintenance nightmare)
+
+* Domain adapters (one folder per merchant type: Shopify, BigCommerce, “StaticHTML”, “BrowserOnly”)
+* Cache raw responses + parsed products
+* Don’t run Selenium/Playwright for everything—only for domains that need it
+* Log the exact “block reason” and store it
+
+If you paste 1–2 response headers/body snippets from the 403 cases (Framework or Back Market), I can tell you whether it’s simple header/cookie gating vs. Cloudflare-style bot protection and which path above will work fastest.
+
+
+
+Got it — those three are exactly the kind of sites that will 403 plain `requests` scraping. Here’s the most effective path **per site**, in the order I’d try.
+
+## 1) Framework — `https://frame.work/laptop12`
+
+Framework’s storefront is Shopify-powered and tends to block “bot-like” traffic.
+
+### What usually works best
+
+**A) Don’t scrape HTML. Pull Shopify JSON instead.**
+Try these patterns:
+
+* `https://frame.work/products/<handle>.js`
+* `https://frame.work/products/<handle>.json`
+* `https://frame.work/collections/<collection-handle>/products.json?limit=250`
+
+You need the **product handle** (Shopify slug). Easiest way:
+
+* Open the product page in a browser
+* View page source
+* Search for `"/products/"`
+* Use that slug as `<handle>`
+
+**B) If JSON endpoints still 403 → use Playwright and capture the JSON calls**
+Framework likely sets cookies / runs bot checks that `requests` fails.
+
+Best Playwright approach (fast + stable):
+
+* Load the page
+* Listen for network responses that contain product JSON (Shopify endpoints, or GraphQL/JSON)
+* Parse those responses (avoid DOM scraping)
+
+Also: run it from a **non-datacenter IP** if you’re running on a cloud box.
+
+## 2) Fairphone — `https://shop.fairphone.com/smartphones`
+
+This one often fails because the page is **JS-rendered** and/or the API calls are protected.
+
+### What usually works best
+
+**A) Use Playwright (or Selenium) and intercept the product API call**
+
+* Load `/smartphones`
+* In DevTools → Network, you’ll usually see a JSON endpoint returning product listings.
+* Replay that exact request (URL + headers/cookies) in your scraper, or just grab the response in Playwright.
+
+**B) If you want to stay in “requests land”**
+Sometimes you can fetch the underlying JSON endpoint directly once you know it, but Fairphone may require session cookies.
+
+## 3) Back Market — your category URL
+
+Back Market is the toughest of the three. They commonly use heavy bot protection and may rate-limit / block datacenter IPs aggressively.
+
+### Practical options
+
+**A) Browser-mode scraping (Playwright) + low rate + residential egress**
+
+* Single-thread per domain
+* Slow down and add jitter
+* Cache results aggressively
+
+**B) Don’t scrape it**
+If your “real-only DB” goal is for demos/evals, Back Market often becomes a time sink.
+Better alternatives:
+
+* Use merchants that allow scraping / provide feeds
+* Or integrate via affiliate/product feeds where permitted
+
+## The biggest reason your current run 403’d
+
+You’re likely doing `requests.get(url)` from a server IP with a botty fingerprint:
+
+* default TLS fingerprint
+* no browser cookies
+* missing JS challenges
+* possibly datacenter IP
+
+## Recommended architecture for your pipeline
+
+1. **Try “API/JSON strategy” first** (Shopify/known endpoints)
+2. If blocked or empty → **fallback to Playwright** for that domain only
+3. If still blocked → mark domain as **“no-go without partner access”**
+
+## Quick “next action” checklist
+
+* **Framework:** find the Shopify handle from page source, try `products/<handle>.js` first.
+* **Fairphone:** open DevTools → Network on `/smartphones`, identify the JSON/GraphQL response that returns products; replicate via Playwright intercept.
+* **Back Market:** decide if it’s worth it. If yes, go Playwright + slow + preferably residential IP; if no, drop it.
+
+If you paste **one 403 response body snippet** (even just the first ~300 chars) from each site, I can tell you immediately whether it’s Cloudflare/DataDome/PerimeterX/Akamai and which exact workaround will succeed fastest.

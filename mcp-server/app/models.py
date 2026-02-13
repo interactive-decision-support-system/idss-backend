@@ -53,6 +53,10 @@ class Product(Base):
     image_url = Column(String(512))
     source_product_id = Column(String(255))  # Stable id per source for upsert; NULL for seed.
 
+    # Richer KG (§7): Reddit-style features for complex queries (good_for_ml, good_for_web_dev, battery_life, etc.)
+    # JSON/JSONB: {"good_for_ml": true, "good_for_gaming": true, "battery_life_hours": 10, ...}
+    kg_features = Column(JSON, nullable=True)
+
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -21,6 +21,7 @@ from typing import Dict, Any, List, Optional
 from neo4j import GraphDatabase
 from app.neo4j_config import Neo4jConnection
 import json
+import difflib
 
 
 class KnowledgeGraphBuilder:
@@ -663,6 +664,124 @@ class KnowledgeGraphBuilder:
         
         with self.driver.session(database=self.database) as session:
             session.run(query, manufacturer_data)
+    
+    def run_entity_resolution(
+        self,
+        similarity_threshold: float = 0.88,
+        entity_types: Optional[List[str]] = None,
+    ) -> Dict[str, int]:
+        """
+        Merge duplicate entities (Author, Manufacturer, Brand) based on name similarity.
+        Post-processing step to improve graph quality.
+        
+        Args:
+            similarity_threshold: Minimum similarity (0-1) to consider merge. Default 0.88.
+            entity_types: Which entity types to process. Default: ["Author", "Manufacturer", "Brand"]
+            
+        Returns:
+            Dict with merge counts per entity type, e.g. {"Author": 3, "Manufacturer": 1, "Brand": 2}
+        """
+        entity_types = entity_types or ["Author", "Manufacturer", "Brand"]
+        merge_counts: Dict[str, int] = {t: 0 for t in entity_types}
+        
+        # Config: (label, name_prop, rel_type, rel_direction)
+        config = {
+            "Author": ("Author", "name", "WRITTEN_BY", "incoming"),   # Book -[:WRITTEN_BY]-> Author
+            "Manufacturer": ("Manufacturer", "name", "MANUFACTURED_BY", "incoming"),
+            "Brand": ("Brand", "name", "BRANDED_BY", "incoming"),
+        }
+        
+        for entity_type in entity_types:
+            if entity_type not in config:
+                continue
+            label, name_prop, rel_type, direction = config[entity_type]
+            count = self._merge_duplicate_entities(
+                label=label,
+                name_prop=name_prop,
+                rel_type=rel_type,
+                similarity_threshold=similarity_threshold,
+            )
+            merge_counts[entity_type] = count
+        
+        return merge_counts
+    
+    def _merge_duplicate_entities(
+        self,
+        label: str,
+        name_prop: str,
+        rel_type: str,
+        similarity_threshold: float,
+    ) -> int:
+        """Find and merge duplicate nodes of given label. Returns number of merges."""
+        with self.driver.session(database=self.database) as session:
+            result = session.run(
+                f"""
+                MATCH (n:{label})
+                WHERE n.{name_prop} IS NOT NULL AND trim(n.{name_prop}) <> ''
+                OPTIONAL MATCH (n)<-[r:{rel_type}]-(src)
+                WITH n, n.{name_prop} AS name, count(r) AS rel_count
+                RETURN name, rel_count
+                """
+            )
+            entities = [(r["name"], r["rel_count"]) for r in result]
+        
+        if len(entities) < 2:
+            return 0
+        
+        # Find similar pairs
+        merged_names: set = set()
+        merge_count = 0
+        
+        for i, (name_a, count_a) in enumerate(entities):
+            if name_a in merged_names:
+                continue
+            for name_b, count_b in entities[i + 1 :]:
+                if name_b in merged_names:
+                    continue
+                if name_a == name_b:
+                    continue
+                sim = difflib.SequenceMatcher(None, name_a.lower(), name_b.lower()).ratio()
+                if sim >= similarity_threshold:
+                    canonical, duplicate = (name_a, name_b) if count_a >= count_b else (name_b, name_a)
+                    if count_a == count_b and len(name_a) >= len(name_b):
+                        canonical, duplicate = name_a, name_b
+                    elif count_a == count_b:
+                        canonical, duplicate = name_b, name_a
+                    try:
+                        self._merge_entity_nodes(label, name_prop, rel_type, canonical, duplicate)
+                        merged_names.add(duplicate)
+                        merge_count += 1
+                    except Exception as e:
+                        print(f"[WARN] Entity resolution merge failed {canonical} <- {duplicate}: {e}")
+        
+        return merge_count
+    
+    def _merge_entity_nodes(
+        self,
+        label: str,
+        name_prop: str,
+        rel_type: str,
+        canonical_name: str,
+        duplicate_name: str,
+    ) -> None:
+        """Merge duplicate node into canonical: redirect relationships, delete duplicate."""
+        params = {"canonical_name": canonical_name, "duplicate_name": duplicate_name}
+        with self.driver.session(database=self.database) as session:
+            # Step 1: Redirect all relationships from duplicate to canonical
+            redirect_query = f"""
+            MATCH (canonical:{label} {{{name_prop}: $canonical_name}})
+            MATCH (duplicate:{label} {{{name_prop}: $duplicate_name}})
+            MATCH (duplicate)<-[r:{rel_type}]-(src)
+            MERGE (src)-[:{rel_type}]->(canonical)
+            DELETE r
+            """
+            session.run(redirect_query, params)
+            # Step 2: Delete the duplicate node
+            delete_query = f"""
+            MATCH (duplicate:{label} {{{name_prop}: $duplicate_name}})
+            DETACH DELETE duplicate
+            """
+            session.run(delete_query, params)
     
     def clear_all_data(self):
         """Clear all data from the graph (use with caution!)."""

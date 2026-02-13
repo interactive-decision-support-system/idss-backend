@@ -1,0 +1,62 @@
+@/Users/julih/.cursor/projects/Users-julih-Documents-LDR-idss-backend/terminals/2.txt:318-444  nice, but the instructor wants to remove all fake seed products and only have a postgresql and knowldedge graph of real ones. for example, ur past scraped bigcommerce, shopify, woocommerce, temu laptops and electronci sand books. and this time, ur web scraped system76, Framework, and Back Market laptops. can u create a separate/new postgresql and knowldedge graph  of real scraped laptops , electronics, and books only? no fake/seed/synthetic and only these categories. and make sure all these scraped products are richly populated
+
+
+While it’s valuable that we can handle simple queries with low latency, we should also focus on showcasing the specific capabilities our system has compared to traditional, filter-based systems. Those systems can easily help users find something like a Dell laptop, but they often fail when faced with more complex, multi-constraint queries such as:
+
+“I will use the laptop for Webflow, Figma, Xano, Make, Python, PyCharm, and PyTorch (machine and deep learning). I expect it to handle 50 open browser tabs without issues, have a 16″ or 15.6″ screen, at least 512 GB of storage, at least 16 GB of RAM, and cost no more than $2,000.”
+“I need a laptop for productive work—web development, QGIS, and possibly Godot or Unity—that runs Linux well, has an excellent keyboard, provides at least 8 hours of battery life, includes 32 GB of RAM, and supports a 5K ultrawide external monitor.”
+[1:32 PM]These queries are from reddit.com
+[1:33 PM]Please be mindful of this when desiging/testing the systems, asking how can we design the system so that we can handle such queries
+[1:33 PM]and have test data based on this
+[1:38 PM]@Juli Huang This point is closely related to the previous one. When deciding which product categories to focus on, we should consider the following key factors:
+
+Data richness and quality. For a given category, we need a rich dataset with comprehensive product coverage—complete image sets (no missing images), a large number of products, and detailed, high-quality descriptions. If images are missing, for example, the user experience suffers immediately: users may dislike what they see at first glance and never reach the advanced features we discussed above.
+High user search cost. The category should involve meaningful user research effort. In other words, when users want to purchase a product in this category, they typically don’t just go straight to Amazon for example. Instead, they spend time researching across sources like Google, Reddit, and reviews before making a decision.
+[1:39 PM]use these two factors to choose one or two key catagoryies and focus on them (
+    As for the compex queries, you can try to find such queries on Reddit for example
+Negin Golrezaei  [2:00 PM]
+@Juli Huang again related to the previous point, please remove the products that have low quality (e.g., missing images) or improve them if you'd like to keep them please
+
+for example, i should focus on laptops and phones. so web scrape real laptops and phones from bigcommerce temu back market system76 framework woocommerce shopify client websites.
+make sure to all get the populated info.- brand, image, price, etc.
+
+--- HOW TO RUN REAL-ONLY DATABASE (no fake/seed/synthetic) ---
+Run these one at a time (do not paste comments with parentheses into zsh):
+
+python scripts/populate_real_only_db.py
+python scripts/populate_real_only_db.py --full
+python scripts/build_knowledge_graph.py --clear
+
+What gets scraped:
+  - System76 (system76.com/laptops): ~10 laptops + bags - WORKS (real web scrape)
+  - Framework (frame.work/marketplace): ~18 laptops via Selenium when --full
+  - Back Market: Selenium when --full
+  - Fairphone (shop.fairphone.com/smartphones): ~2 phones via Selenium when --full
+  - BigCommerce demo: extra laptops
+
+For 100+ products: Use --full (enables --scrape-books, --scrape-temu, Selenium for Framework/Back Market/Fairphone).
+
+Optional flags for populate_real_only_db.py:
+  --full          Enable all: books, Temu, Selenium for Framework/Back Market/Fairphone (slower)
+  --scrape-books  Scrape Barnes & Noble for books (may block)
+  --scrape-temu   Scrape Temu (requires Selenium)
+  --temu-urls URL Custom Temu URLs to scrape
+
+Scraping strategies (from week6webscrapeelectronics.txt):
+  - Framework/Fairphone: try products/<handle>.json + cookie jar first; 403 => use Selenium
+  - Block detection: 403/429/503, captcha in HTML => log and suggest --full
+  - Browser headers: UA, Accept, Referer, DNT, Sec-Fetch-* for requests
+  - Cookie jar: GET homepage first, then target URL (same session)
+
+--- AUTOMATED / SCHEDULED SCRAPING ---
+Run on a schedule (cron) to refresh product data regularly:
+
+  chmod +x scripts/run_scheduled_scrape.sh
+  ./scripts/run_scheduled_scrape.sh
+
+For daily at 3am:
+  crontab -e
+  add: 0 3 * * * /path/to/mcp-server/scripts/run_scheduled_scrape.sh >> /var/log/idss-scrape.log 2>&1
+
+The script runs: populate_real_only_db.py --full, backfill_kg_features.py, build_knowledge_graph.py --clear.
+Requires: PostgreSQL, Neo4j (optional), .env with DATABASE_URL and NEO4J_PASSWORD.

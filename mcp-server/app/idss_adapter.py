@@ -24,11 +24,26 @@ import logging
 from app.schemas import (
     ResponseStatus, ConstraintDetail, RequestTrace, VersionInfo, ProvenanceInfo,
     SearchProductsRequest, SearchProductsResponse, SearchResultsData, ProductSummary,
-    GetProductRequest, GetProductResponse, ProductDetail,
+    GetProductRequest, GetProductResponse, ProductDetail, ShippingInfo,
 )
 
 # Set up logger
 logger = logging.getLogger(__name__)
+
+
+def _enriched_defaults() -> Dict[str, Any]:
+    """Agent-ready enrichment (week6tips). Same defaults as endpoints."""
+    return {
+        "shipping": ShippingInfo(
+            shipping_method="standard",
+            estimated_delivery_days=5,
+            shipping_cost_cents=599,
+            shipping_region="US",
+        ),
+        "return_policy": "Free 30-day returns",
+        "warranty": "1-year manufacturer warranty",
+        "promotion_info": None,
+    }
 
 
 # ============================================================================
@@ -217,6 +232,7 @@ def vehicle_to_product_summary(vehicle: Dict[str, Any]) -> ProductSummary:
         timestamp=datetime.utcnow()
     )
     
+    enriched = _enriched_defaults()
     return ProductSummary(
         product_id=f"VIN-{vin}",
         name=name,
@@ -227,7 +243,11 @@ def vehicle_to_product_summary(vehicle: Dict[str, Any]) -> ProductSummary:
         available_qty=1,  # Vehicles are unique items
         product_type="vehicle",
         metadata=vehicle_metadata,
-        provenance=provenance
+        provenance=provenance,
+        shipping=enriched["shipping"],
+        return_policy=enriched["return_policy"],
+        warranty=enriched["warranty"],
+        promotion_info=enriched["promotion_info"],
     )
 
 
@@ -338,7 +358,7 @@ def vehicle_to_product_detail(vehicle: Dict[str, Any]) -> ProductDetail:
         source="idss_sqlite",
         timestamp=datetime.utcnow()
     )
-    
+    enriched = _enriched_defaults()
     return ProductDetail(
         product_id=f"VIN-{vin}",
         name=name,
@@ -352,7 +372,11 @@ def vehicle_to_product_detail(vehicle: Dict[str, Any]) -> ProductDetail:
         updated_at=datetime.utcnow(),
         product_type="vehicle",
         metadata=vehicle_metadata,
-        provenance=provenance
+        provenance=provenance,
+        shipping=enriched["shipping"],
+        return_policy=enriched["return_policy"],
+        warranty=enriched["warranty"],
+        promotion_info=enriched["promotion_info"],
     )
 
 
@@ -387,6 +411,7 @@ def property_to_product_summary(property_data: Dict[str, Any]) -> ProductSummary
         timestamp=datetime.utcnow()
     )
     
+    enriched = _enriched_defaults()
     return ProductSummary(
         product_id=f"PROP-{property_data['property_id'].split('-')[1]}",
         name=name,
@@ -397,7 +422,11 @@ def property_to_product_summary(property_data: Dict[str, Any]) -> ProductSummary
         available_qty=1,
         product_type="real_estate",
         metadata=metadata,
-        provenance=provenance
+        provenance=provenance,
+        shipping=enriched["shipping"],
+        return_policy=enriched["return_policy"],
+        warranty=enriched["warranty"],
+        promotion_info=enriched["promotion_info"],
     )
 
 
@@ -416,7 +445,7 @@ def property_to_product_detail(property_data: Dict[str, Any]) -> ProductDetail:
         desc_parts.append(f"{property_data['lot_size']} acres")
     
     description = property_data.get("description", " • ".join(desc_parts))
-    
+    enriched = _enriched_defaults()
     # Build comprehensive metadata
     metadata = {
         "mls_id": property_data["mls_id"],
@@ -454,7 +483,11 @@ def property_to_product_detail(property_data: Dict[str, Any]) -> ProductDetail:
         updated_at=datetime.utcnow(),
         product_type="real_estate",
         metadata=metadata,
-        provenance=provenance
+        provenance=provenance,
+        shipping=enriched["shipping"],
+        return_policy=enriched["return_policy"],
+        warranty=enriched["warranty"],
+        promotion_info=enriched["promotion_info"],
     )
 
 
@@ -502,7 +535,7 @@ def travel_to_product_summary(travel_data: Dict[str, Any]) -> ProductSummary:
         source="travel_api",
         timestamp=datetime.utcnow()
     )
-    
+    enriched = _enriched_defaults()
     return ProductSummary(
         product_id=travel_data["booking_id"],
         name=travel_data["name"],
@@ -513,7 +546,11 @@ def travel_to_product_summary(travel_data: Dict[str, Any]) -> ProductSummary:
         available_qty=1,
         product_type="travel",
         metadata=metadata,
-        provenance=provenance
+        provenance=provenance,
+        shipping=enriched["shipping"],
+        return_policy=enriched["return_policy"],
+        warranty=enriched["warranty"],
+        promotion_info=enriched["promotion_info"],
     )
 
 
@@ -541,7 +578,7 @@ def travel_to_product_detail(travel_data: Dict[str, Any]) -> ProductDetail:
         source="travel_api",
         timestamp=datetime.utcnow()
     )
-    
+    enriched = _enriched_defaults()
     return ProductDetail(
         product_id=travel_data["booking_id"],
         name=travel_data["name"],
@@ -555,7 +592,11 @@ def travel_to_product_detail(travel_data: Dict[str, Any]) -> ProductDetail:
         updated_at=datetime.utcnow(),
         product_type="travel",
         metadata=metadata,
-        provenance=provenance
+        provenance=provenance,
+        shipping=enriched["shipping"],
+        return_policy=enriched["return_policy"],
+        warranty=enriched["warranty"],
+        promotion_info=enriched["promotion_info"],
     )
 
 

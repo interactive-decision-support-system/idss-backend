@@ -161,9 +161,9 @@ LAPTOP_SCHEMA = DomainSchema(
             name="os",
             display_name="Operating System",
             priority=SlotPriority.MEDIUM,
-            description="Preferred OS (macOS, Windows, ChromeOS).",
-            example_question="Do you prefer Mac or Windows?",
-            example_replies=["macOS", "Windows", "ChromeOS", "No preference"]
+            description="Preferred OS (macOS, Windows, Linux, ChromeOS).",
+            example_question="Do you prefer Mac, Windows, or Linux?",
+            example_replies=["macOS", "Windows", "Linux", "ChromeOS", "No preference"]
         ),
         PreferenceSlot(
             name="screen_size",
@@ -172,174 +172,65 @@ LAPTOP_SCHEMA = DomainSchema(
             description="Preferred screen size (13-inch, 15-inch, etc.).",
             example_question="What screen size do you prefer?",
             example_replies=["13-14 inch (Portable)", "15-16 inch (Standard)", "17+ inch (Large)"]
-        )
+        ),
+        # Richer KG (§7): Reddit-style features for complex queries (good for ML, battery life, etc.)
+        PreferenceSlot(
+            name="good_for_ml",
+            display_name="Good for ML / Deep Learning",
+            priority=SlotPriority.LOW,
+            description="Whether the laptop is suitable for machine learning or deep learning (e.g. dedicated GPU, 16GB+ RAM).",
+            example_question="Do you need it for machine learning or deep learning?",
+            example_replies=["Yes", "No", "Nice to have"],
+            filter_key="good_for_ml"
+        ),
+        PreferenceSlot(
+            name="good_for_web_dev",
+            display_name="Good for Web Development",
+            priority=SlotPriority.LOW,
+            description="Suitable for web development (coding, IDEs, multiple browsers).",
+            example_question="Will you use it for web development?",
+            example_replies=["Yes", "No"],
+            filter_key="good_for_web_dev"
+        ),
+        PreferenceSlot(
+            name="battery_life",
+            display_name="Battery Life",
+            priority=SlotPriority.LOW,
+            description="Minimum battery life in hours (e.g. 8+ hours).",
+            example_question="How many hours of battery life do you need?",
+            example_replies=["6+ hours", "8+ hours", "10+ hours", "No preference"],
+            filter_key="battery_life_min_hours"
+        ),
     ]
 )
 
-# 3. Jewelry Schema
-JEWELRY_SCHEMA = DomainSchema(
-    domain="jewelry",
-    description="Jewelry: necklaces, earrings, bracelets, rings, pendants.",
+# 3. Phones Schema (real scraped: Fairphone, BigCommerce, etc.)
+PHONES_SCHEMA = DomainSchema(
+    domain="phones",
+    description="Phones and smartphones (repairable, sustainable, budget).",
     slots=[
-        PreferenceSlot(
-            name="item_type",
-            display_name="Type",
-            priority=SlotPriority.HIGH,
-            description="Type of jewelry (necklace, earrings, bracelet, ring, pendant).",
-            example_question="What type of jewelry are you looking for?",
-            example_replies=["Necklace", "Earrings", "Bracelet", "Ring", "Pendant"],
-            filter_key="subcategory"
-        ),
         PreferenceSlot(
             name="budget",
             display_name="Budget",
             priority=SlotPriority.HIGH,
-            description="Price range for the jewelry.",
-            example_question="What is your budget?",
-            example_replies=["Under $50", "$50-$150", "$150-$300", "Over $300"],
+            description="Price range for the phone.",
+            example_question="What is your budget for a phone?",
+            example_replies=["Under $300", "$300-$500", "$500-$800", "Over $800"],
             filter_key="price_max_cents"
         ),
         PreferenceSlot(
             name="brand",
             display_name="Brand",
             priority=SlotPriority.MEDIUM,
-            description="Preferred jewelry brand (Pandora, Tiffany, Swarovski, etc.).",
+            description="Preferred phone brand (Fairphone, Apple, Samsung, etc.).",
             example_question="Do you have a preferred brand?",
-            example_replies=["Pandora", "Tiffany & Co", "Swarovski", "Kay Jewelers", "No preference"],
+            example_replies=["Fairphone", "No preference", "Apple", "Samsung"],
             filter_key="brand"
         ),
-        PreferenceSlot(
-            name="material",
-            display_name="Material",
-            priority=SlotPriority.LOW,
-            description="Preferred material (gold, silver, etc.).",
-            example_question="Do you prefer a specific material?",
-            example_replies=["Gold", "Silver", "Rose Gold", "No preference"]
-        )
     ]
 )
 
-# 4. Accessories Schema
-ACCESSORIES_SCHEMA = DomainSchema(
-    domain="accessories",
-    description="Accessories: scarves, hats, belts, bags, watches, sunglasses.",
-    slots=[
-        PreferenceSlot(
-            name="item_type",
-            display_name="Type",
-            priority=SlotPriority.HIGH,
-            description="Type of accessory (scarf, hat, belt, bag, watch, sunglasses).",
-            example_question="What type of accessory are you looking for?",
-            example_replies=["Scarf", "Hat", "Belt", "Bag", "Watch", "Sunglasses"],
-            filter_key="subcategory"
-        ),
-        PreferenceSlot(
-            name="budget",
-            display_name="Budget",
-            priority=SlotPriority.HIGH,
-            description="Price range for the accessory.",
-            example_question="What is your budget?",
-            example_replies=["Under $50", "$50-$150", "$150-$300", "Over $300"],
-            filter_key="price_max_cents"
-        ),
-        PreferenceSlot(
-            name="brand",
-            display_name="Brand",
-            priority=SlotPriority.MEDIUM,
-            description="Preferred brand.",
-            example_question="Do you have a preferred brand?",
-            example_replies=["No preference", "Pandora", "Tiffany & Co", "Swarovski"]
-        )
-    ]
-)
-
-# 5. Clothing Schema
-CLOTHING_SCHEMA = DomainSchema(
-    domain="clothing",
-    description="Clothing and apparel: dresses, shirts, pants, jackets, etc.",
-    slots=[
-        PreferenceSlot(
-            name="item_type",
-            display_name="Type",
-            priority=SlotPriority.HIGH,
-            description="Type of clothing (dresses, shirts, pants, jackets, etc.).",
-            example_question="What type of clothing are you looking for?",
-            example_replies=["Dresses", "Shirts & Blouses", "Pants", "Graphic Tees", "Shorts", "Jackets"],
-            filter_key="subcategory"
-        ),
-        PreferenceSlot(
-            name="budget",
-            display_name="Budget",
-            priority=SlotPriority.HIGH,
-            description="Price range for the clothing.",
-            example_question="What is your budget?",
-            example_replies=["Under $50", "$50-$100", "$100-$200", "Over $200"],
-            filter_key="price_max_cents"
-        ),
-        PreferenceSlot(
-            name="brand",
-            display_name="Brand",
-            priority=SlotPriority.MEDIUM,
-            description="Preferred clothing brand.",
-            example_question="Do you have a preferred brand?",
-            example_replies=["No preference", "Nike", "Patagonia", "Uniqlo"],
-            filter_key="brand"
-        ),
-        PreferenceSlot(
-            name="color",
-            display_name="Color",
-            priority=SlotPriority.LOW,
-            description="Preferred color.",
-            example_question="Do you prefer a specific color?",
-            example_replies=["Black", "White", "Blue", "Navy", "Gray", "No preference"]
-        )
-    ]
-)
-
-# 6. Beauty Schema
-BEAUTY_SCHEMA = DomainSchema(
-    domain="beauty",
-    description="Beauty and cosmetics: lipstick, eyeshadow, skincare, etc.",
-    slots=[
-        PreferenceSlot(
-            name="item_type",
-            display_name="Type",
-            priority=SlotPriority.HIGH,
-            description="Type of beauty product (lipstick, eyeshadow, skincare, etc.).",
-            example_question="What type of beauty product are you looking for?",
-            example_replies=["Lipstick", "Eyeshadow", "Mascara", "Skincare", "Foundation", "Blush"],
-            filter_key="subcategory"
-        ),
-        PreferenceSlot(
-            name="budget",
-            display_name="Budget",
-            priority=SlotPriority.HIGH,
-            description="Price range for the beauty product.",
-            example_question="What is your budget?",
-            example_replies=["Under $20", "$20-$50", "$50-$100", "Over $100"],
-            filter_key="price_max_cents"
-        ),
-        PreferenceSlot(
-            name="brand",
-            display_name="Brand",
-            priority=SlotPriority.MEDIUM,
-            description="Preferred beauty brand.",
-            example_question="Do you have a preferred brand?",
-            example_replies=["No preference", "MAC", "NARS", "ColourPop", "Fenty Beauty"],
-            filter_key="brand"
-        ),
-        PreferenceSlot(
-            name="color",
-            display_name="Color/Shade",
-            priority=SlotPriority.LOW,
-            description="Preferred color or shade.",
-            example_question="Do you prefer a specific color or shade?",
-            example_replies=["Red", "Nude", "Pink", "Neutral", "No preference"]
-        )
-    ]
-)
-
-# 7. Books Schema
+# 4. Books Schema
 BOOK_SCHEMA = DomainSchema(
     domain="books",
     description="Fiction and non-fiction books, novels, and literature.",
@@ -379,14 +270,12 @@ BOOK_SCHEMA = DomainSchema(
 # Registry Access
 # ============================================================================
 
+# Only: vehicles, laptops, books, phones (real scraped products)
 DOMAIN_REGISTRY = {
     VEHICLE_SCHEMA.domain: VEHICLE_SCHEMA,
     LAPTOP_SCHEMA.domain: LAPTOP_SCHEMA,
-    JEWELRY_SCHEMA.domain: JEWELRY_SCHEMA,
-    ACCESSORIES_SCHEMA.domain: ACCESSORIES_SCHEMA,
-    CLOTHING_SCHEMA.domain: CLOTHING_SCHEMA,
-    BEAUTY_SCHEMA.domain: BEAUTY_SCHEMA,
-    BOOK_SCHEMA.domain: BOOK_SCHEMA
+    BOOK_SCHEMA.domain: BOOK_SCHEMA,
+    PHONES_SCHEMA.domain: PHONES_SCHEMA,
 }
 
 def get_domain_schema(domain: str) -> Optional[DomainSchema]:

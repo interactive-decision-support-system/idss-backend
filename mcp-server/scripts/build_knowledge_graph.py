@@ -16,6 +16,15 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Load .env from project root so NEO4J_* are set when run from mcp-server
+try:
+    from dotenv import load_dotenv
+    _root = Path(__file__).resolve().parent.parent.parent
+    load_dotenv(_root / ".env")
+    load_dotenv()
+except Exception:
+    pass
+
 from app.database import SessionLocal
 from app.models import Product, Price, Inventory
 from app.neo4j_config import Neo4jConnection
@@ -36,6 +45,8 @@ LAPTOP_MANUFACTURERS = {
     "Acer": {"country": "Taiwan", "founded": 1976, "website": "acer.com"},
     "MSI": {"country": "Taiwan", "founded": 1986, "website": "msi.com"},
     "Razer": {"country": "USA", "founded": 2005, "website": "razer.com"},
+    "System76": {"country": "USA", "founded": 2007, "website": "system76.com"},
+    "Framework": {"country": "USA", "founded": 2019, "website": "frame.work"},
 }
 
 BOOK_PUBLISHERS = {
@@ -260,6 +271,11 @@ def extract_book_metadata(product: Product) -> dict:
 
 def main():
     """Build the complete knowledge graph."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Build Neo4j knowledge graph from PostgreSQL")
+    parser.add_argument("--clear", action="store_true", help="Clear Neo4j before building (use after populate_real_only_db)")
+    args = parser.parse_args()
+
     print("="*80)
     print("BUILDING COMPLEX NEO4J KNOWLEDGE GRAPH")
     print("="*80)
@@ -279,6 +295,10 @@ def main():
     # Initialize graph builder
     builder = KnowledgeGraphBuilder(neo4j_conn)
     
+    if args.clear:
+        print("\n1b. Clearing existing Neo4j graph...")
+        builder.clear_all_data()
+    
     # Create indexes
     print("\n2. Creating indexes and constraints...")
     builder.create_indexes_and_constraints()
@@ -286,7 +306,12 @@ def main():
     # Get products from PostgreSQL
     print("\n3. Loading products from PostgreSQL...")
     all_products = pg_db.query(Product).all()
-    laptops = [p for p in all_products if p.category == "Electronics" and p.product_type in ["laptop", "gaming_laptop"]]
+    # Laptops: explicit type or Electronics (real-only DB may have NULL product_type)
+    laptops = [
+        p for p in all_products
+        if p.category == "Electronics"
+        and (p.product_type in ["laptop", "gaming_laptop"] or p.product_type is None)
+    ]
     books = [p for p in all_products if p.category == "Books"]
     
     print(f"   Found {len(laptops)} laptops and {len(books)} books")
@@ -419,6 +444,17 @@ def main():
             literary_count += 1
     
     print(f" Created {literary_count} literary connections")
+    
+    # Entity resolution: merge duplicate Authors, Manufacturers, Brands
+    print("\n10. Running entity resolution...")
+    try:
+        merge_counts = builder.run_entity_resolution(similarity_threshold=0.88)
+        if sum(merge_counts.values()) > 0:
+            print(f"   Merged duplicates: {merge_counts}")
+        else:
+            print("   No duplicate entities found")
+    except Exception as e:
+        print(f"   [WARN] Entity resolution skipped: {e}")
     
     # Get statistics
     print("\n" + "="*80)

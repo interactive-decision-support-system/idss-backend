@@ -18,16 +18,13 @@ from app.input_validator import fuzzy_match_domain, normalize_domain_keywords
 
 logger = StructuredLogger("conversation_controller")
 
-# --- Domain enum ---
+# --- Domain enum (only: vehicles, laptops, books, phones) ---
 class Domain(str, Enum):
     NONE = "none"
     VEHICLES = "vehicles"
     LAPTOPS = "laptops"
     BOOKS = "books"
-    JEWELRY = "jewelry"
-    ACCESSORIES = "accessories"
-    CLOTHING = "clothing"
-    BEAUTY = "beauty"
+    PHONES = "phones"
 
 
 # --- Hard domain keywords (deterministic, checked first) ---
@@ -55,22 +52,9 @@ BOOK_KEYWORDS = [
     "genre", "author", "fiction", "mystery", "romance", "looking for books",
     "show me books", "find books"
 ]
-JEWELRY_KEYWORDS = [
-    "jewelry", "jewellery", "necklace", "necklaces", "earrings", "bracelet",
-    "bracelets", "ring", "rings", "pendant", "chain", "brooch"
-]
-ACCESSORIES_KEYWORDS = [
-    "accessories", "accessory", "scarf", "scarves", "hat", "hats", "belt",
-    "belts", "bag", "bags", "watch", "watches", "sunglasses"
-]
-CLOTHING_KEYWORDS = [
-    "clothing", "clothes", "apparel", "dress", "dresses", "shirt", "shirts",
-    "pants", "jeans", "blouse", "blouses", "t-shirt", "tshirt", "hoodie",
-    "jacket", "jackets", "shorts", "skirt", "tops", "fashion"
-]
-BEAUTY_KEYWORDS = [
-    "beauty", "cosmetics", "makeup", "lipstick", "lipstick", "eyeshadow",
-    "mascara", "foundation", "blush", "skincare", "moisturizer", "serum"
+PHONE_KEYWORDS = [
+    "phone", "phones", "smartphone", "smartphones", "cell phone", "mobile",
+    "fairphone", "repairable phone", "sustainable phone"
 ]
 
 # Short domain intents: treat as mode switch → start interview Q1
@@ -85,23 +69,11 @@ DOMAIN_INTENT_PATTERNS = {
         re.IGNORECASE
     ),
     Domain.VEHICLES: re.compile(
-        r"^(cars?s*|vehicles?|vehicl|suvs?|trucks?|show me (cars?|vehicles?|suvs?)|looking for (a )?car)$",
+        r"^(cars?s*|vehicles?|vehicl|suvs?|trucks?|show me (cars?|vehicles?|suvs?)|looking for (a )?car|vehicles)$",
         re.IGNORECASE
     ),
-    Domain.JEWELRY: re.compile(
-        r"^(jewelry|jewellery|jewelries|show me jewelry|looking for jewelry)$",
-        re.IGNORECASE
-    ),
-    Domain.ACCESSORIES: re.compile(
-        r"^(accessories|accessory|show me accessories|looking for accessories)$",
-        re.IGNORECASE
-    ),
-    Domain.CLOTHING: re.compile(
-        r"^(clothing|clothes|apparel|show me clothing|looking for (clothing|clothes|apparel))$",
-        re.IGNORECASE
-    ),
-    Domain.BEAUTY: re.compile(
-        r"^(beauty|cosmetics|makeup|show me beauty|looking for (beauty|cosmetics|makeup))$",
+    Domain.PHONES: re.compile(
+        r"^(phones?s*|smartphones?|cell phones?|show me phones?|looking for (a )?phone)$",
         re.IGNORECASE
     ),
 }
@@ -172,21 +144,9 @@ def detect_domain(
         if re.search(rf'\b{re.escape(kw)}\b', msg):
             return Domain.BOOKS, "keyword_book"
 
-    for kw in JEWELRY_KEYWORDS:
+    for kw in PHONE_KEYWORDS:
         if re.search(rf'\b{re.escape(kw)}\b', msg):
-            return Domain.JEWELRY, "keyword_jewelry"
-
-    for kw in ACCESSORIES_KEYWORDS:
-        if re.search(rf'\b{re.escape(kw)}\b', msg):
-            return Domain.ACCESSORIES, "keyword_accessories"
-
-    for kw in CLOTHING_KEYWORDS:
-        if re.search(rf'\b{re.escape(kw)}\b', msg):
-            return Domain.CLOTHING, "keyword_clothing"
-
-    for kw in BEAUTY_KEYWORDS:
-        if re.search(rf'\b{re.escape(kw)}\b', msg):
-            return Domain.BEAUTY, "keyword_beauty"
+            return Domain.PHONES, "keyword_phone"
 
     # 4) Filters category
     if filters_category:
@@ -195,14 +155,8 @@ def detect_domain(
             return Domain.BOOKS, "filter_category"
         if "electronic" in cat:
             return Domain.LAPTOPS, "filter_category"
-        if "jewelry" in cat or "jewellery" in cat:
-            return Domain.JEWELRY, "filter_category"
-        if "accessor" in cat:
-            return Domain.ACCESSORIES, "filter_category"
-        if "cloth" in cat or "apparel" in cat:
-            return Domain.CLOTHING, "filter_category"
-        if "beauty" in cat or "cosmetic" in cat:
-            return Domain.BEAUTY, "filter_category"
+        if "phone" in cat:
+            return Domain.PHONES, "filter_category"
     
     # 5) Active session continuation (quick replies like "School", "$500-$1000")
     if active_domain:

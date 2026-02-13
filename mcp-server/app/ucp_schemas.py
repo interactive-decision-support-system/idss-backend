@@ -88,17 +88,22 @@ class UCPCheckoutRequest(BaseModel):
 # ============================================================================
 
 class UCPProductSummary(BaseModel):
-    """UCP-compatible product summary."""
+    """UCP-compatible product summary. Includes enriched agent-ready fields (week6tips)."""
     id: str = Field(..., description="Product ID")
     title: str = Field(..., description="Product title/name")
     price: Dict[str, Any] = Field(..., description="Price object {value: float, currency: str}")
     availability: str = Field(..., description="Availability status (in stock | out of stock)")
     image_link: Optional[str] = Field(None, description="Primary product image URL")
     link: str = Field(..., description="Product detail page URL")
+    # Enriched fields (week6tips: reduce back-and-forth for any AI agent)
+    shipping: Optional[Dict[str, Any]] = Field(None, description="Delivery ETA, method, cost")
+    return_policy: Optional[str] = Field(None, description="e.g. Free 30-day returns")
+    warranty: Optional[str] = Field(None, description="e.g. 1-year manufacturer warranty")
+    promotion_info: Optional[str] = Field(None, description="Promotion or discount info")
 
 
 class UCPProductDetail(BaseModel):
-    """UCP-compatible product detail."""
+    """UCP-compatible product detail. Includes enriched agent-ready fields (week6tips)."""
     id: str = Field(..., description="Product ID")
     title: str = Field(..., description="Product title/name")
     description: str = Field(..., description="Product description")
@@ -109,6 +114,11 @@ class UCPProductDetail(BaseModel):
     category: Optional[str] = Field(None, description="Product category")
     brand: Optional[str] = Field(None, description="Product brand")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional product metadata")
+    # Enriched fields (week6tips)
+    shipping: Optional[Dict[str, Any]] = Field(None, description="Delivery ETA, method, cost")
+    return_policy: Optional[str] = Field(None, description="Return policy")
+    warranty: Optional[str] = Field(None, description="Warranty")
+    promotion_info: Optional[str] = Field(None, description="Promotion info")
 
 
 class UCPSearchResponse(BaseModel):

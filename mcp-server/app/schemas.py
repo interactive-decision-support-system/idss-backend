@@ -3,7 +3,12 @@ Pydantic v2 schemas for strict request/response validation.
 
 All request schemas use extra="forbid" to reject unknown fields.
 All response schemas follow the standard envelope pattern.
+
+Per week6tips: Product discovery responses include enriched agent-ready fields
+(shipping, return_policy, warranty, promotion_info) to reduce back-and-forth.
 """
+
+from __future__ import annotations
 
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any
@@ -210,6 +215,12 @@ class ProductSummary(BaseModel):
     # Provenance tracking (research-grade)
     provenance: Optional[ProvenanceInfo] = Field(None, description="Data source provenance")
 
+    # Enriched agent-ready fields (week6tips: delivery, return, warranty, promotion)
+    shipping: Optional[ShippingInfo] = Field(None, description="Delivery ETA, method, cost (synthetic OK)")
+    return_policy: Optional[str] = Field(None, description="e.g. Free 30-day returns")
+    warranty: Optional[str] = Field(None, description="e.g. 1-year manufacturer warranty")
+    promotion_info: Optional[str] = Field(None, description="e.g. 10% off through [date]; holiday promo")
+
 
 class ProductDetail(BaseModel):
     """
@@ -241,6 +252,12 @@ class ProductDetail(BaseModel):
     # Product type metadata
     product_type: Optional[str] = Field(None, description="Product type: vehicle, ecommerce, real_estate, etc")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Type-specific metadata (VIN, SKU, etc)")
+
+    # Enriched agent-ready fields (week6tips: delivery, return, warranty, promotion)
+    shipping: Optional[ShippingInfo] = Field(None, description="Delivery ETA, method, cost (synthetic OK)")
+    return_policy: Optional[str] = Field(None, description="e.g. Free 30-day returns")
+    warranty: Optional[str] = Field(None, description="e.g. 1-year manufacturer warranty")
+    promotion_info: Optional[str] = Field(None, description="e.g. 10% off through [date]; holiday promo")
 
 
 class CartItemData(BaseModel):
