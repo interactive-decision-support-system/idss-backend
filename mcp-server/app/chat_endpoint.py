@@ -182,6 +182,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             "under $50", "$50-$150", "$150-$300", "over $300",
             "under $20", "$20-$50", "$50-$100", "over $100", "$100-$200", "over $200",
             "under $15", "$15-$30", "any price",
+            "under $20k", "$20k-$35k", "$35k-$50k", "over $50k",
             "gaming", "work", "school", "creative", "apple", "dell", "lenovo", "hp",
             "fiction", "mystery", "sci-fi", "hardcover", "paperback", "e-book", "audiobook",
             "show me all jewelry", "show me all accessories", "show me all clothing", "show me all beauty",
@@ -215,6 +216,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             "under $50", "$50-$150", "$150-$300", "over $300",
             "under $20", "$20-$50", "$50-$100", "over $100", "$100-$200", "over $200",
             "under $15", "$15-$30", "any price",
+            "under $20k", "$20k-$35k", "$35k-$50k", "over $50k",
             "gaming", "work", "school", "creative", "apple", "dell", "lenovo", "hp",
             "fiction", "mystery", "sci-fi", "hardcover", "paperback", "e-book", "audiobook",
             "show me all jewelry", "show me all accessories", "show me all clothing", "show me all beauty",
@@ -676,6 +678,12 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
 
     active_domain = detected_domain.value if detected_domain != Domain.NONE else session.active_domain or "vehicles"
 
+    # HARD SAFEGUARD: Vehicle budget answers ("Over $50k", etc.) must ALWAYS go to IDSS.
+    # Prevents book/laptop questions leaking into vehicle flow when session state is wrong.
+    _vehicle_budget_answers = ("under $20k", "$20k-$35k", "$35k-$50k", "over $50k")
+    if msg_lower in _vehicle_budget_answers:
+        active_domain = "vehicles"
+
     if active_domain in ["laptops", "books", "jewelry", "accessories", "clothing", "beauty"]:
         category = _domain_to_category(active_domain)
         filters = dict(session.explicit_filters)
@@ -937,9 +945,12 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             # Add post-recommendation follow-ups for vehicles if not present
             if response_type == "recommendations" and not quick_replies:
                 quick_replies = ["See similar items", "Anything else?", "Compare items", "Rate recommendations", "Help with checkout"]
-            # Track that user received recommendations (for post-recommendation flow)
+            # CRITICAL: Sync MCP session with IDSS response so next message is treated as followup
+            # (prevents domain re-detection from "Over $50k" etc. and book questions leaking into vehicle flow)
+            session_manager.set_active_domain(session_id, domain)
+            if response_type == "question":
+                session_manager.add_question_asked(session_id, "idss_question")
             if response_type == "recommendations":
-                session_manager.set_active_domain(session_id, domain)
                 session_manager.set_stage(session_id, STAGE_RECOMMENDATIONS)
 
             return ChatResponse(
