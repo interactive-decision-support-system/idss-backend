@@ -44,6 +44,11 @@ def mcp_product_to_ucp_summary(mcp_product: Any, base_url: str = "https://exampl
     if mcp_product.metadata:
         image_link = mcp_product.metadata.get("primary_image") or mcp_product.metadata.get("images", [None])[0]
     
+    # Enriched fields (week6tips) - pass through from MCP
+    shipping = None
+    if getattr(mcp_product, "shipping", None):
+        s = mcp_product.shipping
+        shipping = s.model_dump() if hasattr(s, "model_dump") else s
     return UCPProductSummary(
         id=mcp_product.product_id,
         title=mcp_product.name,
@@ -53,7 +58,11 @@ def mcp_product_to_ucp_summary(mcp_product: Any, base_url: str = "https://exampl
         },
         availability=availability,
         image_link=image_link,
-        link=f"{base_url}/products/{mcp_product.product_id}"
+        link=f"{base_url}/products/{mcp_product.product_id}",
+        shipping=shipping,
+        return_policy=getattr(mcp_product, "return_policy", None),
+        warranty=getattr(mcp_product, "warranty", None),
+        promotion_info=getattr(mcp_product, "promotion_info", None),
     )
 
 
@@ -76,10 +85,14 @@ def mcp_product_to_ucp_detail(mcp_product: Any, base_url: str = "https://example
     if mcp_product.metadata:
         image_link = mcp_product.metadata.get("primary_image") or mcp_product.metadata.get("images", [None])[0]
     
+    shipping = None
+    if getattr(mcp_product, "shipping", None):
+        s = mcp_product.shipping
+        shipping = s.model_dump() if hasattr(s, "model_dump") else s
     return UCPProductDetail(
         id=mcp_product.product_id,
         title=mcp_product.name,
-        description=mcp_product.description,
+        description=mcp_product.description or "",
         price={
             "value": round(mcp_product.price_cents / 100, 2),
             "currency": mcp_product.currency
@@ -89,7 +102,11 @@ def mcp_product_to_ucp_detail(mcp_product: Any, base_url: str = "https://example
         link=f"{base_url}/products/{mcp_product.product_id}",
         category=mcp_product.category,
         brand=mcp_product.brand,
-        metadata=mcp_product.metadata
+        metadata=mcp_product.metadata,
+        shipping=shipping,
+        return_policy=getattr(mcp_product, "return_policy", None),
+        warranty=getattr(mcp_product, "warranty", None),
+        promotion_info=getattr(mcp_product, "promotion_info", None),
     )
 
 

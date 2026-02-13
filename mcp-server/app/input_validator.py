@@ -15,20 +15,16 @@ from app.query_normalizer import normalize_query, levenshtein_distance
 # Valid domain keywords with fuzzy matching tolerance
 # Include common variations and misspellings
 # NOTE: Order matters - more specific/common terms first
+# Only: vehicles, laptops, books, phones (real scraped products)
 DOMAIN_KEYWORDS = {
     "vehicles": ["vehicle", "vehicles", "vehicl", "car", "cars", "truck", "trucks", "suv", "suvs", "sedan", "sedans", "auto", "automobile"],
     "laptops": [
-        # Direct matches first (no fuzzy needed)
         "laptop", "laptops", "notebook", "notebooks", "computer", "computers",
         "macbook", "chromebook", "pc", "pcs",
-        # Common misspellings
         "lapto", "lpatop", "notbook", "notbooks", "computr", "comp",
     ],
     "books": ["book", "books", "novel", "novels", "boks", "bok", "reading", "ebook", "ebooks"],
-    "jewelry": ["jewelry", "jewellery", "jewlry", "jewlery", "necklace", "earrings", "bracelet", "ring", "pendant"],
-    "accessories": ["accessories", "accessory", "scarf", "hat", "belt", "bag", "watch", "sunglasses"],
-    "clothing": ["clothing", "clothes", "apparel", "dress", "shirt", "pants", "jacket", "fashion"],
-    "beauty": ["beauty", "cosmetics", "makeup", "lipstick", "eyeshadow", "skincare"],
+    "phones": ["phone", "phones", "smartphone", "smartphones", "cell phone", "fairphone", "mobile"],
 }
 
 # Invalid/gibberish patterns (but not price ranges or valid short patterns)
@@ -88,7 +84,7 @@ def is_valid_input(message: str) -> Tuple[bool, Optional[str]]:
     # Check for invalid patterns
     for pattern in INVALID_PATTERNS:
         if re.match(pattern, normalized):
-            return False, "I didn't understand that. Please tell me what you're looking for (vehicles, laptops, books, jewelry, accessories, clothing, or beauty)."
+            return False, "I didn't understand that. Please tell me what you're looking for (cars, laptops, books, or phones)."
     
     # Check if message has at least one alphabetic word (prevents "!!!")
     has_word = bool(re.search(r'[a-zA-Z]{2,}', message))

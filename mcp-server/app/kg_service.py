@@ -160,6 +160,23 @@ class KnowledgeGraphService:
                 conditions.append("p.price <= $price_max")
             if filters.get("price_min") is not None or filters.get("price_min_cents") is not None:
                 conditions.append("p.price >= $price_min")
+            # Richer KG (§7): Reddit-style features on Product nodes (backfill sets these)
+            if filters.get("good_for_ml"):
+                conditions.append("p.good_for_ml = true")
+            if filters.get("good_for_gaming"):
+                conditions.append("p.good_for_gaming = true")
+            if filters.get("good_for_web_dev"):
+                conditions.append("p.good_for_web_dev = true")
+            if filters.get("good_for_creative"):
+                conditions.append("p.good_for_creative = true")
+            if filters.get("good_for_linux"):
+                conditions.append("p.good_for_linux = true")
+            if filters.get("repairable"):
+                conditions.append("p.repairable = true")
+            if filters.get("refurbished"):
+                conditions.append("p.refurbished = true")
+            if filters.get("battery_life_min_hours") is not None:
+                conditions.append("p.battery_life_hours >= $battery_life_min_hours")
 
         where_clause = " AND ".join(conditions)
         # Optional text search: match query terms in name/subcategory/description
@@ -198,6 +215,25 @@ class KnowledgeGraphService:
             params["price_min"] = f["price_min_cents"] / 100.0
         elif "price_min" in f:
             params["price_min"] = float(f["price_min"])
+        if f.get("good_for_ml"):
+            params["good_for_ml"] = True
+        if f.get("good_for_gaming"):
+            params["good_for_gaming"] = True
+        if f.get("good_for_web_dev"):
+            params["good_for_web_dev"] = True
+        if f.get("good_for_creative"):
+            params["good_for_creative"] = True
+        if f.get("good_for_linux"):
+            params["good_for_linux"] = True
+        if f.get("repairable"):
+            params["repairable"] = True
+        if f.get("refurbished"):
+            params["refurbished"] = True
+        if f.get("battery_life_min_hours") is not None:
+            try:
+                params["battery_life_min_hours"] = int(f["battery_life_min_hours"])
+            except (TypeError, ValueError):
+                pass
         return params
     
     def get_compatible_components(

@@ -70,7 +70,7 @@ class BaseScraper:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
         
-        # Realistic browser headers (webscrape.txt: User-Agent + headers)
+        # Realistic browser headers (week6webscrapeelectronics.txt: UA + Accept + Referer + DNT)
         uas = [
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -78,9 +78,12 @@ class BaseScraper:
         self.session.headers.update({
             'User-Agent': random.choice(uas),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
+            'DNT': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
         })
     
     def _rate_limit(self):
@@ -90,6 +93,32 @@ class BaseScraper:
         if elapsed < delay:
             time.sleep(delay - elapsed)
         self.last_request_time = time.time()
+
+    def _fetch_with_cookie_jar(self, base_url: str, target_url: str, timeout: int = 15) -> Optional[requests.Response]:
+        """
+        Fetch target URL after establishing session cookies via homepage (week6webscrapeelectronics.txt).
+        Many sites block requests without cookies from initial page load.
+        Returns response even on 403 so caller can detect block.
+        """
+        try:
+            self._rate_limit()
+            home = urljoin(base_url.rstrip("/") + "/", "")
+            self.session.headers["Referer"] = home
+            self.session.get(home, timeout=timeout)
+            time.sleep(0.5 + random.random())
+            self._rate_limit()
+            r = self.session.get(target_url, timeout=timeout)
+            return r
+        except requests.RequestException:
+            return None
+
+    def _is_blocked_response(self, response: requests.Response, body: Optional[str] = None) -> bool:
+        """Detect block/captcha (week6webscrapeelectronics.txt heuristics)."""
+        if response.status_code in (403, 429, 503):
+            return True
+        text = body or (response.text[:500] if response.text else "")
+        block_indicators = ["captcha", "Access denied", "blocked", "Cloudflare", "DataDome", "PerimeterX", "Akamai Bot"]
+        return any(ind in text for ind in block_indicators)
     
     def _parse_price(self, price_str: str) -> Optional[int]:
         """
@@ -676,6 +705,106 @@ class GenericEcommerceScraper(BaseScraper):
         return products
 
 
+class System76Scraper(BaseScraper):
+    """Scraper for System76 laptops (system76.com/laptops) - Linux laptops, workstations, bags."""
+
+    def scrape(self, url: str, max_products: int = 50, source: Optional[str] = None) -> List[ScrapedProduct]:
+        self._source = source or "System76"
+        self._rate_limit()
+        products = []
+        try:
+            response = self.session.get(url, timeout=15)
+            response.raise_for_status()
+            html = response.text
+            soup = BeautifulSoup(html, "html.parser")
+            base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+
+            # System76 uses product cards: a[href*="/laptops/"] or a[href*="/merch/"]
+            for a in soup.select('a[href*="/laptops/"], a[href*="/merch/"]'):
+                href = a.get("href", "")
+                if "/configure" not in href and "/laptops" in href:
+                    continue
+                full_url = urljoin(base, href) if not href.startswith("http") else href
+                # Find product block: go up to parent container, then find h3 and price
+                parent = a.parent
+                for _ in range(5):
+                    if parent is None:
+                        break
+                    h3 = parent.find("h3") or parent.find("h2") or parent.find("h4")
+                    if h3:
+                        name = h3.get_text(strip=True)
+                        if name and len(name) > 3 and "System76" not in name:
+                            # Find price: $X,XXX.XX or $XX.XX (skip $100 Off badges - take highest)
+                            block_text = parent.get_text()
+                            all_prices = re.findall(r'\$[\d,]+\.?\d*', block_text)
+                            price_cents = None
+                            for pstr in all_prices:
+                                pc = self._parse_price(pstr)
+                                if pc and pc >= 5000:  # Min $50 (laptops/bags from System76)
+                                    price_cents = pc
+                                    break
+                            if price_cents and price_cents >= 100:
+                                img = parent.find("img", src=True)
+                                image_url = urljoin(base, img["src"]) if img and img.get("src") else None
+                                desc = name
+                                if "laptop" in name.lower() or "Lemur" in name or "Darter" in name or "Pangolin" in name or "Gazelle" in name or "Oryx" in name or "Adder" in name or "Serval" in name or "Bonobo" in name:
+                                    desc = f"System76 {name}. Linux laptop with Pop!_OS. Repairable, open firmware."
+                                elif "Bag" in name or "Backpack" in name:
+                                    desc = f"System76 {name}. Laptop bag for System76 laptops."
+                                products.append(ScrapedProduct(
+                                    name=f"System76 {name}" if "System76" not in name else name,
+                                    description=desc,
+                                    price_cents=price_cents,
+                                    category="Electronics",
+                                    subcategory="Linux" if "laptop" in name.lower() or "Pro" in name or "WS" in name else "Accessory",
+                                    brand="System76",
+                                    image_url=image_url,
+                                    source_url=full_url,
+                                    source=getattr(self, "_source", "System76"),
+                                ))
+                            break
+                    parent = getattr(parent, "parent", None)
+
+            # Fallback: regex for product name + price pairs
+            if len(products) < 5:
+                price_pattern = re.compile(r'\$([\d,]+\.?\d*)')
+                for match in price_pattern.finditer(html):
+                    price_str = "$" + match.group(1)
+                    price_cents = self._parse_price(price_str)
+                    if not price_cents or price_cents < 5000:  # Skip badges (min $50 for real products)
+                        continue
+                    start = max(0, match.start() - 500)
+                    block = html[start:match.end() + 200]
+                    name_match = re.search(r'<(?:h[23]|div)[^>]*>([^<]{4,80})</', block)
+                    if name_match:
+                        name = name_match.group(1).strip()
+                        if name and "System76" not in name and "Subscribe" not in name and "Buy" not in name:
+                            slug = re.search(r'/laptops/([a-z0-9]+)/', block)
+                            full_url = f"https://system76.com/laptops/{slug.group(1)}/configure" if slug else url
+                            if not any(p.name == name or p.name == f"System76 {name}" for p in products):
+                                products.append(ScrapedProduct(
+                                    name=f"System76 {name}",
+                                    description=f"System76 {name}. Linux laptop with Pop!_OS.",
+                                    price_cents=price_cents,
+                                    category="Electronics",
+                                    subcategory="Linux",
+                                    brand="System76",
+                                    source_url=full_url,
+                                    source=getattr(self, "_source", "System76"),
+                                ))
+        except Exception as e:
+            print(f"  [WARN] System76 scrape: {e}")
+        seen = set()
+        out = []
+        for p in products:
+            k = (p.name.lower()[:50], p.price_cents)
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(p)
+        return out[:max_products]
+
+
 class BigCommerceScraper(BaseScraper):
     """BeautifulSoup-based scraper for BigCommerce category/list pages (e.g. mc-demo)."""
 
@@ -698,7 +827,16 @@ class BigCommerceScraper(BaseScraper):
         if not list_ul:
             list_ul = soup.find("ul", class_=re.compile(r"product-list|product-grid", re.I))
         if not list_ul:
-            items = []
+            # Fallback: california-demo, smart-electronics, vault-bright use divs/links with prices
+            items = soup.select(
+                "div[class*='product'], li[class*='product'], article[class*='product'], "
+                ".product-card, .ProductCard, .product-item, div.card, .product-block"
+            )
+            if not items:
+                items = soup.find_all("a", href=re.compile(r"/(product|products)/", re.I))[:max_products * 2]
+            if not items:
+                # smart-electronics etc: divs with h3 + price pattern
+                items = soup.find_all(["div", "article", "li"], class_=re.compile(r"card|item|tile", re.I))
         else:
             items = list_ul.find_all("li", recursive=False)
         for li in items[: max_products * 2]:
@@ -716,7 +854,7 @@ class BigCommerceScraper(BaseScraper):
                         name = a.get_text(strip=True)
                         href = (a.get("href") or "").strip()
                 if not name:
-                    a = li.find("a", href=re.compile(r"/products?/", re.I))
+                    a = li.find("a", href=re.compile(r"/(product|products)/", re.I))
                     if a:
                         name = a.get_text(strip=True)
                         if not name:
@@ -724,6 +862,16 @@ class BigCommerceScraper(BaseScraper):
                             if img and img.get("alt"):
                                 name = img["alt"].strip()
                         href = (a.get("href") or "").strip()
+                if not name:
+                    h = li.find(["h1", "h2", "h3", "h4"], class_=re.compile(r"title|name|product", re.I))
+                    if h:
+                        name = h.get_text(strip=True)
+                        if not href:
+                            a = li.find("a", href=True)
+                            href = (a.get("href") or "").strip() if a else ""
+                if not name and li.name == "a":
+                    name = li.get_text(strip=True)
+                    href = li.get("href", "")
                 pr = li.find("div", class_=re.compile(r"ProductPriceRating", re.I))
                 if pr:
                     em = pr.find("em")
@@ -733,12 +881,18 @@ class BigCommerceScraper(BaseScraper):
                     span = li.find(["span", "div"], class_=re.compile(r"price|amount", re.I))
                     if span:
                         price_str = span.get_text(strip=True)
+                if not price_str:
+                    price_m = re.search(r"\$[\d,]+(?:\.\d{2})?", li.get_text())
+                    if price_m:
+                        price_str = price_m.group(0)
                 if not name or not price_str:
                     continue
                 price_cents = self._parse_price(price_str)
                 if not price_cents:
                     continue
                 source_url = urljoin(base, href) if href else page_url
+                img = li.find("img", src=True)
+                img_url = urljoin(base, img["src"]) if img and img.get("src") else None
                 products.append(
                     ScrapedProduct(
                         name=name,
@@ -747,6 +901,7 @@ class BigCommerceScraper(BaseScraper):
                         category="Electronics",
                         source_url=source_url,
                         source=getattr(self, "_source", "BigCommerce"),
+                        image_url=img_url,
                     )
                 )
             except Exception:
@@ -1188,7 +1343,28 @@ class ShopifyScraper(BaseScraper):
     def scrape(self, url: str, max_products: int = 20, source: Optional[str] = None) -> List[ScrapedProduct]:
         self._source = source or "Shopify"
         base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
-        
+        domain = urlparse(url).netloc.lower()
+
+        # Framework: try products/<handle>.json first (week6webscrapeelectronics.txt)
+        if "frame.work" in domain and "/products/" in url:
+            handle_match = re.search(r"/products/([^/?#]+)", url)
+            if handle_match:
+                handle = handle_match.group(1)
+                json_url = urljoin(base + "/", f"products/{handle}.json")
+                self._rate_limit()
+                r = self._fetch_with_cookie_jar(base, json_url)
+                if r:
+                    try:
+                        data = r.json()
+                        if isinstance(data, dict) and "product" in data:
+                            p = self._parse_shopify_product(data["product"], base)
+                            if p:
+                                return [p]
+                    except json.JSONDecodeError:
+                        pass
+                if r and r.status_code == 403:
+                    print(f"  [BLOCK] Framework {json_url} returned 403 - use --full for Selenium")
+
         # Try using GitHub package first (more reliable)
         try:
             from scripts.shopify_scraper_integration import scrape_shopify_with_package, SHOPIFY_SCRAPER_AVAILABLE
@@ -1205,6 +1381,16 @@ class ShopifyScraper(BaseScraper):
             print(f"[WARN]  GitHub package failed: {e}, falling back to custom implementation...")
         
         # Fallback: Custom implementation using /products.json
+        # For frame.work/blocked sites, establish session cookies first (week6webscrapeelectronics.txt)
+        if "frame.work" in base.lower() or "fairphone" in base.lower():
+            try:
+                self._rate_limit()
+                home = urljoin(base.rstrip("/") + "/", "")
+                self.session.headers["Referer"] = home
+                self.session.get(home, timeout=15)
+                time.sleep(0.5 + random.random())
+            except Exception:
+                pass
         products = self._scrape_products_json(base, max_products)
         
         # Fallback to HTML parsing if JSON endpoint fails
@@ -1241,13 +1427,16 @@ class ShopifyScraper(BaseScraper):
         while len(all_products) < max_products:
             self._rate_limit()
             url = urljoin(base_url.rstrip("/") + "/", "products.json")
-            
+            self.session.headers["Referer"] = base_url.rstrip("/") + "/"
+
             try:
                 # Use page parameter for pagination (per ShopifyScraper GitHub repo)
                 params = {"page": page, "limit": per_page}
                 r = self.session.get(url, params=params, timeout=15)
-                
+
                 if r.status_code != 200:
+                    if page == 1 and r.status_code == 403:
+                        print("  [BLOCK] products.json returned 403 - endpoint may require browser session")
                     # If first page fails, return empty (endpoint not available)
                     if page == 1:
                         return []
@@ -1321,12 +1510,14 @@ class ShopifyScraper(BaseScraper):
             if not variants:
                 return None
             
-            # Use first variant for price and inventory
-            # In production, you might want to use the cheapest variant or average
-            first_variant = variants[0]
-            price_str = str(first_variant.get("price", "0"))
-            price_cents = self._parse_price(price_str)
-            
+            # Use first variant with valid price (Shopify may have 0 for sold-out)
+            price_cents = None
+            for v in variants:
+                price_str = str(v.get("price", "0"))
+                pc = self._parse_price(price_str)
+                if pc and pc > 0:
+                    price_cents = pc
+                    break
             if not price_cents:
                 return None
             
@@ -1638,6 +1829,14 @@ def infer_source_from_url(url: str) -> str:
     domain = urlparse(url).netloc.lower()
     if 'temu.com' in domain or 'temu.' in domain:
         return 'Temu'
+    if 'system76.com' in domain:
+        return 'System76'
+    if 'frame.work' in domain:
+        return 'Framework'
+    if 'backmarket.com' in domain or 'backmarket.' in domain:
+        return 'Back Market'
+    if 'fairphone.com' in domain or 'shop.fairphone' in domain:
+        return 'Fairphone'
     if 'woocommerce' in domain or 'wp-json' in url or 'wordpress' in domain:
         return 'WooCommerce'
     if 'shopify' in domain or 'myshopify.com' in domain:
@@ -1655,18 +1854,39 @@ def infer_source_from_url(url: str) -> str:
     return 'Generic'
 
 
-def get_scraper(url: str, use_selenium_for_temu: bool = False) -> BaseScraper:
+def get_scraper(url: str, use_selenium_for_temu: bool = False, use_selenium_for_blocked: bool = False) -> BaseScraper:
     """
     Get appropriate scraper for URL.
     
     Args:
         url: URL to scrape
-        use_selenium_for_temu: If True, use Selenium for Temu (requires selenium package)
+        use_selenium_for_temu: If True, use Selenium for Temu
+        use_selenium_for_blocked: If True, use Selenium for Framework, Back Market, Fairphone (403-blocked sites)
         
     Returns:
         Appropriate scraper instance
     """
     domain = urlparse(url).netloc.lower()
+    
+    if use_selenium_for_blocked:
+        if 'frame.work' in domain:
+            try:
+                from scripts.selenium_browser_scraper import SeleniumFrameworkScraper
+                return SeleniumFrameworkScraper(rate_limit_delay=2.0)
+            except ImportError:
+                pass
+        if 'backmarket.com' in domain or 'backmarket.' in domain:
+            try:
+                from scripts.selenium_browser_scraper import SeleniumBackMarketScraper
+                return SeleniumBackMarketScraper(rate_limit_delay=2.0)
+            except ImportError:
+                pass
+        if 'fairphone.com' in domain or 'shop.fairphone' in domain:
+            try:
+                from scripts.selenium_browser_scraper import SeleniumFairphoneScraper
+                return SeleniumFairphoneScraper(rate_limit_delay=2.0)
+            except ImportError:
+                pass
     
     if 'temu.com' in domain or 'temu.' in domain:
         if use_selenium_for_temu:
@@ -1692,19 +1912,28 @@ def get_scraper(url: str, use_selenium_for_temu: bool = False) -> BaseScraper:
     if 'bigcommerce' in domain or 'mybigcommerce.com' in domain:
         return BigCommerceScraper(rate_limit_delay=1.0)
     if 'barnesandnoble.com' in domain or 'bn.com' in domain:
-        # B&N: 2-3 second delays (respectful crawling, anti-scraping measures)
         return BarnesNobleScraper(rate_limit_delay=2.5)
+    if 'system76.com' in domain:
+        return System76Scraper(rate_limit_delay=1.5)
+    if 'frame.work' in domain:
+        # Framework uses Shopify but blocks requests; use_selenium_for_blocked=True uses Selenium
+        return ShopifyScraper(rate_limit_delay=1.0)
+    if 'backmarket.com' in domain or 'backmarket.' in domain:
+        return GenericEcommerceScraper(rate_limit_delay=2.0)
+    if 'fairphone.com' in domain or 'shop.fairphone' in domain:
+        return GenericEcommerceScraper(rate_limit_delay=1.5)
     return GenericEcommerceScraper(rate_limit_delay=1.0)
 
 
-def scrape_products(urls: List[str], max_per_url: int = 20, use_selenium_for_temu: bool = False) -> List[ScrapedProduct]:
+def scrape_products(urls: List[str], max_per_url: int = 20, use_selenium_for_temu: bool = False, use_selenium_for_blocked: bool = False) -> List[ScrapedProduct]:
     """
     Scrape products from multiple URLs.
     
     Args:
         urls: List of URLs to scrape
         max_per_url: Maximum products per URL
-        use_selenium_for_temu: If True, use Selenium for Temu URLs (requires selenium package)
+        use_selenium_for_temu: If True, use Selenium for Temu URLs
+        use_selenium_for_blocked: If True, use Selenium for Framework, Back Market, Fairphone (403-blocked sites)
         
     Returns:
         List of all scraped products
@@ -1714,13 +1943,16 @@ def scrape_products(urls: List[str], max_per_url: int = 20, use_selenium_for_tem
     for url in urls:
         source = infer_source_from_url(url)
         print(f"Scraping {url} (source={source})...")
-        # Auto-detect Temu and use Selenium if requested
         is_temu = 'temu.com' in url.lower() or 'temu.' in url.lower()
-        use_selenium = use_selenium_for_temu and is_temu
-        scraper = get_scraper(url, use_selenium_for_temu=use_selenium)
+        is_blocked = 'frame.work' in url.lower() or 'backmarket' in url.lower() or 'fairphone' in url.lower()
+        use_selenium_temu = use_selenium_for_temu and is_temu
+        use_selenium_blocked = use_selenium_for_blocked and is_blocked
+        scraper = get_scraper(url, use_selenium_for_temu=use_selenium_temu, use_selenium_for_blocked=use_selenium_blocked)
         products = scraper.scrape(url, max_products=max_per_url, source=source)
         all_products.extend(products)
         print(f"  Found {len(products)} products")
+        if len(products) == 0 and is_blocked and not use_selenium_blocked:
+            print("  [TIP] Use --full for Selenium when Framework/Back Market/Fairphone block requests")
         
         # Rate limiting: Temu/Etsy/eBay need longer delays (2-3 seconds per webscrape.txt)
         is_etsy = 'etsy.com' in url.lower() or 'etsy.' in url.lower()

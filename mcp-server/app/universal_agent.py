@@ -60,7 +60,7 @@ class ExtractedCriteria(BaseModel):
 
 class DomainClassification(BaseModel):
     """Structure for domain classification output."""
-    domain: str = Field(description="One of: vehicles, laptops, books, unknown")
+    domain: str = Field(description="One of: vehicles, laptops, books, phones, unknown")
     confidence: float = Field(description="Confidence score 0-1")
 
 class GeneratedQuestion(BaseModel):
@@ -101,8 +101,8 @@ class UniversalAgent:
                 # Still unknown, ask for clarification
                 response = {
                     "response_type": "question",
-                    "message": "I can help with Cars, Laptops, or Books. What are you looking for today?",
-                    "quick_replies": ["Cars", "Laptops", "Books"],
+                    "message": "I can help with Cars, Laptops, Books, or Phones. What are you looking for today?",
+                    "quick_replies": ["Cars", "Laptops", "Books", "Phones"],
                     "session_id": self.session_id
                 }
                 self.history.append({"role": "assistant", "content": response["message"]})
@@ -162,7 +162,7 @@ class UniversalAgent:
             completion = self.client.beta.chat.completions.parse(
                 model=MODEL_BASIC,
                 messages=[
-                    {"role": "system", "content": "You are a routing agent. Classify the user's intent into one of these domains: 'vehicles', 'laptops', 'books'. If unclear, return 'unknown'."},
+                    {"role": "system", "content": "You are a routing agent. Classify the user's intent into one of these domains: 'vehicles', 'laptops', 'books', 'phones'. If unclear, return 'unknown'."},
                     {"role": "user", "content": message}
                 ],
                 response_format=DomainClassification,
@@ -204,6 +204,10 @@ Always normalize budget values to include the "k" suffix (e.g., "$20k", "$30k-$4
 Always include the dollar sign in budget values.""",
                 "books": """IMPORTANT: For books, prices are typically under $50.
 - "under 20" means "$20"
+Always include the dollar sign in budget values.""",
+                "phones": """IMPORTANT: For phones, prices are typically in HUNDREDS of dollars.
+- "under 500" means "$500"
+- "300-800" means "$300-$800"
 Always include the dollar sign in budget values."""
             }
             price_context = domain_context.get(schema.domain, "")

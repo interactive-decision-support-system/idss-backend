@@ -506,6 +506,18 @@ def main():
                 pass
     print(f"Literary connections: {lit_count}")
 
+    # Entity resolution: merge duplicate Authors, Manufacturers, Brands
+    print("\n14. Running entity resolution...")
+    try:
+        merge_counts = builder.run_entity_resolution(similarity_threshold=0.88)
+        total_merged = sum(merge_counts.values())
+        if total_merged > 0:
+            print(f"   Merged duplicates: {merge_counts}")
+        else:
+            print("   No duplicate entities found")
+    except Exception as e:
+        print(f"   [WARN] Entity resolution skipped: {e}")
+
     # Statistics
     print("\n" + "=" * 80)
     print("KNOWLEDGE GRAPH STATISTICS")

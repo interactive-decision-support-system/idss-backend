@@ -277,7 +277,7 @@ class TestUCPCompatibility:
         from app.ucp_endpoints import mcp_product_to_ucp_summary
         from unittest.mock import Mock
         
-        # Mock MCP product
+        # Mock MCP product (explicit None for optional UCP fields to avoid Mock propagating)
         mcp_product = Mock()
         mcp_product.product_id = "PROD-001"
         mcp_product.name = "Test Product"
@@ -285,6 +285,10 @@ class TestUCPCompatibility:
         mcp_product.currency = "USD"
         mcp_product.available_qty = 10
         mcp_product.metadata = {"primary_image": "https://example.com/image.jpg"}
+        mcp_product.shipping = None
+        mcp_product.return_policy = None
+        mcp_product.warranty = None
+        mcp_product.promotion_info = None
         
         ucp_product = mcp_product_to_ucp_summary(mcp_product, base_url="https://test.com")
         
@@ -301,7 +305,7 @@ class TestUCPCompatibility:
         from app.ucp_endpoints import mcp_product_to_ucp_detail
         from unittest.mock import Mock
         
-        # Mock MCP product
+        # Mock MCP product (explicit None for optional UCP fields)
         mcp_product = Mock()
         mcp_product.product_id = "PROD-001"
         mcp_product.name = "Test Product"
@@ -312,6 +316,10 @@ class TestUCPCompatibility:
         mcp_product.category = "electronics"
         mcp_product.brand = "TestBrand"
         mcp_product.metadata = {"specs": "High quality"}
+        mcp_product.shipping = None
+        mcp_product.return_policy = None
+        mcp_product.warranty = None
+        mcp_product.promotion_info = None
         
         ucp_product = mcp_product_to_ucp_detail(mcp_product, base_url="https://test.com")
         

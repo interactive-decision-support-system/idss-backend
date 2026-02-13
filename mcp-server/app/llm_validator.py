@@ -163,7 +163,7 @@ VALID: no
 CORRECTED: ug
 INTENT: gibberish
 CONFIDENCE: 0.95
-SUGGESTIONS: Vehicles,Laptops,Books,Jewelry,Accessories
+SUGGESTIONS: Cars,Laptops,Books,Phones
 ERROR: I didn't understand that. Please tell me what you're looking for.
 
 Input: "gu" (too short, random letters)
@@ -171,7 +171,7 @@ VALID: no
 CORRECTED: gu
 INTENT: gibberish
 CONFIDENCE: 0.95
-SUGGESTIONS: Vehicles,Laptops,Books,Jewelry,Accessories
+SUGGESTIONS: Cars,Laptops,Books,Phones
 ERROR: I didn't understand that. Please tell me what you're looking for.
 
 Input: "xyz" (keyboard gibberish)
@@ -179,7 +179,7 @@ VALID: no
 CORRECTED: xyz
 INTENT: gibberish
 CONFIDENCE: 0.98
-SUGGESTIONS: Vehicles,Laptops,Books,Jewelry,Accessories
+SUGGESTIONS: Cars,Laptops,Books,Phones
 ERROR: I didn't understand that. Please tell me what you're looking for.
 
 Input: "asdfghjkl" (keyboard mashing)
@@ -187,7 +187,7 @@ VALID: no
 CORRECTED: asdfghjkl
 INTENT: gibberish
 CONFIDENCE: 0.99
-SUGGESTIONS: Vehicles,Laptops,Books,Jewelry,Accessories
+SUGGESTIONS: Cars,Laptops,Books,Phones
 ERROR: I didn't understand that. Please tell me what you're looking for.
 
 Input: "vheicle" (recognizable typo)
@@ -206,25 +206,9 @@ CONFIDENCE: 0.75
 SUGGESTIONS: none
 ERROR: none
 
-Input: "jewelry" or "Jewelry"
+Input: "phones" or "Phones"
 VALID: yes
-CORRECTED: jewelry
-INTENT: domain_selection
-CONFIDENCE: 1.0
-SUGGESTIONS: none
-ERROR: none
-
-Input: "jewlry" (missing e - typo)
-VALID: yes
-CORRECTED: jewelry
-INTENT: domain_selection
-CONFIDENCE: 0.9
-SUGGESTIONS: none
-ERROR: none
-
-Input: "accessories" or "Accessories"
-VALID: yes
-CORRECTED: accessories
+CORRECTED: phones
 INTENT: domain_selection
 CONFIDENCE: 1.0
 SUGGESTIONS: none
@@ -302,7 +286,7 @@ Now analyze: "{user_input}"
                 "corrected_input": user_input,
                 "confidence": 1.0,
                 "detected_intent": "greeting",
-                "suggestions": ["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"],
+                "suggestions": ["Cars", "Laptops", "Books", "Phones"],
                 "error_message": None
             }
         
@@ -330,15 +314,14 @@ Now analyze: "{user_input}"
                 "corrected_input": user_input,
                 "confidence": 0.9,
                 "detected_intent": "gibberish",
-                "suggestions": ["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"],
+                "suggestions": ["Cars", "Laptops", "Books", "Phones"],
                 "error_message": "I didn't understand that. Please tell me what you're looking for."
             }
         
         # Check for recognizable product keywords (lenient matching)
         product_keywords = [
             'laptop', 'book', 'vehicle', 'car', 'computer', 'notebook', 'pc', 'mac', 'suv', 'truck', 'sedan',
-            'jewelry', 'jewellery', 'jewlry', 'necklace', 'earrings', 'bracelet', 'ring', 'pendant',
-            'accessories', 'accessory', 'scarf', 'hat', 'belt', 'bag', 'watch', 'sunglasses'
+            'phone', 'phones', 'smartphone', 'fairphone'
         ]
         if any(keyword in normalized for keyword in product_keywords):
             return {
@@ -418,7 +401,7 @@ Now analyze: "{user_input}"
                         "corrected_input": user_input,
                         "confidence": 0.85,
                         "detected_intent": "gibberish",
-                        "suggestions": ["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"],
+                        "suggestions": ["Cars", "Laptops", "Books", "Phones"],
                         "error_message": "I didn't understand that. Please tell me what you're looking for."
                     }
                 
@@ -449,7 +432,7 @@ Now analyze: "{user_input}"
                             "corrected_input": user_input,
                             "confidence": 0.80,
                             "detected_intent": "gibberish",
-                            "suggestions": ["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"],
+                            "suggestions": ["Cars", "Laptops", "Books", "Phones"],
                             "error_message": "I didn't understand that. Please tell me what you're looking for."
                         }
             
@@ -486,7 +469,7 @@ Now analyze: "{user_input}"
                         "corrected_input": user_input,
                         "confidence": 0.75,
                         "detected_intent": "gibberish",
-                        "suggestions": ["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"],
+                        "suggestions": ["Cars", "Laptops", "Books", "Phones"],
                         "error_message": "I didn't understand that. Please tell me what you're looking for."
                     }
         

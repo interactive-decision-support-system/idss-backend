@@ -356,6 +356,8 @@ def _missing_slots(query: str, filters: Dict[str, object], extracted_info: Dict[
     if product_type:
         if product_type == "book":
             domain = "books"
+        elif product_type == "phone":
+            domain = "phones"
         elif product_type == "jewelry":
             domain = "jewelry"
         elif product_type == "accessory":
@@ -372,13 +374,15 @@ def _missing_slots(query: str, filters: Dict[str, object], extracted_info: Dict[
     if not domain:
         return []
 
-    # Required slots by domain
+    # Required slots by domain (format optional for books so we show results after genre+price)
     if domain == "books":
-        required = ["genre", "format", "budget"]
+        required = ["genre", "budget"]
+    elif domain == "phones":
+        required = ["budget"]  # Phones: budget only; brand optional
     elif domain in ("jewelry", "accessories", "clothing", "beauty"):
         required = ["item_type", "budget", "brand"]
     else:
-        required = ["use_case", "brand", "budget"]
+        required = ["use_case", "brand", "budget"]  # laptops
 
     missing: List[str] = []
     for slot in required:
@@ -416,6 +420,8 @@ def generate_followup_question(product_type: str, missing_info: List[str], filte
     """Return a follow-up question using domain registry slot definitions."""
     if product_type == "book":
         domain = "books"
+    elif product_type == "phone":
+        domain = "phones"
     elif product_type == "jewelry":
         domain = "jewelry"
     elif product_type == "accessory":
@@ -427,7 +433,7 @@ def generate_followup_question(product_type: str, missing_info: List[str], filte
     else:
         domain = "laptops"
     schema = get_domain_schema(domain)
-    fallback_replies = ["Vehicles", "Laptops", "Books", "Jewelry", "Accessories", "Clothing", "Beauty"]
+    fallback_replies = ["Cars", "Laptops", "Books", "Phones"]
     if not schema or not missing_info:
         return "Could you clarify what you are looking for?", fallback_replies
 

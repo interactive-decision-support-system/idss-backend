@@ -315,6 +315,53 @@ class TestKnowledgeGraphBuilder:
         assert "total_nodes" in stats
         assert "node_types" in stats
 
+    def test_run_entity_resolution_returns_merge_counts(self):
+        """run_entity_resolution should return dict with merge counts per entity type."""
+        mock_conn = Mock()
+        mock_session = MagicMock()
+        # Return empty or single entity so no merges occur
+        mock_session.run.return_value = iter([])
+        mock_conn.driver.session.return_value.__enter__ = Mock(return_value=mock_session)
+        mock_conn.driver.session.return_value.__exit__ = Mock(return_value=False)
+        mock_conn.database = "neo4j"
+
+        builder = KnowledgeGraphBuilder(mock_conn)
+        result = builder.run_entity_resolution()
+
+        assert isinstance(result, dict)
+        assert result["Author"] == 0
+        assert result["Manufacturer"] == 0
+        assert result["Brand"] == 0
+
+    def test_run_entity_resolution_merges_similar_authors(self):
+        """run_entity_resolution should merge 'J.K. Rowling' and 'JK Rowling'."""
+        mock_conn = Mock()
+        mock_session = MagicMock()
+        author_records = [
+            {"name": "J.K. Rowling", "rel_count": 5},
+            {"name": "JK Rowling", "rel_count": 2},
+        ]
+
+        def run_side_effect(query, *args, **kwargs):
+            if "MATCH (n:Author)" in query and "RETURN" in query:
+                return author_records
+            # Manufacturer and Brand: no duplicates
+            if "MATCH (n:Manufacturer)" in query or "MATCH (n:Brand)" in query:
+                return []
+            # Merge queries (redirect, delete)
+            return None
+
+        mock_session.run.side_effect = run_side_effect
+        mock_conn.driver.session.return_value.__enter__ = Mock(return_value=mock_session)
+        mock_conn.driver.session.return_value.__exit__ = Mock(return_value=False)
+        mock_conn.database = "neo4j"
+
+        builder = KnowledgeGraphBuilder(mock_conn)
+        result = builder.run_entity_resolution(similarity_threshold=0.85)
+
+        assert result["Author"] == 1
+        assert mock_session.run.call_count >= 3  # fetch + redirect + delete
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

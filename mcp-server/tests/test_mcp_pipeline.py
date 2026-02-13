@@ -42,6 +42,8 @@ client = TestClient(app)
 @pytest.fixture(scope="function", autouse=True)
 def setup_database():
     """Create fresh database for each test."""
+    # Re-apply our override so we use SQLite (other tests may have set PostgreSQL)
+    app.dependency_overrides[get_db] = override_get_db
     Base.metadata.create_all(bind=engine)
     
     db = TestingSessionLocal()
