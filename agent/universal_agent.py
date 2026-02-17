@@ -21,12 +21,21 @@ Based on IDSS interview principles:
 import logging
 import json
 import os
+import re
 from typing import Dict, Any, List, Optional
 from enum import Enum
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from .domain_registry import get_domain_schema, DomainSchema, SlotPriority, PreferenceSlot
+from .prompts import (
+    DOMAIN_DETECTION_PROMPT,
+    CRITERIA_EXTRACTION_PROMPT,
+    PRICE_CONTEXT,
+    QUESTION_GENERATION_PROMPT,
+    RECOMMENDATION_EXPLANATION_PROMPT,
+    DOMAIN_ASSISTANT_NAMES,
+)
 
 logger = logging.getLogger("mcp.universal_agent")
 
@@ -85,7 +94,108 @@ class UniversalAgent:
         # Initialize OpenAI client
         # Relies on OPENAI_API_KEY environment variable
         self.client = OpenAI()
-        
+
+    @classmethod
+    def restore_from_session(cls, session_id: str, session_state) -> "UniversalAgent":
+        """Reconstruct agent from persisted session state."""
+        agent = cls(
+            session_id=session_id,
+            history=list(session_state.agent_history) if session_state.agent_history else [],
+            max_questions=DEFAULT_MAX_QUESTIONS,
+        )
+        agent.domain = session_state.active_domain
+        agent.filters = dict(session_state.agent_filters) if session_state.agent_filters else {}
+        agent.questions_asked = list(session_state.agent_questions_asked) if session_state.agent_questions_asked else []
+        agent.question_count = len(agent.questions_asked)
+        if agent.domain:
+            agent.state = AgentState.INTERVIEW
+        return agent
+
+    def get_state(self) -> Dict[str, Any]:
+        """Return agent state as dict for session persistence."""
+        return {
+            "domain": self.domain,
+            "filters": self.filters,
+            "questions_asked": self.questions_asked,
+            "question_count": self.question_count,
+            "history": self.history[-10:],
+        }
+
+    def get_search_filters(self) -> Dict[str, Any]:
+        """
+        Convert agent's extracted criteria (slot names) into search-compatible filter format.
+
+        For vehicles: budget → price range, brand → make, etc.
+        For laptops/books: budget → price_min_cents/price_max_cents, etc.
+        """
+        search_filters = {}
+        domain = self.domain or ""
+
+        for slot_name, value in self.filters.items():
+            if not value or str(value).lower() in ("no preference", "any", "either", "any price"):
+                continue
+
+            if slot_name == "budget":
+                # Parse budget string into price filters
+                budget_str = str(value).replace("$", "").replace(",", "").replace(" ", "")
+                # Handle "k" suffix for vehicles (e.g. "20k-35k", "under 30k")
+                budget_str = re.sub(r'(\d+)k', lambda m: str(int(m.group(1)) * 1000), budget_str, flags=re.IGNORECASE)
+
+                range_match = re.match(r"(\d+)-(\d+)", budget_str)
+                under_match = re.search(r"under(\d+)", budget_str.lower())
+                over_match = re.search(r"over(\d+)", budget_str.lower())
+
+                if domain == "vehicles":
+                    if range_match:
+                        search_filters["price"] = f"{range_match.group(1)}-{range_match.group(2)}"
+                    elif under_match:
+                        search_filters["price"] = f"0-{under_match.group(1)}"
+                    elif over_match:
+                        search_filters["price"] = f"{over_match.group(1)}-999999"
+                else:
+                    # E-commerce: use price_cents
+                    if range_match:
+                        search_filters["price_min_cents"] = int(range_match.group(1)) * 100
+                        search_filters["price_max_cents"] = int(range_match.group(2)) * 100
+                    elif under_match:
+                        search_filters["price_max_cents"] = int(under_match.group(1)) * 100
+                    elif over_match:
+                        search_filters["price_min_cents"] = int(over_match.group(1)) * 100
+
+            elif slot_name == "brand":
+                if domain == "vehicles":
+                    search_filters["make"] = value
+                else:
+                    search_filters["brand"] = value
+
+            elif slot_name == "use_case":
+                if domain == "vehicles":
+                    search_filters["use_case"] = value
+                else:
+                    search_filters["subcategory"] = value
+                    search_filters["use_case"] = value
+
+            elif slot_name == "body_style":
+                search_filters["body_style"] = value
+
+            elif slot_name == "genre":
+                search_filters["genre"] = value
+                search_filters["subcategory"] = value
+
+            elif slot_name == "format":
+                search_filters["format"] = value
+
+            elif slot_name == "item_type":
+                search_filters["subcategory"] = value
+
+            elif slot_name == "features":
+                search_filters["_soft_preferences"] = {"liked_features": [value] if isinstance(value, str) else value}
+
+            elif slot_name in ("fuel_type", "condition", "os", "screen_size", "color", "material"):
+                search_filters[slot_name] = value
+
+        return search_filters
+
     def process_message(self, message: str) -> Dict[str, Any]:
         """
         Main entry point for processing a user message.
@@ -93,7 +203,7 @@ class UniversalAgent:
         """
         # 0. Update History
         self.history.append({"role": "user", "content": message})
-        
+
         # 1. Intent/Domain Detection (if not locked)
         if not self.domain:
             self.domain = self._detect_domain_from_message(message)
@@ -107,9 +217,9 @@ class UniversalAgent:
                 }
                 self.history.append({"role": "assistant", "content": response["message"]})
                 # Reset domain so we try again next time
-                self.domain = None 
+                self.domain = None
                 return response
-        
+
         # 2. Extract Criteria (Schema-Driven) with IDSS signals
         schema = get_domain_schema(self.domain)
         if not schema:
@@ -158,22 +268,22 @@ class UniversalAgent:
         """
         try:
             logger.info(f"Detecting domain for message: {message[:50]}...")
-            
+
             completion = self.client.beta.chat.completions.parse(
                 model=MODEL_BASIC,
                 messages=[
-                    {"role": "system", "content": "You are a routing agent. Classify the user's intent into one of these domains: 'vehicles', 'laptops', 'books', 'phones'. If unclear, return 'unknown'."},
+                    {"role": "system", "content": DOMAIN_DETECTION_PROMPT},
                     {"role": "user", "content": message}
                 ],
                 response_format=DomainClassification,
             )
             result = completion.choices[0].message.parsed
             logger.info(f"Domain detected: {result.domain} (conf: {result.confidence})")
-            
+
             if result.domain == "unknown":
                 return None
             return result.domain
-            
+
         except Exception as e:
             logger.error(f"Intent detection failed: {e}")
             return None
@@ -187,47 +297,22 @@ class UniversalAgent:
         Output: ExtractedCriteria with filters and signals.
         """
         try:
-            # Construct a concise schema description for the LLM
-            slots_desc = [f"- {s.name} ({s.description})" for s in schema.slots]
+            # Construct a concise schema description for the LLM, including allowed values
+            slots_desc = []
+            for s in schema.slots:
+                desc = f"- {s.name} ({s.description})"
+                if s.allowed_values:
+                    desc += f"\n  ALLOWED VALUES (use exactly one of these): {', '.join(s.allowed_values)}"
+                slots_desc.append(desc)
             schema_text = "\n".join(slots_desc)
 
-            # Domain-specific context for realistic value interpretation
-            domain_context = {
-                "vehicles": """IMPORTANT: For vehicles, prices are typically in THOUSANDS of dollars.
-- "under 20" or "20" means "$20,000" or "under $20k"
-- "30-40" means "$30,000-$40,000" or "$30k-$40k"
-- "50k" means "$50,000"
-Always normalize budget values to include the "k" suffix (e.g., "$20k", "$30k-$40k", "under $25k").""",
-                "laptops": """IMPORTANT: For laptops, prices are typically in HUNDREDS of dollars.
-- "under 500" means "$500"
-- "1000-2000" means "$1,000-$2,000"
-Always include the dollar sign in budget values.""",
-                "books": """IMPORTANT: For books, prices are typically under $50.
-- "under 20" means "$20"
-Always include the dollar sign in budget values.""",
-                "phones": """IMPORTANT: For phones, prices are typically in HUNDREDS of dollars.
-- "under 500" means "$500"
-- "300-800" means "$300-$800"
-Always include the dollar sign in budget values."""
-            }
-            price_context = domain_context.get(schema.domain, "")
+            price_context = PRICE_CONTEXT.get(schema.domain, "")
 
-            system_prompt = f"""You are a smart extraction agent for the '{schema.domain}' domain.
-Your goal is to extract specific criteria from the user's message based on the available slots:
-{schema_text}
-
-{price_context}
-
-Also detect user intent signals:
-- is_impatient: Set to true if user wants to skip questions or seems eager to see results.
-  Examples: "just show me options", "I don't care about details", "whatever works", "skip"
-- wants_recommendations: Set to true if user explicitly asks for recommendations.
-  Examples: "show me what you have", "what do you recommend", "let's see some options"
-
-Return a list of extracted criteria (slot names and values).
-Only include slots that are explicitly mentioned or clearly inferred.
-Do NOT guess. If a slot is not mentioned, do not include it.
-"""
+            system_prompt = CRITERIA_EXTRACTION_PROMPT.format(
+                domain=schema.domain,
+                schema_text=schema_text,
+                price_context=price_context,
+            )
 
             logger.info(f"Extracting criteria for domain: {schema.domain}")
 
@@ -387,47 +472,14 @@ Do NOT guess. If a slot is not mentioned, do not include it.
         try:
             # Build IDSS-style context
             slot_context = self._format_slot_context(slot, schema)
-            invite_topics = self._get_invite_topics(slot, schema)
+            assistant_type = DOMAIN_ASSISTANT_NAMES.get(schema.domain, schema.domain)
 
-            # Domain-specific assistant name
-            domain_names = {
-                "vehicles": "car shopping",
-                "laptops": "laptop shopping",
-                "books": "book recommendation"
-            }
-            assistant_type = domain_names.get(schema.domain, schema.domain)
-
-            system_prompt = f"""You are a helpful {assistant_type} assistant gathering preferences to make great recommendations.
-
-## Current Knowledge
-{slot_context}
-
-## CRITICAL RULE
-Your question MUST end with an invitation to share the topics listed in "Invite input on". This is required, not optional.
-
-## Question Format
-1. Main question about '{slot.display_name}'
-2. Quick replies (2-4 options) for that topic only
-3. ALWAYS end with: "Feel free to also share [topics from 'Invite input on']"
-
-## Examples
-
-Example 1 (vehicles - budget with other HIGH topics):
-Context: "Invite input on: Primary Use, Body Style"
-Question: "What's your budget range? Feel free to also share what you'll primarily use the vehicle for or what body style you prefer."
-Quick replies: ["Under $20k", "$20k-$35k", "$35k-$50k", "Over $50k"]
-
-Example 2 (laptops - use case with other topics):
-Context: "Invite input on: Budget, Brand"
-Question: "What will you primarily use the laptop for? Feel free to also share your budget or any brand preferences."
-Quick replies: ["Work/Business", "Gaming", "School/Study", "Creative Work"]
-
-Example 3 (books - genre with other topics):
-Context: "Invite input on: Format"
-Question: "What genre of book are you in the mood for? Feel free to also mention if you prefer a specific format."
-Quick replies: ["Fiction", "Mystery/Thriller", "Sci-Fi/Fantasy", "Non-Fiction"]
-
-Generate ONE question. Topic: {slot.name}. Remember: ALWAYS include the invitation at the end."""
+            system_prompt = QUESTION_GENERATION_PROMPT.format(
+                assistant_type=assistant_type,
+                slot_context=slot_context,
+                slot_display_name=slot.display_name,
+                slot_name=slot.name,
+            )
 
             completion = self.client.beta.chat.completions.parse(
                 model=MODEL_POWERFUL,
@@ -476,6 +528,135 @@ Generate ONE question. Topic: {slot.name}. Remember: ALWAYS include the invitati
         self.history.append({"role": "assistant", "content": response["message"]})
         logger.info(f"Handoff to search: domain={self.domain}, filters={self.filters}, questions_asked={self.question_count}")
         return response
+
+    def generate_recommendation_explanation(
+        self, recommendations: List[List[Dict[str, Any]]], domain: str
+    ) -> str:
+        """
+        Generate a conversational explanation of the recommendations,
+        highlighting one standout product and why it matches the user's criteria.
+
+        Works across all domains by adapting to whatever product fields are available.
+        """
+        # Build a compact summary of the products for the LLM
+        product_summaries = []
+        for row in recommendations:
+            for product in row:
+                summary = self._summarize_product(product, domain)
+                if summary:
+                    product_summaries.append(summary)
+                if len(product_summaries) >= 6:
+                    break
+            if len(product_summaries) >= 6:
+                break
+
+        if not product_summaries:
+            return f"Here are some {domain} recommendations based on your preferences."
+
+        products_text = "\n".join(f"{i+1}. {s}" for i, s in enumerate(product_summaries))
+
+        # What the user asked for
+        if self.filters:
+            criteria_text = ", ".join(f"{k}: {v}" for k, v in self.filters.items())
+        else:
+            criteria_text = "general browsing"
+
+        try:
+            system_prompt = RECOMMENDATION_EXPLANATION_PROMPT.format(domain=domain)
+
+            completion = self.client.chat.completions.create(
+                model=MODEL_BASIC,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"""User's preferences: {criteria_text}
+
+Products found:
+{products_text}
+
+Write the recommendation message."""}
+                ],
+                temperature=0.7,
+                max_tokens=200,
+            )
+            message = completion.choices[0].message.content.strip()
+            logger.info(f"Generated recommendation explanation: {message[:80]}...")
+            return message
+        except Exception as e:
+            logger.error(f"Recommendation explanation failed: {e}")
+            return f"Here are top {domain} recommendations based on your preferences. What would you like to do next?"
+
+    def _summarize_product(self, product: Dict[str, Any], domain: str) -> Optional[str]:
+        """Build a one-line summary of a product for LLM context."""
+        if domain == "vehicles":
+            v = product.get("vehicle", product)
+            parts = []
+            year = v.get("year") or product.get("year")
+            make = v.get("make") or product.get("brand", "")
+            model = v.get("model") or product.get("name", "")
+            if year and make and model:
+                parts.append(f"{year} {make} {model}")
+            elif product.get("name"):
+                parts.append(product["name"])
+            trim = v.get("trim")
+            if trim:
+                parts.append(trim)
+            price = v.get("price") or product.get("price", 0)
+            if price:
+                parts.append(f"${price:,}")
+            body = v.get("bodyStyle") or v.get("norm_body_type", "")
+            if body:
+                parts.append(body)
+            fuel = v.get("fuel") or v.get("norm_fuel_type", "")
+            if fuel:
+                parts.append(fuel)
+            mpg_city = v.get("build_city_mpg") or v.get("city_mpg", 0)
+            mpg_hwy = v.get("build_highway_mpg") or v.get("highway_mpg", 0)
+            if mpg_city and mpg_hwy:
+                parts.append(f"{mpg_city}/{mpg_hwy} MPG")
+            mileage = v.get("mileage", 0)
+            if mileage:
+                parts.append(f"{mileage:,} mi")
+            return " | ".join(parts) if parts else None
+
+        # E-commerce (laptops, books)
+        parts = []
+        name = product.get("name", "")
+        brand = product.get("brand", "")
+        if name:
+            parts.append(f"{brand} {name}" if brand and brand not in name else name)
+        price = product.get("price", 0)
+        if price:
+            # Price might be in cents (from formatter) or dollars
+            if price > 1000 and domain in ("books",):
+                parts.append(f"${price/100:.2f}")
+            else:
+                parts.append(f"${price:,.0f}" if price > 100 else f"${price:.2f}")
+
+        # Laptop-specific
+        laptop = product.get("laptop", {})
+        if laptop:
+            specs = laptop.get("specs", {})
+            spec_parts = [s for s in [specs.get("processor"), specs.get("ram"), specs.get("graphics")] if s]
+            if spec_parts:
+                parts.append(" / ".join(spec_parts))
+            tags = laptop.get("tags", [])
+            if tags:
+                parts.append(", ".join(tags[:3]))
+
+        # Book-specific
+        book = product.get("book", {})
+        if book:
+            author = book.get("author")
+            if author:
+                parts.append(f"by {author}")
+            genre = book.get("genre")
+            if genre:
+                parts.append(genre)
+            fmt = book.get("format")
+            if fmt:
+                parts.append(fmt)
+
+        return " | ".join(parts) if parts else None
 
     def _unknown_error_response(self):
         return {

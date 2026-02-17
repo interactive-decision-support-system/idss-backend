@@ -57,6 +57,10 @@ class InterviewSessionState:
     # kg.txt: intent at 2 levels
     session_intent: Optional[str] = None  # Explore | Decide today | Execute purchase
     step_intent: Optional[str] = None  # Research | Compare | Negotiate | Schedule | Return
+    # UniversalAgent state (persisted across HTTP requests)
+    agent_filters: Dict[str, Any] = field(default_factory=dict)  # Slot values gathered by agent
+    agent_questions_asked: List[str] = field(default_factory=list)  # Slot names already asked
+    agent_history: List[Dict[str, str]] = field(default_factory=list)  # Conversation history for LLM context
 
 
 class InterviewSessionManager:
@@ -99,6 +103,9 @@ class InterviewSessionManager:
             "last_recommendation_ids": getattr(state, "last_recommendation_ids", []),
             "session_intent": getattr(state, "session_intent", None),
             "step_intent": getattr(state, "step_intent", None),
+            "agent_filters": getattr(state, "agent_filters", {}),
+            "agent_questions_asked": getattr(state, "agent_questions_asked", []),
+            "agent_history": getattr(state, "agent_history", [])[-10:],
         }
 
     def _dict_to_state(self, d: Dict[str, Any]) -> InterviewSessionState:
@@ -116,6 +123,9 @@ class InterviewSessionManager:
             last_recommendation_ids=d.get("last_recommendation_ids", []),
             session_intent=d.get("session_intent"),
             step_intent=d.get("step_intent"),
+            agent_filters=d.get("agent_filters", {}),
+            agent_questions_asked=d.get("agent_questions_asked", []),
+            agent_history=d.get("agent_history", []),
         )
 
     def add_favorite(self, session_id: str, product_id: str) -> None:

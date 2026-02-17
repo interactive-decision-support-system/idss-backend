@@ -34,6 +34,8 @@ class PreferenceSlot(BaseModel):
     
     # Optional mapping to filter keys if direct mapping exists
     filter_key: Optional[str] = None
+    # Allowed values for categorical filters (agent MUST use one of these exact values)
+    allowed_values: Optional[List[str]] = None
 
 
 class DomainSchema(BaseModel):
@@ -83,10 +85,11 @@ VEHICLE_SCHEMA = DomainSchema(
             name="body_style",
             display_name="Body Style",
             priority=SlotPriority.HIGH,
-            description="The physical shape or category of the car (SUV, Sedan, Truck, etc.).",
+            description="The physical shape or category of the car.",
             example_question="Do you have a preference for a specific body style?",
-            example_replies=["SUV", "Sedan", "Truck", "Crossover"],
-            filter_key="body_style"
+            example_replies=["SUV", "Sedan", "Pickup", "Hatchback"],
+            filter_key="body_style",
+            allowed_values=["SUV", "Pickup", "Sedan", "Hatchback", "Coupe", "Convertible", "Minivan", "Cargo Van", "Wagon", "Passenger Van"]
         ),
         PreferenceSlot(
             name="features",
@@ -100,19 +103,21 @@ VEHICLE_SCHEMA = DomainSchema(
             name="brand",
             display_name="Brand",
             priority=SlotPriority.MEDIUM,
-            description="Preferred manufacturer (Toyota, Ford, BMW, etc.).",
+            description="Preferred manufacturer.",
             example_question="Do you have a preferred car brand?",
             example_replies=["Toyota", "Honda", "Ford", "No preference"],
-            filter_key="make"
+            filter_key="make",
+            allowed_values=["Ford", "Chevrolet", "Honda", "Jeep", "Toyota", "Ram", "BMW", "Cadillac", "Acura", "Hyundai", "GMC", "Nissan", "Mercedes-Benz", "Kia", "Volkswagen", "Subaru", "Dodge", "Audi", "Tesla", "Volvo", "Mazda", "Lexus", "Buick", "Porsche", "Chrysler", "Land Rover", "MINI", "Mitsubishi", "Lincoln"]
         ),
         PreferenceSlot(
             name="fuel_type",
             display_name="Fuel Type",
             priority=SlotPriority.LOW,
-            description="Engine type (Gas, Hybrid, Electric).",
+            description="Engine/fuel type.",
             example_question="Do you prefer a specific fuel type?",
-            example_replies=["Gas only", "Hybrid", "Electric", "No preference"],
-            filter_key="fuel_type"
+            example_replies=["Gasoline", "Hybrid", "Electric", "No preference"],
+            filter_key="fuel_type",
+            allowed_values=["Gasoline", "Diesel", "Electric", "Hybrid (Electric + Gasoline)", "Hydrogen"]
         ),
         PreferenceSlot(
             name="condition",

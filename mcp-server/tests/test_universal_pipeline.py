@@ -17,8 +17,10 @@ load_dotenv()
 
 # Add project root to path
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
+# Add repo root for agent package
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 
-from app.chat_endpoint import ChatRequest, process_chat
+from agent import ChatRequest, process_chat
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

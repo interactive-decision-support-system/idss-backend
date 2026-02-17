@@ -7,7 +7,7 @@ registered with the MCP server or used by the Universal Agent.
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 
-from .domain_registry import get_domain_schema, list_domains, DomainSchema
+from agent import get_domain_schema, list_domains, DomainSchema
 
 # Tool Definitions
 

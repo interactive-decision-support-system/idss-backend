@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Tuple, Optional
 
-from app.domain_registry import get_domain_schema
+from agent import get_domain_schema
 
 
 BRAND_MAP = {
