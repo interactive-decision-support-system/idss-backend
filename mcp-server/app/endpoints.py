@@ -23,6 +23,7 @@ from app.schemas import (
     AddToCartRequest, AddToCartResponse, CartData, CartItemData,
     CheckoutRequest, CheckoutResponse, OrderData, ShippingInfo
 )
+from app.formatters import _extract_policy_from_description
 from app.cache import cache_client
 from app.metrics import record_request_metrics
 from app.structured_logger import log_request, log_response, StructuredLogger
@@ -67,24 +68,6 @@ def log_mcp_event(
 CATALOG_VERSION = "1.0.0"
 
 
-def _enriched_product_info() -> Dict[str, Any]:
-    """
-    Default agent-ready enrichment (week6tips: delivery, return, warranty, promotion).
-    Synthetic defaults so any AI agent gets them without extra round-trips.
-    """
-    return {
-        "shipping": ShippingInfo(
-            shipping_method="standard",
-            estimated_delivery_days=5,
-            shipping_cost_cents=599,  # $5.99
-            shipping_region="US",
-        ),
-        "return_policy": "Free 30-day returns",
-        "warranty": "1-year manufacturer warranty",
-        "promotion_info": None,
-    }
-
-
 def apply_field_projection(
     product_detail: ProductDetail,
     fields: Optional[List[str]]
@@ -124,10 +107,6 @@ def apply_field_projection(
         "product_type": product_detail.product_type if "product_type" in fields else None,
         "metadata": product_detail.metadata if "metadata" in fields else None,
         "provenance": product_detail.provenance if "provenance" in fields else None,
-        "shipping": getattr(product_detail, "shipping", None) if "shipping" in fields else None,
-        "return_policy": getattr(product_detail, "return_policy", None) if "return_policy" in fields else None,
-        "warranty": getattr(product_detail, "warranty", None) if "warranty" in fields else None,
-        "promotion_info": getattr(product_detail, "promotion_info", None) if "promotion_info" in fields else None,
     }
     
     return ProductDetail(**projected)
@@ -393,14 +372,14 @@ async def search_products(
                     message="What are you looking for?",
                     details={
                         "question": "What are you looking for?",
-                        "quick_replies": ["Cars", "Laptops", "Books", "Phones"],
+                        "quick_replies": ["Laptops", "Books", "Vehicles", "Jewelry", "Accessories", "Clothing", "Beauty"],
                         "response_type": "question",
                         "question_id": "category",
                         "domain": "none",
                         "tool": "mcp_ecommerce",
                     },
                     allowed_fields=None,
-                    suggested_actions=["Cars", "Laptops", "Books", "Phones"],
+                    suggested_actions=["Laptops", "Books", "Vehicles", "Jewelry", "Accessories", "Clothing", "Beauty"],
                 )
             ],
             trace=create_trace(request_id, False, timings, ["conversation_controller"]),
@@ -414,9 +393,14 @@ async def search_products(
         elif detected_domain == Domain.LAPTOPS:
             filters["category"] = "Electronics"
             filters["_product_type_hint"] = "laptop"
-        elif detected_domain == Domain.PHONES:
-            filters["category"] = "Electronics"
-            filters["_product_type_hint"] = "phone"
+        elif detected_domain == Domain.JEWELRY:
+            filters["category"] = "Jewelry"
+        elif detected_domain == Domain.ACCESSORIES:
+            filters["category"] = "Accessories"
+        elif detected_domain == Domain.CLOTHING:
+            filters["category"] = "Clothing"
+        elif detected_domain == Domain.BEAUTY:
+            filters["category"] = "Beauty"
 
     # Log routing decision (per bigerrorjan29.txt)
     active_domain_after = detected_domain.value if detected_domain != Domain.NONE else active_domain_before
@@ -1702,18 +1686,48 @@ async def search_products(
             offset = 0
     
     db_query = db_query.offset(offset).limit(request.limit)
-    
-    # Execute query
+
+    # ── Search result cache check ────────────────────────────────────────
+    search_cache_key = cache_client.make_search_key(filters, filters.get("category", ""), offset, request.limit)
+    cached_search = cache_client.get_search_results(search_cache_key)
+    if cached_search is not None:
+        # Cache HIT — reconstruct ProductSummary list from cached dicts
+        cache_hit = True
+        timings["db"] = 0
+        product_summaries = [ProductSummary(**item) for item in cached_search]
+        total_count = len(product_summaries)  # approximate (page-level)
+        timings["total"] = (time.time() - start_time) * 1000
+        record_request_metrics("search_products", timings["total"], cache_hit, is_error=False)
+        log_response("search_products", request_id, "OK", timings["total"], cache_hit=True)
+        next_cursor = None
+        if offset + request.limit < total_count:
+            next_cursor = str(offset + request.limit)
+        return SearchProductsResponse(
+            status=ResponseStatus.OK,
+            data=SearchResultsData(
+                products=product_summaries,
+                total_count=total_count,
+                next_cursor=next_cursor,
+            ),
+            constraints=[],
+            trace=create_trace(request_id, True, timings, ["redis_search_cache"]),
+            version=create_version_info(),
+        )
+
+    # Execute query (cache miss — hit Postgres)
     db_start = time.time()
     products = db_query.all()
     timings["db"] = (time.time() - db_start) * 1000
-    
+
     # Build response data
     product_summaries = []
     products_with_scores = []
     
-    enriched = _enriched_product_info()
     for product in products:
+        # Extract enriched fields from description (shipping, return, warranty)
+        desc = getattr(product, 'description', '') or ''
+        policies = _extract_policy_from_description(desc)
+
         summary = ProductSummary(
             product_id=product.product_id,
             name=product.name,
@@ -1725,10 +1739,9 @@ async def search_products(
             source=getattr(product, 'source', None),
             color=getattr(product, 'color', None),
             scraped_from_url=getattr(product, 'scraped_from_url', None),
-            shipping=enriched["shipping"],
-            return_policy=enriched["return_policy"],
-            warranty=enriched["warranty"],
-            promotion_info=enriched["promotion_info"],
+            shipping=policies.get("shipping"),
+            return_policy=policies.get("return_policy"),
+            warranty=policies.get("warranty"),
         )
         products_with_scores.append((summary, product))
     
@@ -1873,7 +1886,15 @@ async def search_products(
             )
             total_count = max(0, total_count - dropped)  # Approximate: we only have this page
     post_validation_count = len(product_summaries)
-    
+
+    # ── Cache search results for next time ───────────────────────────────
+    if product_summaries:
+        try:
+            serialized = [s.model_dump(mode="json", exclude_none=True) for s in product_summaries]
+            cache_client.set_search_results(search_cache_key, serialized)
+        except Exception:
+            pass  # Cache write failure is non-fatal
+
     # Calculate next cursor
     next_cursor = None
     if offset + request.limit < total_count:
@@ -2131,8 +2152,11 @@ def get_product(
             "cache_timing_ms": timings["cache"]
         })
         
-        # Build response from cache (include enriched fields per week6tips)
-        enriched = _enriched_product_info()
+        # Build response from cache
+        # Extract enriched policy fields from cached description
+        cached_desc = cached_summary.get("description") or ""
+        cached_policies = _extract_policy_from_description(cached_desc)
+
         product_detail = ProductDetail(
             product_id=cached_summary["product_id"],
             name=cached_summary["name"],
@@ -2148,10 +2172,9 @@ def get_product(
             reviews=cached_summary.get("reviews"),
             created_at=datetime.fromisoformat(cached_summary["created_at"]),
             updated_at=datetime.fromisoformat(cached_summary["updated_at"]),
-            shipping=enriched["shipping"],
-            return_policy=enriched["return_policy"],
-            warranty=enriched["warranty"],
-            promotion_info=enriched["promotion_info"],
+            shipping=cached_policies.get("shipping"),
+            return_policy=cached_policies.get("return_policy"),
+            warranty=cached_policies.get("warranty"),
         )
         
         # Apply field projection if requested
@@ -2253,7 +2276,10 @@ def get_product(
         "has_inventory": product.inventory_info is not None
     })
     
-    enriched = _enriched_product_info()
+    # Extract enriched policy fields from description
+    desc = getattr(product, 'description', '') or ''
+    policies = _extract_policy_from_description(desc)
+
     product_detail = ProductDetail(
         product_id=product.product_id,
         name=product.name,
@@ -2269,12 +2295,11 @@ def get_product(
         reviews=getattr(product, 'reviews', None),
         created_at=product.created_at,
         updated_at=product.updated_at,
-        shipping=enriched["shipping"],
-        return_policy=enriched["return_policy"],
-        warranty=enriched["warranty"],
-        promotion_info=enriched["promotion_info"],
+        shipping=policies.get("shipping"),
+        return_policy=policies.get("return_policy"),
+        warranty=policies.get("warranty"),
     )
-    
+
     # STEP 4: Update Redis cache (cache-aside pattern)
     logger.info("processing_step", "Step 4: Updating Redis cache with fresh data", {
         "request_id": request_id,

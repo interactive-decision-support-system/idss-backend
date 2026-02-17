@@ -54,8 +54,8 @@ def is_complex_query(query: str, filters: Optional[Dict[str, Any]] = None) -> bo
 
     # Vehicles/cars: ALWAYS use simple path → detect_domain → IDSS backend. Never send to UniversalAgent.
     text_lower = text.lower()
-    vehicle_terms = ("car", "cars", "vehicle", "vehicles", "suv", "suvs", "truck", "trucks", "sedan", "van", "automobile")
-    if any(t in text_lower for t in vehicle_terms):
+    vehicle_pattern = r'\b(?:cars?|vehicles?|suvs?|trucks?|sedan|van|automobile)\b'
+    if re.search(vehicle_pattern, text_lower):
         return False
 
     # "Show me all X" and simple domain selection - always use simple path; never route to UniversalAgent

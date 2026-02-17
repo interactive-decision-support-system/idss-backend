@@ -253,9 +253,41 @@ async def _handle_post_recommendation(
 
     if "see similar" in msg_lower or "similar items" in msg_lower:
         session_manager.add_message(session_id, "user", request.message)
+        # Directly show diverse results (drop brand filter to fix brand overfitting)
+        if active_domain in ("laptops", "books", "phones"):
+            category = _domain_to_category(active_domain)
+            exclude_ids = list(session.last_recommendation_ids or [])
+            diversified_filters = dict(session.explicit_filters)
+            diversified_filters.pop("brand", None)
+            recs, labels = await _search_ecommerce_products(
+                diversified_filters, category, n_rows=2, n_per_row=3,
+                exclude_ids=exclude_ids if exclude_ids else None,
+            )
+            if recs:
+                new_ids = []
+                for row in recs:
+                    for item in row:
+                        pid = item.get("product_id") or item.get("id") or (item.get("_product") or {}).get("product_id")
+                        if pid and pid not in new_ids:
+                            new_ids.append(pid)
+                if new_ids:
+                    accumulated = list(exclude_ids) + [p for p in new_ids if p not in exclude_ids]
+                    session_manager.set_last_recommendations(session_id, accumulated[:24])
+                return ChatResponse(
+                    response_type="recommendations",
+                    message="Here are similar items from different brands:",
+                    session_id=session_id,
+                    recommendations=recs,
+                    bucket_labels=labels or [],
+                    filters=diversified_filters,
+                    preferences={},
+                    question_count=session.question_count,
+                    domain=active_domain,
+                    quick_replies=["See similar items", "Compare items", "Broaden search", "Help with checkout"],
+                )
         return ChatResponse(
             response_type="question",
-            message="I can show you more options in the same style. Would you like to broaden the search (e.g., different brands or price range), or try a different category?",
+            message="I can show you more options. Would you like to broaden the search or try a different category?",
             session_id=session_id,
             quick_replies=["Broaden search", "Different category", "Show more like these"],
             filters=session.explicit_filters,
@@ -315,11 +347,14 @@ async def _handle_post_recommendation(
 
     if "show more like these" in msg_lower:
         session_manager.add_message(session_id, "user", request.message)
-        if active_domain in ("laptops", "books"):
+        if active_domain in ("laptops", "books", "phones"):
             category = _domain_to_category(active_domain)
             exclude_ids = list(session.last_recommendation_ids or [])
+            # Drop brand filter to ensure brand diversity
+            diversified_filters = dict(session.explicit_filters)
+            diversified_filters.pop("brand", None)
             recs, labels = await _search_ecommerce_products(
-                session.explicit_filters, category, n_rows=2, n_per_row=3,
+                diversified_filters, category, n_rows=2, n_per_row=3,
                 exclude_ids=exclude_ids if exclude_ids else None,
             )
         else:
@@ -424,8 +459,18 @@ async def _handle_post_recommendation(
     if any(k in msg_lower for k in ["compare", "vs", "against", "versus"]):
         session_manager.add_message(session_id, "user", request.message)
         category = _domain_to_category(active_domain)
-        if "compare these" in msg_lower or "compare items" in msg_lower or ("compare" in msg_lower and "mac" not in msg_lower and "dell" not in msg_lower and "by price" not in msg_lower):
-            from app.research_compare import build_comparison_table
+        from app.research_compare import build_comparison_table, parse_compare_by
+
+        # Parse "compare by price and brand" → ["price", "brand"]
+        compare_by = parse_compare_by(request.message)
+
+        is_generic_compare = (
+            "compare these" in msg_lower
+            or "compare items" in msg_lower
+            or compare_by is not None
+            or ("compare" in msg_lower and "mac" not in msg_lower and "dell" not in msg_lower)
+        )
+        if is_generic_compare:
             product_ids = list(dict.fromkeys(
                 list(session.favorite_product_ids or []) +
                 list(session.clicked_product_ids or [])
@@ -435,20 +480,21 @@ async def _handle_post_recommendation(
             if product_ids:
                 products = _fetch_products_by_ids(product_ids)
                 if products:
-                    comparison = build_comparison_table(products)
+                    comparison = build_comparison_table(products, compare_by=compare_by)
                     fmt_domain = "books" if category == "Books" else "laptops"
                     from app.formatters import format_product
                     formatted = [format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True) for p in products]
                     rec_rows = [formatted]
                     labels = [p.get("name", "Product")[:20] for p in products]
+                    attr_desc = ", ".join(compare_by) if compare_by else "all attributes"
                     return ChatResponse(
                         response_type="compare",
-                        message="Side-by-side comparison of your selected items:",
+                        message=f"Side-by-side comparison by {attr_desc}:",
                         session_id=session_id,
                         comparison_data=comparison,
                         recommendations=rec_rows,
                         bucket_labels=labels,
-                        quick_replies=["See similar items", "Research", "Help with checkout"],
+                        quick_replies=["Compare by price", "Compare by brand", "Compare by rating", "See similar items"],
                         filters=session.explicit_filters,
                         preferences={},
                         question_count=session.question_count,
@@ -456,9 +502,9 @@ async def _handle_post_recommendation(
                     )
             return ChatResponse(
                 response_type="question",
-                message="To compare items, please click on 2-4 products from the recommendations first (or add them to favorites), then say \"Compare these\".",
+                message="To compare items, please click on 2-4 products from the recommendations first (or add them to favorites), then say \"Compare these\" or \"Compare by price\".",
                 session_id=session_id,
-                quick_replies=["Compare by price", "See similar items"],
+                quick_replies=["Compare by price", "Compare by brand", "Compare by rating", "See similar items"],
                 filters=session.explicit_filters,
                 preferences={},
                 question_count=session.question_count,
@@ -971,6 +1017,27 @@ def _build_kg_search_query(filters: Dict[str, Any], category: str) -> str:
     return " ".join(parts) if parts else ""
 
 
+def _diversify_by_brand(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Interleave products by brand to avoid showing all results from one brand."""
+    if len(products) <= 2:
+        return products
+    from collections import OrderedDict
+    brand_buckets: OrderedDict[str, list] = OrderedDict()
+    for p in products:
+        brand = (p.get("brand") or "Unknown").lower()
+        brand_buckets.setdefault(brand, []).append(p)
+    if len(brand_buckets) <= 1:
+        return products
+    result = []
+    while any(brand_buckets.values()):
+        for brand in list(brand_buckets.keys()):
+            if brand_buckets[brand]:
+                result.append(brand_buckets[brand].pop(0))
+            else:
+                del brand_buckets[brand]
+    return result
+
+
 async def _search_ecommerce_products(
     filters: Dict[str, Any],
     category: str,
@@ -1154,6 +1221,13 @@ async def _search_ecommerce_products(
             product_dicts.sort(key=sort_key)
         else:
             product_dicts.sort(key=lambda x: float(x.get("price_cents", 0) or 0))
+
+        # Brand diversification: interleave brands so results aren't all from one brand
+        product_dicts = _diversify_by_brand(product_dicts)
+
+        # Generate recommendation reasons based on ranking context
+        from app.research_compare import generate_recommendation_reasons
+        generate_recommendation_reasons(product_dicts, filters=filters, kg_candidate_ids=kg_candidate_ids)
 
         # Create buckets
         total = len(product_dicts)

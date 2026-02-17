@@ -35,14 +35,14 @@ class Product(Base):
     product_id = Column(String(50), primary_key=True, index=True)
 
     # Basic product information
-    name = Column(String(255), nullable=False, index=True)
+    name = Column(String(500), nullable=False, index=True)
     description = Column(Text)
     category = Column(String(100), index=True)
     subcategory = Column(String(100), index=True)  # For books: genre (Mystery, Sci-Fi, etc.)
     brand = Column(String(100))
     source = Column(String(100), index=True)  # Platform: "WooCommerce", "Shopify", "Temu", "Seed", etc.
     color = Column(String(80))
-    scraped_from_url = Column(String(512), index=True)  # URL we scraped from. Null for Seed.
+    scraped_from_url = Column(Text, index=True)  # URL we scraped from. Null for Seed.
     reviews = Column(Text)
 
     # Structured specs for hard-filtering (NVIDIA gaming PC must not return laptops without GPU)
@@ -50,7 +50,7 @@ class Product(Base):
     gpu_vendor = Column(String(50), index=True)  # NVIDIA, AMD, Apple, Intel; NULL = unknown (must not pass when required)
     gpu_model = Column(String(100))
     tags = Column(PG_ARRAY(Text).with_variant(JSON, "sqlite"))  # e.g. ["gaming"]
-    image_url = Column(String(512))
+    image_url = Column(Text)
     source_product_id = Column(String(255))  # Stable id per source for upsert; NULL for seed.
 
     # Richer KG (§7): Reddit-style features for complex queries (good_for_ml, good_for_web_dev, battery_life, etc.)
