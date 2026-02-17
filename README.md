@@ -1,106 +1,106 @@
 # IDSS Backend - Multi-Domain Interactive Decision Support System
 
-A multi-domain Interactive Decision Support System that helps users find products through conversational interviews. Supports **vehicles**, **laptops**, and **books** with intelligent domain routing.
+An LLM-driven Interactive Decision Support System that helps users find products through conversational interviews. The **Universal Agent** detects the user's domain, extracts preferences via structured LLM calls, and generates natural follow-up questions before delivering recommendations. Supports **vehicles**, **laptops**, and **books**.
 
-## Quick MCP Capability Examples
-
-**Add a specific product to cart (MCP):**
-
-Request (POST `/api/add-to-cart`)
-
-```json
-{
-  "cart_id": "cart-001",
-  "product_id": "laptop-001",
-  "qty": 1
-}
-```text
-
-Response (agent consumes `data` + `trace`):
-
-```json
-{
-  "status": "OK",
-  "data": {
-    "cart_id": "cart-001",
-    "item_count": 1,
-    "total_cents": 149999
-  },
-  "trace": {"request_id": "..."}
-}
-```
-
-Agent-facing summary: “Added Gaming Laptop RTX 4060 to your cart. Total: $1499.99.”
-
-## Architecture Overview
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Frontend (Port 3000)                      │
-│                  Next.js Chat Interface                      │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│               MCP Server (Port 8001) - Gateway               │
-│                                                              │
-│  POST /chat  ──────────────────────────────────────────────▶│
-│       │                                                      │
-│       ├── "car", "SUV", "Toyota" ──▶ IDSS Backend (8000)    │
-│       ├── "laptop", "MacBook"    ──▶ PostgreSQL + Interview │
-│       └── "book", "novel"        ──▶ PostgreSQL + Interview │
-└─────────────────────────────────────────────────────────────┘
-                           │
-              ┌────────────┴────────────┐
-              ▼                         ▼
-┌─────────────────────────┐   ┌─────────────────────────┐
-│  IDSS API (Port 8000)   │   │      PostgreSQL         │
-│                         │   │    (mcp_ecommerce)      │
-│  - Vehicle database     │   │                         │
-│  - Embedding search     │   │  - Laptops (37 items)   │
-│  - Coverage-risk        │   │  - Books (50 items)     │
-│  - Interview system     │   │  - Prices, Inventory    │
-└─────────────────────────┘   └─────────────────────────┘
+                        Frontend (Port 3000)
+                       Next.js Chat Interface
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│                  MCP Server (Port 8001)                   │
+│                                                          │
+│  POST /chat ─────► agent/                                │
+│                    ├── UniversalAgent (LLM brain)         │
+│                    │   ├── Domain detection  (gpt-4o-mini)│
+│                    │   ├── Criteria extraction(gpt-4o-mini)│
+│                    │   └── Question generation(gpt-4o)    │
+│                    ├── chat_endpoint.py (orchestrator)     │
+│                    └── interview/session_manager.py        │
+│                                                          │
+│  Search dispatch:                                        │
+│    vehicles ──► IDSS (direct import, no HTTP)            │
+│    laptops  ──► PostgreSQL                               │
+│    books    ──► PostgreSQL                               │
+└──────────────────────────────────────────────────────────┘
               │                         │
               ▼                         ▼
 ┌─────────────────────────┐   ┌─────────────────────────┐
-│   SQLite + FAISS        │   │   Redis (Optional)      │
-│   Vehicle Data (~2GB)   │   │   Session Cache         │
+│   SQLite + FAISS        │   │      PostgreSQL          │
+│   Vehicle Data (~2GB)   │   │    (mcp_ecommerce)       │
+│   ~147k vehicles        │   │  - Laptops (37 items)    │
+│                         │   │  - Books (50 items)      │
 └─────────────────────────┘   └─────────────────────────┘
+```
+
+**Key design:** There is no separate IDSS API server. Vehicle search functions (`idss.recommendation.*`) are imported directly into the MCP server process. Only **one server** (port 8001) is needed.
+
+## Project Structure
+
+```
+idss-backend/
+├── agent/                           # Agent brain (independent of server)
+│   ├── __init__.py                  # Public API re-exports
+│   ├── universal_agent.py           # LLM-driven pipeline (domain → extract → question → search)
+│   ├── domain_registry.py           # Domain schemas (slots, priorities, allowed values)
+│   ├── prompts.py                   # All LLM prompt templates (tune without touching logic)
+│   ├── chat_endpoint.py             # /chat orchestrator + search dispatchers
+│   └── interview/
+│       └── session_manager.py       # Session state + Redis/Neo4j persistence
+│
+├── mcp-server/                      # HTTP server + tools
+│   ├── app/
+│   │   ├── main.py                  # FastAPI app (port 8001)
+│   │   ├── endpoints.py             # MCP tool-call endpoints
+│   │   ├── tools/vehicle_search.py  # IDSS vehicle search wrapper (direct import)
+│   │   ├── formatters.py            # Product formatting for frontend
+│   │   ├── research_compare.py      # Post-rec research/compare handlers
+│   │   ├── database.py              # PostgreSQL connection
+│   │   ├── models.py                # SQLAlchemy models
+│   │   └── ...                      # Cache, metrics, UCP, etc.
+│   ├── scripts/
+│   │   └── seed_*.sql               # Database seed files
+│   └── tests/
+│
+├── idss/                            # IDSS Vehicle Recommendation Engine
+│   ├── recommendation/              # Embedding similarity, coverage-risk
+│   ├── diversification/             # Entropy bucketing
+│   └── core/                        # Controller
+│
+├── config/default.yaml              # IDSS recommendation config
+├── data/                            # Vehicle data (symlink to dataset)
+├── requirements.txt
+└── .env                             # Environment variables
 ```
 
 ## Prerequisites
 
-### Required
-
 | Software | Version | Purpose |
 |----------|---------|---------|
 | Python | 3.10+ | Runtime |
-| PostgreSQL | 14+ | E-commerce product database |
-| Node.js | 18+ | Frontend (if running locally) |
+| PostgreSQL | 14+ | Laptop/book product database |
+| OpenAI API key | - | LLM calls (domain detection, extraction, question generation) |
 
-### Optional (for full features)
+**Optional:**
 
-| Software | Version | Purpose |
-|----------|---------|---------|
-| Redis | 6+ | Session caching (falls back to in-memory) |
-| Neo4j | 5+ | Knowledge graph (future feature) |
+| Software | Purpose |
+|----------|---------|
+| Redis 6+ | Session caching (falls back to in-memory) |
+| Neo4j 5+ | Knowledge graph for session memory |
 
 ## Quick Start
 
-### 1. Clone and Setup Environment
+### 1. Setup Environment
 
 ```bash
-# Clone the repository
 git clone <repo-url> idss-backend
 cd idss-backend
 
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or: venv\Scripts\activate  # Windows
+source venv/bin/activate
 
-# Install dependencies
 pip install -r requirements.txt
 ```
 
@@ -117,283 +117,202 @@ DATABASE_URL="postgresql://YOUR_USERNAME@localhost:5432/mcp_ecommerce"
 LOG_LEVEL=INFO
 REDIS_HOST=localhost
 REDIS_PORT=6379
-NEO4J_URI=bolt://localhost:7687
-NEO4J_PASSWORD=your-password
 ```
 
-**Important:** Replace `YOUR_USERNAME` with your PostgreSQL username (often your system username on Mac).
+Replace `YOUR_USERNAME` with your PostgreSQL username (often your system username on Mac).
 
 ### 3. Setup PostgreSQL Database
 
 ```bash
-# Create the database
 createdb mcp_ecommerce
 
-# Seed with laptop and book products
 cd mcp-server
 psql -d mcp_ecommerce -f scripts/seed_laptops_expanded.sql
 psql -d mcp_ecommerce -f scripts/seed_books_expanded.sql
 
-# Verify products were added
+# Verify
 psql -d mcp_ecommerce -c "SELECT category, COUNT(*) FROM products GROUP BY category;"
-# Expected output:
 #   category   | count
 # -------------+-------
 #  Electronics |    37
 #  Books       |    50
 ```
 
-### 4. Setup Vehicle Data (for IDSS)
-
-The vehicle recommendation system requires pre-built data files:
+### 4. Setup Vehicle Data
 
 ```bash
-# Create symlink to vehicle data (adjust path as needed)
+# Symlink or copy the vehicle dataset
 ln -s /path/to/car_dataset_idss data/car_dataset_idss
 
 # Required files in data/car_dataset_idss/:
-# - uni_vehicles.db (~1.5 GB) - Vehicle database
-# - vehicle_reviews_tavily.db (~22 MB) - Reviews
-# - bm25_index.pkl - BM25 search index
-# - phrase_embeddings/ - FAISS indices
+# - uni_vehicles.db (~1.5 GB)
+# - vehicle_reviews_tavily.db (~22 MB)
+# - bm25_index.pkl
+# - phrase_embeddings/
 ```
 
-### 5. Start the Servers
+### 5. Start the Server
 
-**Terminal 1 - IDSS API (Vehicle Recommendations):**
 ```bash
-cd /path/to/idss-backend
 source venv/bin/activate
-uvicorn idss.api.server:app --reload --port 8000
-
-# First startup preloads ~2GB of models (60-120 seconds)
-# For faster startup during development:
-# IDSS_SKIP_PRELOAD=1 uvicorn idss.api.server:app --reload --port 8000
-```
-
-**Terminal 2 - MCP Server (Multi-Domain Gateway):**
-# 1. Activate the venv
-source venv/bin/activate
-# 3. Start the server (Port 8001)
 uvicorn app.main:app --app-dir mcp-server --reload --port 8001
+```
 
-### 6. Verify Installation
+First startup preloads IDSS vehicle models (~60-120 seconds). To skip during development:
 
 ```bash
-# Test MCP server health
+MCP_SKIP_PRELOAD=1 uvicorn app.main:app --app-dir mcp-server --reload --port 8001
+```
+
+### 6. Verify
+
+```bash
+# Health check
 curl http://localhost:8001/health
 
-# Test multi-domain chat
+# Test laptop flow
 curl -X POST http://localhost:8001/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "I want a Dell laptop"}'
+  -d '{"message": "I want a gaming laptop"}'
 
-# Test vehicle routing (requires IDSS on 8000)
+# Test vehicle flow
 curl -X POST http://localhost:8001/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "I want an SUV under $30000"}'
+  -d '{"message": "I need an SUV under 30k"}'
+
+# Test book flow
+curl -X POST http://localhost:8001/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "looking for a mystery novel"}'
+```
+
+## How It Works
+
+### The Universal Agent Pipeline
+
+Every `/chat` message goes through this flow:
+
+1. **Domain Detection** (gpt-4o-mini) — Classifies into `vehicles`, `laptops`, `books`, or `unknown`
+2. **Criteria Extraction** (gpt-4o-mini) — Extracts slot values from the message using domain-specific schemas with allowed values
+3. **Interview Decision** — Should we ask another question or show results? Based on: question count vs limit, impatience detection, explicit recommendation requests
+4. **Question Generation** (gpt-4o) — Generates a natural follow-up question with quick replies and an invitation to share other preferences
+5. **Search Dispatch** — When ready, dispatches to the appropriate search backend:
+   - Vehicles: direct IDSS import (`idss.recommendation.embedding_similarity`)
+   - Laptops/Books: PostgreSQL with progressive filter relaxation
+6. **Recommendation Explanation** (gpt-4o-mini) — Generates a conversational message highlighting one standout product
+
+### Domain Schemas
+
+Defined in `agent/domain_registry.py`. Each domain has priority-ranked slots:
+
+| Domain | HIGH slots | MEDIUM slots | LOW slots |
+|--------|-----------|-------------|-----------|
+| Vehicles | Budget, Use Case, Body Style | Features, Brand | Fuel Type, Condition |
+| Laptops | Use Case, Budget | Brand, OS | Screen Size |
+| Books | Genre | Format | Budget |
+
+Vehicle slots include `allowed_values` for categorical filters (body style, fuel type, brand) so the LLM outputs exact database-compatible values.
+
+### Prompt Tuning
+
+All LLM prompts are in `agent/prompts.py`. You can adjust:
+- `DOMAIN_DETECTION_PROMPT` — routing behavior
+- `CRITERIA_EXTRACTION_PROMPT` — what/how the agent extracts
+- `PRICE_CONTEXT` — per-domain price interpretation
+- `QUESTION_GENERATION_PROMPT` — question style and invitation pattern
+- `RECOMMENDATION_EXPLANATION_PROMPT` — how recommendations are presented
+
+## API Reference
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/chat` | POST | Main conversation endpoint |
+| `/session/{id}` | GET | Get session state |
+| `/session/reset` | POST | Reset/create session |
+| `/sessions` | GET | List active sessions |
+| `/health` | GET | Health check |
+| `/api/search-products` | POST | Direct product search (MCP tool) |
+| `/api/get-product` | POST | Get product details (MCP tool) |
+| `/api/add-to-cart` | POST | Add to cart (MCP tool) |
+| `/api/checkout` | POST | Checkout (MCP tool) |
+| `/tools` | GET | List available MCP tools |
+| `/tools/openai` | GET | Tools in OpenAI function calling format |
+| `/tools/claude` | GET | Tools in Claude tool use format |
+
+### Chat Request
+
+```json
+{
+  "message": "I want a laptop for gaming",
+  "session_id": "optional-session-id",
+  "k": 3,
+  "n_rows": 3,
+  "n_per_row": 3
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `message` | string | required | User message |
+| `session_id` | string | auto-generated | Session ID for multi-turn conversations |
+| `k` | int | 3 | Max interview questions (0 = skip to recommendations) |
+| `n_rows` | int | 3 | Number of result rows |
+| `n_per_row` | int | 3 | Items per row |
+
+### Chat Response
+
+```json
+{
+  "response_type": "recommendations",
+  "message": "The Dell XPS 15 stands out as a great match...",
+  "session_id": "uuid",
+  "domain": "laptops",
+  "recommendations": [[...], [...]],
+  "bucket_labels": ["Budget-Friendly ($600-$800)", "Premium ($1200-$1500)"],
+  "quick_replies": ["See similar items", "Compare items", "Research"],
+  "filters": {"brand": "Dell", "price_max_cents": 150000},
+  "question_count": 2
+}
 ```
 
 ## Frontend Configuration
 
-If using the IDSS Web frontend, configure it to point to the MCP server:
+Point the frontend to the MCP server:
 
 ```bash
 # In frontend/.env.local
 NEXT_PUBLIC_API_BASE_URL="http://localhost:8001"
 ```
 
-The frontend will call `/chat` on port 8001, which routes to the appropriate backend based on the detected domain.
-For laptops and books, `/chat` always runs the MCP interview flow before returning recommendations.
-
-## API Reference
-
-### MCP Server (Port 8001) - Multi-Domain Gateway
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/chat` | POST | Main conversation endpoint (routes by domain, interview-first for laptops/books) |
-| `/session/{id}` | GET | Get session state |
-| `/session/reset` | POST | Reset/create session |
-| `/sessions` | GET | List active sessions |
-| `/health` | GET | Health check with DB/cache status |
-| `/api/search-products` | POST | Direct product search |
-| `/tools` | GET | List available MCP tools |
-
-### IDSS API (Port 8000) - Vehicle Recommendations
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/chat` | POST | Vehicle conversation (interview → recommendations) |
-| `/recommend` | POST | Direct recommendations (bypass interview) |
-| `/recommend/compare` | POST | Compare ranking methods |
-| `/status` | GET | Server status with preload timing |
-
-### Chat Request Format
-
-```json
-{
-  "message": "I want a laptop for gaming",
-  "session_id": "optional-session-id",
-  "k": 3,           // Number of interview questions (0 = skip)
-  "n_rows": 3,      // Result rows
-  "n_per_row": 3    // Items per row
-}
-```
-
-### Chat Response Format
-
-```json
-{
-  "response_type": "recommendations",  // or "question"
-  "message": "Based on your preferences...",
-  "session_id": "uuid",
-  "domain": "laptops",                 // "vehicles", "laptops", "books"
-  "recommendations": [[...], [...]],   // 2D grid of products
-  "bucket_labels": ["Budget", "Mid-Range", "Premium"],
-  "quick_replies": ["Under $1000", "Gaming", "Work"],
-  "filters": {"brand": "Dell"},
-  "question_count": 2
-}
-```
-
-## Domain Routing
-
-The MCP server automatically detects the domain from user messages:
-
-| Keywords | Domain | Backend |
-|----------|--------|---------|
-| car, SUV, truck, Toyota, Honda... | vehicles | IDSS (port 8000) |
-| laptop, MacBook, computer, Dell... | laptops | MCP interview → PostgreSQL |
-| book, novel, reading, fiction... | books | MCP interview → PostgreSQL |
-| hi, hello, ambiguous | none | Asks "What are you looking for?" |
-
-## Configuration Files
-
-### Main Configuration (`config/default.yaml`)
-
-```yaml
-idss:
-  k: 3                          # Default interview questions
-  n_vehicles_per_row: 3
-  num_rows: 3
-
-recommendation:
-  method: "embedding_similarity"  # or "coverage_risk"
-  embedding_similarity:
-    lambda_param: 0.85
-  coverage_risk:
-    lambda_risk: 0.5
-```
-
-### MCP Configuration (`mcp-server/config.yaml`)
-
-```yaml
-default_backend: idss
-
-backends:
-  idss:
-    url: http://localhost:8000
-  postgres:
-    url: null  # Direct DB connection
-
-cache:
-  redis_url: redis://localhost:6379
-```
-
-## Development
-
-### Project Structure
-
-```
-idss-backend/
-├── idss/                        # IDSS Vehicle Recommendation System
-│   ├── api/server.py           # FastAPI server (port 8000)
-│   ├── core/controller.py      # Main IDSS controller
-│   ├── recommendation/         # Ranking algorithms
-│   └── diversification/        # Entropy bucketing
-│
-├── mcp-server/                  # MCP Multi-Domain Gateway
-│   ├── app/
-│   │   ├── main.py            # FastAPI server (port 8001)
-│   │   ├── chat_endpoint.py   # /chat with domain routing
-│   │   ├── conversation_controller.py  # Domain detection
-│   │   └── interview/         # Question generation
-│   ├── scripts/
-│   │   └── seed_*.sql         # Database seed files
-│   └── config.yaml            # MCP configuration
-│
-├── config/default.yaml         # IDSS configuration
-├── data/                       # Vehicle data (symlink)
-├── requirements.txt
-└── .env                        # Environment variables
-```
-
-### Running Tests
+## Running Tests
 
 ```bash
-# IDSS tests
-python -m pytest idss/tests/
-
-# MCP server tests
 cd mcp-server
 python -m pytest tests/
 ```
 
-### Adding New Products
-
-```bash
-# Add more laptops
-psql -d mcp_ecommerce -c "
-INSERT INTO products (product_id, name, description, category, brand)
-VALUES ('prod-laptop-new-001', 'New Laptop', 'Description', 'Electronics', 'Brand');
-
-INSERT INTO prices (product_id, price_cents, currency)
-VALUES ('prod-laptop-new-001', 99999, 'USD');
-"
-```
-
 ## Troubleshooting
 
-### "role does not exist" error
-Your DATABASE_URL has the wrong username. Check your PostgreSQL username:
-```bash
-psql -c "\du"  # List users
-# Update .env with correct username
-```
+**"role does not exist"** — Wrong PostgreSQL username in `DATABASE_URL`. Check with `psql -c "\du"`.
 
-### "database does not exist" error
-Create the database:
-```bash
-createdb mcp_ecommerce
-```
+**"database does not exist"** — Run `createdb mcp_ecommerce`.
 
-### Products not showing
-1. Check products exist: `psql -d mcp_ecommerce -c "SELECT COUNT(*) FROM products;"`
-2. Check brand casing matches database (e.g., "Dell" not "dell")
-3. Restart the MCP server after seeding
+**No products returned** — Check `psql -d mcp_ecommerce -c "SELECT COUNT(*) FROM products;"`. Ensure seed scripts were run.
 
-### IDSS not loading
-1. Check vehicle data exists: `ls -la data/car_dataset_idss/`
-2. Check OPENAI_API_KEY is set
-3. First startup takes 60-120 seconds to preload models
+**Redis connection errors** — Redis is optional. The system falls back to in-memory sessions.
 
-### Redis connection errors
-Redis is optional. The system falls back to in-memory sessions if Redis is unavailable.
+**Neo4j connection refused** — Neo4j is optional. The warning `Connection refused on port 7687` is harmless.
 
-## Environment Variables Reference
+**IDSS models slow to load** — First startup preloads ~2GB of vehicle data. Use `MCP_SKIP_PRELOAD=1` for faster dev restarts (vehicles won't work until first request triggers lazy load).
+
+## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | Yes | - | OpenAI API key for LLM features |
+| `OPENAI_API_KEY` | Yes | - | OpenAI API key for agent LLM calls |
 | `DATABASE_URL` | Yes | - | PostgreSQL connection string |
 | `LOG_LEVEL` | No | INFO | Logging level |
-| `REDIS_HOST` | No | localhost | Redis host for caching |
+| `REDIS_HOST` | No | localhost | Redis host for session caching |
 | `REDIS_PORT` | No | 6379 | Redis port |
-| `NEO4J_URI` | No | - | Neo4j connection (future) |
-| `IDSS_SKIP_PRELOAD` | No | 0 | Skip model preloading (dev) |
-| `IDSS_PRELOAD_ALL` | No | 1 | Preload all methods |
-
-## License
-
-Stanford LDR Lab Research Project
+| `NEO4J_URI` | No | - | Neo4j connection for knowledge graph |
+| `MCP_SKIP_PRELOAD` | No | 0 | Skip IDSS model preloading (dev only) |
