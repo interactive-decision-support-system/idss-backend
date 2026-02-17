@@ -172,11 +172,10 @@ uvicorn idss.api.server:app --reload --port 8000
 ```
 
 **Terminal 2 - MCP Server (Multi-Domain Gateway):**
-```bash
-cd /path/to/idss-backend/mcp-server
-source ../venv/bin/activate
-uvicorn app.main:app --reload --port 8001
-```
+# 1. Activate the venv
+source venv/bin/activate
+# 3. Start the server (Port 8001)
+uvicorn app.main:app --app-dir mcp-server --reload --port 8001
 
 ### 6. Verify Installation
 

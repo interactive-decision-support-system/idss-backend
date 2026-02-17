@@ -15,9 +15,13 @@ import uvicorn
 import logging
 import traceback
 import os
+import sys
 from dotenv import load_dotenv
 from pathlib import Path
 from contextlib import asynccontextmanager
+
+# Add repo root to Python path so `agent` package is importable
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 logger = logging.getLogger("mcp.main")
 
@@ -59,10 +63,10 @@ from app.ucp_endpoints import (
 )
 from app.ucp_event_logger import log_ucp_event
 from app.supplier_api import router as supplier_router
-from app.chat_endpoint import (
+from agent import (
     ChatRequest, ChatResponse, process_chat,
     SessionResponse, ResetRequest, ResetResponse,
-    get_session_state, reset_session, delete_session, list_sessions
+    get_session_state, reset_session, delete_session, list_sessions,
 )
 
 

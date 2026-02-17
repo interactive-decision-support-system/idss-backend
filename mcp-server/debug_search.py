@@ -7,12 +7,14 @@ from dotenv import load_dotenv
 # Setup environment
 load_dotenv()
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
+# Add repo root for agent package
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from app.chat_endpoint import _search_ecommerce_products
+from agent.chat_endpoint import _search_ecommerce_products
 from app.database import SessionLocal
 from app.models import Product
 

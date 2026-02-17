@@ -307,7 +307,7 @@ async def search_products(
         is_greeting_or_ambiguous,
         Domain,
     )
-    from app.interview.session_manager import get_session_manager
+    from agent.interview.session_manager import get_session_manager
 
     active_domain_before = None
     if request.session_id:
@@ -628,7 +628,7 @@ async def search_products(
             
             if is_laptop_or_electronics and effective_session_id:
                 # Use LLM-based interview when available; else rule-based (no openai required)
-                from app.interview.session_manager import get_session_manager
+                from agent.interview.session_manager import get_session_manager
 
                 session_manager = get_session_manager()
                 session = session_manager.get_session(effective_session_id)
@@ -684,7 +684,7 @@ async def search_products(
                         )
                     # Otherwise use LLM for brand/other questions (fall back to rule-based if openai not installed)
                     try:
-                        from app.interview.question_generator import generate_question
+                        from agent.interview.question_generator import generate_question
                         question_response = generate_question(
                             product_type=product_type or "electronics",
                             conversation_history=session.conversation_history,
@@ -800,7 +800,7 @@ async def search_products(
         )
         
         if is_interview_domain:
-            from app.interview.session_manager import get_session_manager
+            from agent.interview.session_manager import get_session_manager
             session_manager = get_session_manager()
             
             # Update filters in session (from quick reply answers)
