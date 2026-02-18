@@ -9,13 +9,25 @@ DROP TABLE IF EXISTS inventory CASCADE;
 DROP TABLE IF EXISTS prices CASCADE;
 DROP TABLE IF EXISTS products CASCADE;
 
--- Create products table
+-- Create products table (matches app/models.py Product model)
 CREATE TABLE products (
     product_id VARCHAR(50) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    name VARCHAR(500) NOT NULL,
     description TEXT,
     category VARCHAR(100),
+    subcategory VARCHAR(100),
     brand VARCHAR(100),
+    source VARCHAR(100),
+    color VARCHAR(80),
+    scraped_from_url TEXT,
+    reviews TEXT,
+    product_type VARCHAR(50),
+    gpu_vendor VARCHAR(50),
+    gpu_model VARCHAR(100),
+    tags TEXT[],
+    image_url TEXT,
+    source_product_id VARCHAR(255),
+    kg_features JSON,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -23,6 +35,15 @@ CREATE TABLE products (
 CREATE INDEX idx_products_name ON products(name);
 CREATE INDEX idx_products_category ON products(category);
 CREATE INDEX idx_products_brand ON products(brand);
+CREATE INDEX idx_products_subcategory ON products(subcategory);
+CREATE INDEX idx_products_source ON products(source);
+CREATE INDEX idx_products_product_type ON products(product_type);
+CREATE INDEX idx_products_gpu_vendor ON products(gpu_vendor);
+CREATE INDEX idx_products_scraped_from_url ON products(scraped_from_url);
+CREATE INDEX idx_products_category_product_type ON products(category, product_type);
+CREATE INDEX idx_products_category_brand ON products(category, brand);
+CREATE INDEX idx_products_category_color ON products(category, color);
+CREATE INDEX idx_products_category_gpu_vendor ON products(category, gpu_vendor);
 
 -- Create prices table
 CREATE TABLE prices (
@@ -58,20 +79,21 @@ CREATE TABLE carts (
 
 CREATE INDEX idx_carts_status ON carts(status);
 
--- Create cart_items table
+-- Create cart_items table (matches app/models.py CartItem model)
 CREATE TABLE cart_items (
     cart_item_id SERIAL PRIMARY KEY,
     cart_id VARCHAR(50) NOT NULL,
     product_id VARCHAR(50) NOT NULL,
     quantity INTEGER NOT NULL,
     added_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ux_cart_items_cart_product UNIQUE (cart_id, product_id),
     FOREIGN KEY (cart_id) REFERENCES carts(cart_id) ON DELETE CASCADE,
     FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_cart_items_cart_id ON cart_items(cart_id);
 
--- Create orders table
+-- Create orders table (matches app/models.py Order model)
 CREATE TABLE orders (
     order_id VARCHAR(50) PRIMARY KEY,
     cart_id VARCHAR(50) NOT NULL,
@@ -80,6 +102,10 @@ CREATE TABLE orders (
     total_cents INTEGER NOT NULL,
     currency VARCHAR(3) DEFAULT 'USD',
     status VARCHAR(20) DEFAULT 'pending',
+    shipping_method VARCHAR(50),
+    estimated_delivery_days INTEGER,
+    shipping_cost_cents INTEGER,
+    shipping_region VARCHAR(20),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (cart_id) REFERENCES carts(cart_id)
 );

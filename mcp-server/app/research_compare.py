@@ -131,16 +131,73 @@ def _product_to_flat_dict(p: Dict[str, Any]) -> Dict[str, Any]:
     return flat
 
 
-def build_comparison_table(products: List[Dict[str, Any]]) -> Dict[str, Any]:
+def parse_compare_by(message: str) -> Optional[List[str]]:
+    """Parse 'compare by X and Y' from user message. Returns list of attribute keys or None."""
+    m = re.search(r'compare\s+by\s+(.+)', message, re.IGNORECASE)
+    if not m:
+        return None
+    raw = m.group(1).lower()
+    # Split on "and", ",", "&"
+    parts = re.split(r'\s+and\s+|,\s*|&\s*', raw)
+    attr_map = {
+        "price": "price", "cost": "price",
+        "brand": "brand", "manufacturer": "brand",
+        "rating": "review_rating", "ratings": "review_rating", "reviews": "review_rating",
+        "color": "color", "colour": "color",
+        "gpu": "gpu_model", "graphics": "gpu_model",
+        "type": "product_type", "category": "category",
+    }
+    result = []
+    for part in parts:
+        part = part.strip().rstrip(".")
+        if part in attr_map:
+            result.append(attr_map[part])
+        elif part in _get_comparable_attributes():
+            result.append(part)
+    return result if result else None
+
+
+def generate_recommendation_reasons(
+    product_dicts: List[Dict[str, Any]],
+    filters: Optional[Dict[str, Any]] = None,
+    kg_candidate_ids: Optional[List[str]] = None,
+) -> None:
+    """
+    Annotate each product dict in-place with a '_reason' key explaining
+    why it was recommended (e.g. 'KG match', 'Brand match', 'Best price').
+    """
+    filters = filters or {}
+    kg_set = set(kg_candidate_ids) if kg_candidate_ids else set()
+    brand_filter = (filters.get("brand") or "").lower()
+
+    for i, p in enumerate(product_dicts):
+        reasons = []
+        pid = p.get("product_id", "")
+        if pid in kg_set:
+            reasons.append("Knowledge graph match")
+        if brand_filter and (p.get("brand") or "").lower() == brand_filter:
+            reasons.append("Brand match")
+        if i == 0:
+            reasons.append("Best price")
+        p["_reason"] = "; ".join(reasons) if reasons else "Relevant match"
+
+
+def build_comparison_table(products: List[Dict[str, Any]], compare_by: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Build side-by-side comparison data.
     Returns: { "attributes": [...], "products": [{"product_id", "name", "values": {...}}] }
     """
     if not products:
         return {"attributes": [], "products": []}
-    attrs = _get_comparable_attributes()
+    if compare_by:
+        attrs = [a for a in compare_by if a in _get_comparable_attributes() + ["review_rating", "review_count"]]
+        if not attrs:
+            attrs = _get_comparable_attributes()
+    else:
+        attrs = _get_comparable_attributes()
     # Add review fields
-    attrs = attrs + ["review_rating", "review_count"]
+    if "review_rating" not in attrs:
+        attrs = attrs + ["review_rating", "review_count"]
     result_products = []
     for p in products:
         flat = _product_to_flat_dict(p)

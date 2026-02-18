@@ -258,3 +258,32 @@ def _count_reviews(reviews: Optional[str]) -> Optional[int]:
     
     # If reviews exist but no clear count, assume 1 review
     return 1 if reviews.strip() else None
+
+
+def _extract_policy_from_description(description: str) -> Dict[str, Optional[str]]:
+    """Extract shipping, return policy, and warranty info from a product description."""
+    import re
+
+    result: Dict[str, Optional[str]] = {
+        "shipping": None,
+        "return_policy": None,
+        "warranty": None,
+    }
+    if not description:
+        return result
+
+    # Match sentences/phrases containing each keyword
+    sentences = re.split(r'[.\n]+', description)
+    for sentence in sentences:
+        s = sentence.strip()
+        if not s:
+            continue
+        s_lower = s.lower()
+        if "shipping" in s_lower and result["shipping"] is None:
+            result["shipping"] = s
+        elif "return" in s_lower and result["return_policy"] is None:
+            result["return_policy"] = s
+        elif "warranty" in s_lower and result["warranty"] is None:
+            result["warranty"] = s
+
+    return result
