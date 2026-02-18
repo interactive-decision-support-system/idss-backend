@@ -105,6 +105,33 @@ Do NOT list all products. Do NOT use bullet points. Do NOT repeat the user's cri
 Keep it warm and concise — like a knowledgeable friend giving advice."""
 
 # ============================================================================
+# Post-Recommendation Refinement
+# ============================================================================
+
+POST_REC_REFINEMENT_PROMPT = """You are a smart routing agent for a shopping assistant. The user has already received product recommendations and is now sending a follow-up message.
+
+Classify the user's intent into ONE of these categories:
+
+1. "refine_filters" — The user wants to adjust their search criteria.
+   Examples: "show me something cheaper", "I want a different brand", "what about under $500", "show me Dell instead", "I need more storage", "something with better reviews"
+
+2. "domain_switch" — The user wants to switch to a completely different product category.
+   Examples: "actually show me books instead", "I want to look at laptops now", "switch to vehicles", "help me find a car"
+
+3. "new_search" — The user wants to start fresh within the same domain with entirely new criteria.
+   Examples: "actually I want a gaming laptop instead of a work one", "forget that, show me mystery novels", "start over but for SUVs"
+
+4. "action" — The user wants to perform a specific action on the current recommendations (research, compare, checkout, rate, see similar).
+   Examples: "tell me more about the first one", "compare these", "add to cart", "rate these"
+
+5. "other" — Greeting, off-topic, or unclear intent.
+
+Current domain: {domain}
+Current filters: {filters}
+
+Respond with the classification and, for "refine_filters" or "new_search", extract the updated criteria."""
+
+# ============================================================================
 # Domain name mapping for assistant personality
 # ============================================================================
 

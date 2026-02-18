@@ -6,10 +6,10 @@ It replaces the fragmented logic across `chat_endpoint.py`, `query_specificity.p
 and `idss_adapter.py` with a single, schema-driven loop powered by LLMs.
 
 Responsibilities:
-1. Intent Detection (LLM - gpt-4o-mini)
+1. Intent Detection (LLM)
 2. State Management (Tracking filters and gathered info)
-3. Criteria Extraction (LLM - gpt-4o-mini) with impatience/intent detection
-4. Question Generation (LLM - gpt-4o)
+3. Criteria Extraction (LLM) with impatience/intent detection
+4. Question Generation (LLM)
 5. Handoff to Search
 
 Based on IDSS interview principles:
@@ -34,16 +34,15 @@ from .prompts import (
     PRICE_CONTEXT,
     QUESTION_GENERATION_PROMPT,
     RECOMMENDATION_EXPLANATION_PROMPT,
+    POST_REC_REFINEMENT_PROMPT,
     DOMAIN_ASSISTANT_NAMES,
 )
 
 logger = logging.getLogger("mcp.universal_agent")
 
-# Models configuration
-# "Basic" model for structural tasks (domain detection, criteria extraction)
-MODEL_BASIC = "gpt-4o-mini"
-# "Powerful" model for natural language generation (question generation)
-MODEL_POWERFUL = "gpt-4o"
+# Model configuration — single model for all LLM calls, set via environment
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "low")
 
 # Interview configuration
 DEFAULT_MAX_QUESTIONS = 3  # Maximum questions before showing recommendations
@@ -71,6 +70,13 @@ class DomainClassification(BaseModel):
     """Structure for domain classification output."""
     domain: str = Field(description="One of: vehicles, laptops, books, phones, unknown")
     confidence: float = Field(description="Confidence score 0-1")
+
+class RefinementClassification(BaseModel):
+    """Structure for post-recommendation refinement classification."""
+    intent: str = Field(description="One of: refine_filters, domain_switch, new_search, action, other")
+    new_domain: Optional[str] = Field(default=None, description="Target domain if domain_switch (vehicles, laptops, books)")
+    updated_criteria: List[SlotValue] = Field(default_factory=list, description="Updated/new filter values for refine_filters or new_search")
+    reasoning: str = Field(default="", description="Brief reasoning for classification")
 
 class GeneratedQuestion(BaseModel):
     """Structure for question generation (IDSS style with invitation pattern)."""
@@ -239,7 +245,7 @@ class UniversalAgent:
         missing_slot = self._get_next_missing_slot(schema)
 
         if missing_slot:
-            # 5. Generate Question (LLM - gpt-4o)
+            # 5. Generate Question (LLM)
             gen_q = self._generate_question(missing_slot, schema)
 
             # Track question asked
@@ -270,7 +276,8 @@ class UniversalAgent:
             logger.info(f"Detecting domain for message: {message[:50]}...")
 
             completion = self.client.beta.chat.completions.parse(
-                model=MODEL_BASIC,
+                model=OPENAI_MODEL,
+                reasoning_effort=OPENAI_REASONING_EFFORT,
                 messages=[
                     {"role": "system", "content": DOMAIN_DETECTION_PROMPT},
                     {"role": "user", "content": message}
@@ -290,7 +297,7 @@ class UniversalAgent:
 
     def _extract_criteria(self, message: str, schema: DomainSchema) -> Optional[ExtractedCriteria]:
         """
-        Uses LLM (gpt-4o-mini) to extract criteria based on the active schema.
+        Uses LLM to extract criteria based on the active schema.
         Also detects IDSS interview signals (impatience, recommendation requests).
 
         Input: User message + Schema Slots.
@@ -317,7 +324,8 @@ class UniversalAgent:
             logger.info(f"Extracting criteria for domain: {schema.domain}")
 
             completion = self.client.beta.chat.completions.parse(
-                model=MODEL_BASIC,
+                model=OPENAI_MODEL,
+                reasoning_effort=OPENAI_REASONING_EFFORT,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": message}
@@ -462,7 +470,7 @@ class UniversalAgent:
 
     def _generate_question(self, slot: PreferenceSlot, schema: DomainSchema) -> GeneratedQuestion:
         """
-        Uses LLM (gpt-4o) to generate a natural follow-up question.
+        Uses LLM to generate a natural follow-up question.
 
         IDSS Style:
         1. Main question about the slot topic
@@ -482,7 +490,8 @@ class UniversalAgent:
             )
 
             completion = self.client.beta.chat.completions.parse(
-                model=MODEL_POWERFUL,
+                model=OPENAI_MODEL,
+                reasoning_effort=OPENAI_REASONING_EFFORT,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     # Include recent history for conversational flow context
@@ -565,7 +574,8 @@ class UniversalAgent:
             system_prompt = RECOMMENDATION_EXPLANATION_PROMPT.format(domain=domain)
 
             completion = self.client.chat.completions.create(
-                model=MODEL_BASIC,
+                model=OPENAI_MODEL,
+                reasoning_effort=OPENAI_REASONING_EFFORT,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"""User's preferences: {criteria_text}
@@ -584,6 +594,74 @@ Write the recommendation message."""}
         except Exception as e:
             logger.error(f"Recommendation explanation failed: {e}")
             return f"Here are top {domain} recommendations based on your preferences. What would you like to do next?"
+
+    def process_refinement(self, message: str) -> Dict[str, Any]:
+        """
+        Classify and handle a post-recommendation message using LLM.
+
+        Returns a dict with:
+        - intent: refine_filters | domain_switch | new_search | action | other
+        - For refine_filters: updated self.filters, returns recommendations_ready
+        - For domain_switch: new_domain, signals caller to reset and re-route
+        - For new_search: cleared filters + new criteria, returns recommendations_ready
+        - For action/other: returns None (caller should handle or fall through)
+        """
+        try:
+            filters_text = ", ".join(f"{k}: {v}" for k, v in self.filters.items()) if self.filters else "none"
+            system_prompt = POST_REC_REFINEMENT_PROMPT.format(
+                domain=self.domain or "unknown",
+                filters=filters_text,
+            )
+
+            completion = self.client.beta.chat.completions.parse(
+                model=OPENAI_MODEL,
+                reasoning_effort=OPENAI_REASONING_EFFORT,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": message},
+                ],
+                response_format=RefinementClassification,
+            )
+            result = completion.choices[0].message.parsed
+            logger.info(f"Refinement classification: intent={result.intent}, reasoning={result.reasoning}")
+
+            if result.intent == "refine_filters":
+                # Merge updated criteria into existing filters
+                for item in result.updated_criteria:
+                    self.filters[item.slot_name] = item.value
+                    logger.info(f"Refinement updated filter: {item.slot_name}={item.value}")
+                self.history.append({"role": "user", "content": message})
+                schema = get_domain_schema(self.domain)
+                return self._handoff_to_search(schema)
+
+            elif result.intent == "domain_switch":
+                new_domain = result.new_domain
+                if not new_domain or new_domain == "unknown":
+                    new_domain = self._detect_domain_from_message(message)
+                return {
+                    "response_type": "domain_switch",
+                    "new_domain": new_domain,
+                    "message": message,
+                }
+
+            elif result.intent == "new_search":
+                # Clear all filters and apply new criteria
+                self.filters = {}
+                self.questions_asked = []
+                self.question_count = 0
+                for item in result.updated_criteria:
+                    self.filters[item.slot_name] = item.value
+                self.history.append({"role": "user", "content": message})
+                schema = get_domain_schema(self.domain)
+                return self._handoff_to_search(schema)
+
+            else:
+                # "action" or "other" — not handled here
+                return {"response_type": "not_refinement", "intent": result.intent}
+
+        except Exception as e:
+            logger.error(f"Refinement classification failed: {e}")
+            return {"response_type": "not_refinement", "intent": "error"}
 
     def _summarize_product(self, product: Dict[str, Any], domain: str) -> Optional[str]:
         """Build a one-line summary of a product for LLM context."""

@@ -115,7 +115,7 @@ def generate_question(
         system_prompt = SYSTEM_PROMPT_ELECTRONICS
     
     # Get model from environment or use default
-    model = os.getenv("QUESTION_GENERATOR_MODEL", "gpt-4o-mini")
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     client = OpenAI()
 
     # Build context message
@@ -151,6 +151,7 @@ def generate_question(
     try:
         response = client.beta.chat.completions.parse(
             model=model,
+            reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "low"),
             messages=messages,
             response_format=QuestionResponse,
             temperature=0.7  # Slightly higher for variety

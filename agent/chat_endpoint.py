@@ -17,7 +17,8 @@ from agent.interview.session_manager import (
     STAGE_INTERVIEW,
     STAGE_RECOMMENDATIONS,
 )
-from agent.universal_agent import UniversalAgent
+from agent.universal_agent import UniversalAgent, AgentState
+from agent.domain_registry import get_domain_schema
 from app.structured_logger import StructuredLogger
 
 logger = StructuredLogger("chat_endpoint")
@@ -158,7 +159,20 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
     if request.k == 0:
         agent.max_questions = 0
 
+    previous_domain = session.active_domain
     agent_response = agent.process_message(msg)
+
+    # Detect domain switch: if domain changed, reset old filters
+    new_domain = agent.domain
+    if previous_domain and new_domain and previous_domain != new_domain:
+        logger.info("domain_switch_detected", f"Domain switched from {previous_domain} to {new_domain}, resetting filters", {
+            "old_domain": previous_domain, "new_domain": new_domain,
+        })
+        # Clear stale filters from old domain — agent's extraction already has the new ones
+        agent.filters = {k: v for k, v in agent.filters.items()
+                        if k in [s.name for s in (get_domain_schema(new_domain).slots if get_domain_schema(new_domain) else [])]}
+        agent.questions_asked = []
+        agent.question_count = 0
 
     # Persist agent state back to session
     agent_state = agent.get_state()
@@ -591,7 +605,85 @@ async def _handle_post_recommendation(
             domain=active_domain,
         )
 
-    # Not a post-rec action — return None to continue to agent processing
+    # --- Agent-driven refinement for unmatched post-rec messages ---
+    # Instead of returning None and losing the message, let the agent classify it.
+    agent = UniversalAgent.restore_from_session(session_id, session)
+    refinement = agent.process_refinement(request.message.strip())
+
+    if refinement.get("response_type") == "domain_switch":
+        # Reset session and re-route to new domain
+        new_domain = refinement.get("new_domain")
+        session_manager.reset_session(session_id)
+        if new_domain and new_domain != "unknown":
+            # Create fresh agent for the new domain and process the original message
+            new_agent = UniversalAgent(session_id=session_id, max_questions=request.k if request.k is not None else 3)
+            new_agent.domain = new_domain
+            new_agent.state = AgentState.INTERVIEW
+            agent_response = new_agent.process_message(request.message.strip())
+            # Persist new agent state
+            agent_state = new_agent.get_state()
+            new_session = session_manager.get_session(session_id)
+            new_session.agent_filters = agent_state["filters"]
+            new_session.agent_questions_asked = agent_state["questions_asked"]
+            new_session.agent_history = agent_state["history"]
+            new_session.question_count = agent_state["question_count"]
+            session_manager.set_active_domain(session_id, new_domain)
+            session_manager.update_filters(session_id, new_agent.get_search_filters())
+            session_manager._persist(session_id)
+            if agent_response.get("response_type") == "question":
+                return ChatResponse(
+                    response_type="question",
+                    message=agent_response["message"],
+                    session_id=session_id,
+                    quick_replies=agent_response.get("quick_replies"),
+                    filters=new_agent.get_search_filters(),
+                    preferences={},
+                    question_count=agent_response.get("question_count", 0),
+                    domain=new_domain,
+                )
+        # Fallback: ask what they want
+        return ChatResponse(
+            response_type="question",
+            message="Sure! What are you looking for?",
+            session_id=session_id,
+            quick_replies=["Vehicles", "Laptops", "Books"],
+            filters={},
+            preferences={},
+            question_count=0,
+            domain=None,
+        )
+
+    if refinement.get("response_type") == "recommendations_ready":
+        # Refinement or new search — re-run search with updated filters
+        session_manager.add_message(session_id, "user", request.message)
+        search_filters = agent.get_search_filters()
+        # Persist updated agent state
+        agent_state = agent.get_state()
+        session.agent_filters = agent_state["filters"]
+        session.agent_questions_asked = agent_state["questions_asked"]
+        session.agent_history = agent_state["history"]
+        session_manager.update_filters(session_id, search_filters)
+        session_manager._persist(session_id)
+
+        if active_domain == "vehicles":
+            return await _search_and_respond_vehicles(
+                search_filters, session_id, session, session_manager,
+                n_rows=request.n_rows or 3, n_per_row=request.n_per_row or 3,
+                method=request.method or "embedding_similarity",
+                question_count=session.question_count,
+                agent=agent,
+            )
+        elif active_domain in ("laptops", "books"):
+            category = _domain_to_category(active_domain)
+            search_filters["category"] = category
+            return await _search_and_respond_ecommerce(
+                search_filters, category, active_domain, session_id, session, session_manager,
+                n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
+                question_count=session.question_count,
+                agent=agent,
+            )
+
+    # Not a refinement — return None to continue to agent processing
     return None
 
 

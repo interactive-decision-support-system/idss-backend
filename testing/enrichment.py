@@ -14,7 +14,30 @@ client = openai.OpenAI(api_key=API_KEY)
 # #BLANK: INSERT YOUR EXTRACTION CONSTRAINTS HERE
 # (Example: "Extract price as an integer, GPU model, and RAM in GB")
 FILTER_INSTRUCTIONS = """
-#BLANK 
+Analyze the user's laptop request and extract criteria into the following structure. 
+Strictly use the keys defined below. If a value is unknown, use null.
+
+1. Schema Columns (Top-Level):
+   - "price": Max budget as a numeric value.
+   - "brand": Primary manufacturer (e.g., Apple, Dell, Lenovo).
+   - "category": Usage type (e.g., 'gaming', 'office', 'creative', 'linux').
+   - "series": Product line (e.g., 'ThinkPad', 'Spectre', 'ROG').
+
+2. Attributes (Nested JSONB):
+   Map hardware specs to these specific standardized keys:
+   - "cpu": Specific model or brand (e.g., 'M3 Max', 'Ryzen 9', 'i7').
+   - "ram_gb": Integer representing total memory (e.g., 16, 32).
+   - "storage_gb": Integer representing total storage (e.g., 512, 1000).
+   - "gpu": String for dedicated graphics (e.g., 'RTX 4090').
+   - "screen_size": Numeric value for display size (e.g., 14, 16).
+   - "resolution": Display quality (e.g., '4K', '1440p', 'FHD').
+   - "refresh_rate_hz": Integer for display speed (e.g., 144, 240).
+
+3. Subjective Logic (Boolean Strings):
+   If the user's intent matches, set these attributes to "true" (as strings):
+   - "good_for_gaming", "good_for_ml", "good_for_web_dev", "good_for_creative", "good_for_linux".
+
+Return the 'criteria' key as an object containing the Top-Level columns and the nested 'attributes' object.
 """
 
 def enrich_queries(row):
@@ -42,7 +65,7 @@ def enrich_queries(row):
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-5.2",
                 messages=[{"role": "user", "content": prompt}],
                 response_format={ "type": "json_object" }
             )
