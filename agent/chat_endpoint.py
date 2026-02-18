@@ -231,9 +231,10 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             )
         elif domain in ("laptops", "books"):
             category = "Electronics" if domain == "laptops" else "Books"
-            product_type = "laptop" if domain == "laptops" else "book"
             search_filters["category"] = category
-            search_filters["product_type"] = product_type
+            # Use agent-extracted product_type if available, otherwise default
+            if "product_type" not in search_filters:
+                search_filters["product_type"] = "laptop" if domain == "laptops" else "book"
             return await _search_and_respond_ecommerce(
                 search_filters, category, domain, session_id, session, session_manager,
                 n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,

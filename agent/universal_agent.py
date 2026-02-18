@@ -177,9 +177,11 @@ class UniversalAgent:
             elif slot_name == "use_case":
                 if domain == "vehicles":
                     search_filters["use_case"] = value
-                else:
+                elif domain == "books":
                     search_filters["subcategory"] = value
-                    search_filters["use_case"] = value
+                else:
+                    # For electronics: use_case is a soft preference, not a DB column
+                    search_filters.setdefault("_soft_preferences", {})["use_case"] = value
 
             elif slot_name == "body_style":
                 search_filters["body_style"] = value
@@ -190,6 +192,9 @@ class UniversalAgent:
 
             elif slot_name == "format":
                 search_filters["format"] = value
+
+            elif slot_name == "product_type":
+                search_filters["product_type"] = value
 
             elif slot_name == "item_type":
                 search_filters["subcategory"] = value

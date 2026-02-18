@@ -11,7 +11,12 @@ independently of agent control-flow logic.
 
 DOMAIN_DETECTION_PROMPT = (
     "You are a routing agent. Classify the user's intent into one of these "
-    "domains: 'vehicles', 'laptops', 'books'. If unclear, return 'unknown'."
+    "domains: 'vehicles', 'laptops', 'books'. "
+    "The 'laptops' domain covers ALL electronics: laptops, monitors, TVs, GPUs, desktops, "
+    "keyboards, mice, headphones, speakers, cameras, printers, tablets, smartphones, "
+    "smartwatches, PC components (RAM, CPU, motherboard, PSU, storage, cooling, cases), "
+    "routers, and VR headsets. If the user mentions any electronics product, classify as 'laptops'. "
+    "If unclear, return 'unknown'."
 )
 
 # ============================================================================
@@ -26,10 +31,11 @@ PRICE_CONTEXT = {
 Always normalize budget values to include the "k" suffix (e.g., "$20k", "$30k-$40k", "under $25k").
 CRITICAL: For slots with ALLOWED VALUES, you MUST use one of the listed values exactly as written. Map user input to the closest allowed value (e.g., "gas" → "Gasoline", "truck" → "Pickup", "SUV" → "SUV").""",
 
-    "laptops": """IMPORTANT: For laptops, prices are typically in HUNDREDS of dollars.
+    "laptops": """IMPORTANT: For electronics, prices are typically in HUNDREDS of dollars.
 - "under 500" means "$500"
 - "1000-2000" means "$1,000-$2,000"
-Always include the dollar sign in budget values.""",
+Always include the dollar sign in budget values.
+CRITICAL: For slots with ALLOWED VALUES, you MUST use one of the listed values exactly as written. Map user input to the closest allowed value (e.g., "screen" → "monitor", "graphics card" → "gpu", "PC" → "desktop", "Mac" → product_type "laptop" + brand "Apple", "earbuds" → "headphones").""",
 
     "books": """IMPORTANT: For books, prices are typically under $50.
 - "under 20" means "$20"
@@ -137,6 +143,6 @@ Respond with the classification and, for "refine_filters" or "new_search", extra
 
 DOMAIN_ASSISTANT_NAMES = {
     "vehicles": "car shopping",
-    "laptops": "laptop shopping",
+    "laptops": "electronics shopping",
     "books": "book recommendation",
 }

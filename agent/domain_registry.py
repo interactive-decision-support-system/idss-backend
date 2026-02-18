@@ -96,7 +96,7 @@ VEHICLE_SCHEMA = DomainSchema(
             display_name="Key Features",
             priority=SlotPriority.MEDIUM,
             description="Specific features the user likes (leather seats, sunroof, navigation, etc.).",
-            example_question="Are there any specific features explicitly must have?",
+            example_question="Are there any specific features that are a must have?",
             example_replies=["Fuel efficiency", "Safety features", "Apple CarPlay", "Leather seats"]
         ),
         PreferenceSlot(
@@ -131,80 +131,61 @@ VEHICLE_SCHEMA = DomainSchema(
     ]
 )
 
-# 2. Laptops Schema
+# 2. Electronics Schema (laptops, monitors, GPUs, desktops, and 24k+ products)
 LAPTOP_SCHEMA = DomainSchema(
     domain="laptops",
-    description="Laptops, notebooks, and portable computers.",
+    description="Electronics including laptops, monitors, GPUs, desktops, TVs, keyboards, and more.",
     slots=[
         PreferenceSlot(
-            name="use_case",
-            display_name="Primary Use",
+            name="product_type",
+            display_name="Product Type",
             priority=SlotPriority.HIGH,
-            description="Primary activity (Gaming, Work, School, Creative).",
-            example_question="What will you primarily use the laptop for?",
-            example_replies=["Gaming", "Work/Business", "School/Student", "Creative Work"]
+            description="The specific type of electronics product the user wants.",
+            example_question="What type of electronics product are you looking for?",
+            example_replies=["Laptop", "Monitor", "Desktop", "GPU"],
+            filter_key="product_type",
+            allowed_values=[
+                "laptop", "desktop", "monitor", "tv", "gpu", "cpu",
+                "keyboard", "mouse", "headset", "headphones", "speakers", "microphone",
+                "camera", "webcam", "printer", "tablet", "ipad",
+                "smartphone", "phone", "smartwatch",
+                "ram", "storage", "external_storage", "motherboard", "psu", "cooling", "case",
+                "router", "vr_headset",
+            ]
         ),
         PreferenceSlot(
             name="budget",
             display_name="Budget",
             priority=SlotPriority.HIGH,
-            description="Price range for the laptop.",
-            example_question="What is your budget for the laptop?",
-            example_replies=["Under $700", "$700-$1200", "$1200-$2000", "Over $2000"],
+            description="Price range for the product.",
+            example_question="What is your budget?",
+            example_replies=["Under $500", "$500-$1000", "$1000-$2000", "Over $2000"],
             filter_key="price_max_cents"
         ),
         PreferenceSlot(
             name="brand",
             display_name="Brand",
             priority=SlotPriority.MEDIUM,
-            description="Preferred manufacturer (Apple, Dell, HP, etc.).",
+            description="Preferred manufacturer.",
             example_question="Do you have a preferred brand?",
-            example_replies=["Apple (Mac)", "Dell", "Lenovo", "HP"],
-            filter_key="brand"
+            example_replies=["No preference", "Samsung", "ASUS", "Apple"],
+            filter_key="brand",
+            allowed_values=[
+                "Samsung", "Intel", "ASUS", "AMD", "HP", "Apple", "Lenovo", "LG",
+                "Sony", "MSI", "Canon", "Dell", "Logitech", "Google", "Gigabyte",
+                "Corsair", "ASRock", "Acer", "Thermaltake", "TP-Link", "TCL",
+                "Nikon", "Brother", "Roku", "Oculus", "Epson", "Microsoft",
+                "NVIDIA", "Cooler Master", "Redragon", "Crucial", "Seagate",
+                "HTC", "Razer", "Kingston", "SteelSeries", "Western Digital",
+            ]
         ),
         PreferenceSlot(
-            name="os",
-            display_name="Operating System",
+            name="use_case",
+            display_name="Primary Use",
             priority=SlotPriority.MEDIUM,
-            description="Preferred OS (macOS, Windows, Linux, ChromeOS).",
-            example_question="Do you prefer Mac, Windows, or Linux?",
-            example_replies=["macOS", "Windows", "Linux", "ChromeOS", "No preference"]
-        ),
-        PreferenceSlot(
-            name="screen_size",
-            display_name="Screen Size",
-            priority=SlotPriority.LOW,
-            description="Preferred screen size (13-inch, 15-inch, etc.).",
-            example_question="What screen size do you prefer?",
-            example_replies=["13-14 inch (Portable)", "15-16 inch (Standard)", "17+ inch (Large)"]
-        ),
-        # Richer KG (§7): Reddit-style features for complex queries (good for ML, battery life, etc.)
-        PreferenceSlot(
-            name="good_for_ml",
-            display_name="Good for ML / Deep Learning",
-            priority=SlotPriority.LOW,
-            description="Whether the laptop is suitable for machine learning or deep learning (e.g. dedicated GPU, 16GB+ RAM).",
-            example_question="Do you need it for machine learning or deep learning?",
-            example_replies=["Yes", "No", "Nice to have"],
-            filter_key="good_for_ml"
-        ),
-        PreferenceSlot(
-            name="good_for_web_dev",
-            display_name="Good for Web Development",
-            priority=SlotPriority.LOW,
-            description="Suitable for web development (coding, IDEs, multiple browsers).",
-            example_question="Will you use it for web development?",
-            example_replies=["Yes", "No"],
-            filter_key="good_for_web_dev"
-        ),
-        PreferenceSlot(
-            name="battery_life",
-            display_name="Battery Life",
-            priority=SlotPriority.LOW,
-            description="Minimum battery life in hours (e.g. 8+ hours).",
-            example_question="How many hours of battery life do you need?",
-            example_replies=["6+ hours", "8+ hours", "10+ hours", "No preference"],
-            filter_key="battery_life_min_hours"
+            description="What the user will primarily use the product for (gaming, work, school, creative, streaming, etc.). This is a soft preference used for ranking, not a direct database filter.",
+            example_question="What will you primarily use it for?",
+            example_replies=["Gaming", "Work/Business", "School/Student", "Creative Work"]
         ),
     ]
 )

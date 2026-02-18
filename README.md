@@ -1,6 +1,6 @@
 # IDSS Backend - Multi-Domain Interactive Decision Support System
 
-An LLM-driven Interactive Decision Support System that helps users find products through conversational interviews. The **Universal Agent** detects the user's domain, extracts preferences via structured LLM calls, and generates natural follow-up questions before delivering recommendations. Supports **vehicles**, **laptops**, and **books**.
+An LLM-driven Interactive Decision Support System that helps users find products through conversational interviews. The **Universal Agent** detects the user's domain, extracts preferences via structured LLM calls, and generates natural follow-up questions before delivering recommendations. Supports **vehicles**, **laptops**, **books**, and **24,000+ electronics** products.
 
 ## Architecture
 
@@ -31,8 +31,8 @@ An LLM-driven Interactive Decision Support System that helps users find products
 ┌─────────────────────────┐   ┌─────────────────────────┐
 │   SQLite + FAISS        │   │      PostgreSQL          │
 │   Vehicle Data (~2GB)   │   │    (mcp_ecommerce)       │
-│   ~147k vehicles        │   │  - Laptops (37 items)    │
-│                         │   │  - Books (50 items)      │
+│   ~147k vehicles        │   │  - Electronics (~21k)    │
+│                         │   │  - Books (~66)           │
 └─────────────────────────┘   └─────────────────────────┘
 ```
 
@@ -62,7 +62,10 @@ idss-backend/
 │   │   ├── models.py                # SQLAlchemy models
 │   │   └── ...                      # Cache, metrics, UCP, etc.
 │   ├── scripts/
-│   │   └── seed_*.sql               # Database seed files
+│   │   ├── seed_diverse.sql         # Creates tables + seed products
+│   │   ├── seed_laptops_expanded.sql # Additional laptop data
+│   │   ├── seed_books_expanded.sql  # Additional book data
+│   │   └── merge_supabase_data.py   # Import ~24k products from Supabase
 │   └── tests/
 │
 ├── idss/                            # IDSS Vehicle Recommendation Engine
@@ -81,7 +84,7 @@ idss-backend/
 | Software | Version | Purpose |
 |----------|---------|---------|
 | Python | 3.10+ | Runtime |
-| PostgreSQL | 14+ | Laptop/book product database |
+| PostgreSQL | 14+ | Product database (laptops, books, electronics) |
 | OpenAI API key | - | LLM calls (domain detection, extraction, question generation) |
 
 **Optional:**
@@ -93,7 +96,7 @@ idss-backend/
 
 ## Quick Start
 
-### 1. Setup Environment
+### 1. Clone and Install
 
 ```bash
 git clone <repo-url> idss-backend
@@ -107,7 +110,7 @@ pip install -r requirements.txt
 
 ### 2. Configure Environment Variables
 
-Create a `.env` file in the project root:
+Create a `.env` file in the **project root** (not inside `mcp-server/`):
 
 ```bash
 # Required
@@ -124,33 +127,68 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 ```
 
-Replace `YOUR_USERNAME` with your PostgreSQL username (often your system username on Mac).
+**Finding your PostgreSQL username:** On Mac, it's usually your system username. Check with:
+```bash
+whoami
+# or
+psql -c "\du"
+```
 
 ### 3. Setup PostgreSQL Database
 
 ```bash
+# Create the database
 createdb mcp_ecommerce
 
+# Create tables + seed initial products
 cd mcp-server
+psql -d mcp_ecommerce -f scripts/seed_diverse.sql
 psql -d mcp_ecommerce -f scripts/seed_laptops_expanded.sql
 psql -d mcp_ecommerce -f scripts/seed_books_expanded.sql
-
-# Verify
-psql -d mcp_ecommerce -c "SELECT category, COUNT(*) FROM products GROUP BY category;"
-#   category   | count
-# -------------+-------
-#  Electronics |    37
-#  Books       |    50
 ```
 
-### 4. Setup Vehicle Data
+#### Import full product catalog from Supabase (recommended)
+
+This imports ~24,000 real products (laptops, monitors, GPUs, keyboards, etc.) from a shared Supabase database into your local PostgreSQL. It's a one-time operation that takes ~30-60 seconds:
+
+```bash
+python scripts/merge_supabase_data.py --skip-redis --skip-kg
+```
+
+The script is idempotent — running it again skips already-imported products.
+
+#### Verify
+
+```bash
+psql -d mcp_ecommerce -c "SELECT category, COUNT(*) FROM products GROUP BY category ORDER BY count DESC;"
+```
+
+With full import you should see:
+```
+  category   | count
+-------------+-------
+ Electronics | ~21000+
+ Books       |    66
+```
+
+Without Supabase import (seed data only):
+```
+  category   | count
+-------------+-------
+ Electronics |    37
+ Books       |    50
+```
+
+### 4. Setup Vehicle Data (optional)
+
+Vehicle search requires a separate dataset (~2GB). Skip this step if you only need laptops/books.
 
 ```bash
 # Symlink or copy the vehicle dataset
 ln -s /path/to/car_dataset_idss data/car_dataset_idss
 
 # Required files in data/car_dataset_idss/:
-# - uni_vehicles.db (~1.5 GB)
+# - uni_vehicles.db (~1.5 GB SQLite database)
 # - vehicle_reviews_tavily.db (~22 MB)
 # - bm25_index.pkl
 # - phrase_embeddings/
@@ -163,7 +201,7 @@ source venv/bin/activate
 uvicorn app.main:app --app-dir mcp-server --reload --port 8001
 ```
 
-First startup preloads IDSS vehicle models (~60-120 seconds). To skip during development:
+First startup preloads IDSS vehicle models (~60-120 seconds). To skip vehicle preloading during development:
 
 ```bash
 MCP_SKIP_PRELOAD=1 uvicorn app.main:app --app-dir mcp-server --reload --port 8001
@@ -180,15 +218,15 @@ curl -X POST http://localhost:8001/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "I want a gaming laptop"}'
 
-# Test vehicle flow
-curl -X POST http://localhost:8001/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "I need an SUV under 30k"}'
-
 # Test book flow
 curl -X POST http://localhost:8001/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "looking for a mystery novel"}'
+
+# Test vehicle flow (requires step 4)
+curl -X POST http://localhost:8001/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "I need an SUV under 30k"}'
 ```
 
 ## How It Works
@@ -311,28 +349,34 @@ python -m pytest tests/
 
 ## Troubleshooting
 
-**"role does not exist"** — Wrong PostgreSQL username in `DATABASE_URL`. Check with `psql -c "\du"`.
+**"role does not exist"** — Wrong PostgreSQL username in `DATABASE_URL`. Find yours with `whoami` (Mac) or `psql -c "\du"`.
 
 **"database does not exist"** — Run `createdb mcp_ecommerce`.
 
-**No products returned** — Check `psql -d mcp_ecommerce -c "SELECT COUNT(*) FROM products;"`. Ensure seed scripts were run.
+**"column does not exist" (e.g. `kg_features`, `product_type`)** — Your table schema is outdated. Drop and recreate: `psql -d mcp_ecommerce -f scripts/seed_diverse.sql` (warning: this drops all data, re-run seed scripts and Supabase import after).
 
-**Redis connection errors** — Redis is optional. The system falls back to in-memory sessions.
+**No products returned** — Check `psql -d mcp_ecommerce -c "SELECT COUNT(*) FROM products;"`. If 0, run the seed scripts (step 3c) and optionally the Supabase import (step 3d).
+
+**Supabase import fails** — The Supabase import connects to a shared remote database. If it fails with a connection error, the remote may be unavailable. The seed data (37 laptops + 50 books) is sufficient to run the system without the Supabase import.
+
+**Redis connection errors** — Redis is optional. The system falls back to in-memory sessions. The warning is harmless.
 
 **Neo4j connection refused** — Neo4j is optional. The warning `Connection refused on port 7687` is harmless.
 
 **IDSS models slow to load** — First startup preloads ~2GB of vehicle data. Use `MCP_SKIP_PRELOAD=1` for faster dev restarts (vehicles won't work until first request triggers lazy load).
+
+**Server crashes on startup (ImportError)** — Make sure you're running from the repo root with `--app-dir mcp-server`. The agent package must be importable from the repo root.
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | Yes | - | OpenAI API key for agent LLM calls |
-| `DATABASE_URL` | Yes | - | PostgreSQL connection string |
+| `DATABASE_URL` | Yes | - | PostgreSQL connection string (e.g. `postgresql://user@localhost:5432/mcp_ecommerce`) |
 | `OPENAI_MODEL` | No | gpt-4o-mini | Model for all agent LLM calls |
 | `OPENAI_REASONING_EFFORT` | No | low | Reasoning effort: low, medium, high |
-| `LOG_LEVEL` | No | INFO | Logging level |
+| `LOG_LEVEL` | No | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `REDIS_HOST` | No | localhost | Redis host for session caching |
 | `REDIS_PORT` | No | 6379 | Redis port |
 | `NEO4J_URI` | No | - | Neo4j connection for knowledge graph |
-| `MCP_SKIP_PRELOAD` | No | 0 | Skip IDSS model preloading (dev only) |
+| `MCP_SKIP_PRELOAD` | No | 0 | Skip IDSS vehicle model preloading (dev only) |
