@@ -14,9 +14,10 @@ An LLM-driven Interactive Decision Support System that helps users find products
 │                                                          │
 │  POST /chat ─────► agent/                                │
 │                    ├── UniversalAgent (LLM brain)         │
-│                    │   ├── Domain detection  (gpt-4o-mini)│
-│                    │   ├── Criteria extraction(gpt-4o-mini)│
-│                    │   └── Question generation(gpt-4o)    │
+│                    │   ├── Domain detection               │
+│                    │   ├── Criteria extraction              │
+│                    │   ├── Question generation              │
+│                    │   └── Post-rec refinement              │
 │                    ├── chat_endpoint.py (orchestrator)     │
 │                    └── interview/session_manager.py        │
 │                                                          │
@@ -113,6 +114,10 @@ Create a `.env` file in the project root:
 OPENAI_API_KEY="sk-your-openai-api-key"
 DATABASE_URL="postgresql://YOUR_USERNAME@localhost:5432/mcp_ecommerce"
 
+# LLM model configuration
+OPENAI_MODEL="gpt-4o-mini"           # Model for all agent LLM calls
+OPENAI_REASONING_EFFORT="low"        # Reasoning effort: low, medium, high
+
 # Optional
 LOG_LEVEL=INFO
 REDIS_HOST=localhost
@@ -192,14 +197,15 @@ curl -X POST http://localhost:8001/chat \
 
 Every `/chat` message goes through this flow:
 
-1. **Domain Detection** (gpt-4o-mini) — Classifies into `vehicles`, `laptops`, `books`, or `unknown`
-2. **Criteria Extraction** (gpt-4o-mini) — Extracts slot values from the message using domain-specific schemas with allowed values
+1. **Domain Detection** — Classifies into `vehicles`, `laptops`, `books`, or `unknown`
+2. **Criteria Extraction** — Extracts slot values from the message using domain-specific schemas with allowed values
 3. **Interview Decision** — Should we ask another question or show results? Based on: question count vs limit, impatience detection, explicit recommendation requests
-4. **Question Generation** (gpt-4o) — Generates a natural follow-up question with quick replies and an invitation to share other preferences
+4. **Question Generation** — Generates a natural follow-up question with quick replies and an invitation to share other preferences
 5. **Search Dispatch** — When ready, dispatches to the appropriate search backend:
    - Vehicles: direct IDSS import (`idss.recommendation.embedding_similarity`)
    - Laptops/Books: PostgreSQL with progressive filter relaxation
-6. **Recommendation Explanation** (gpt-4o-mini) — Generates a conversational message highlighting one standout product
+6. **Recommendation Explanation** — Generates a conversational message highlighting one standout product
+7. **Post-Rec Refinement** — After recommendations, the agent classifies follow-up messages as filter changes ("show me something cheaper"), domain switches ("actually show me books"), new searches, or actions (research, compare). Natural language refinements update filters and re-run search automatically.
 
 ### Domain Schemas
 
@@ -221,6 +227,18 @@ All LLM prompts are in `agent/prompts.py`. You can adjust:
 - `PRICE_CONTEXT` — per-domain price interpretation
 - `QUESTION_GENERATION_PROMPT` — question style and invitation pattern
 - `RECOMMENDATION_EXPLANATION_PROMPT` — how recommendations are presented
+- `POST_REC_REFINEMENT_PROMPT` — how post-recommendation follow-ups are classified
+
+### Model Configuration
+
+All LLM calls use a single configurable model. Set via environment variables:
+
+```bash
+OPENAI_MODEL="gpt-4o-mini"       # Any OpenAI-compatible model
+OPENAI_REASONING_EFFORT="low"    # low | medium | high
+```
+
+All 6 LLM call sites (domain detection, criteria extraction, question generation, recommendation explanation, refinement classification, legacy question generator) use the same model and reasoning settings.
 
 ## API Reference
 
@@ -311,6 +329,8 @@ python -m pytest tests/
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | Yes | - | OpenAI API key for agent LLM calls |
 | `DATABASE_URL` | Yes | - | PostgreSQL connection string |
+| `OPENAI_MODEL` | No | gpt-4o-mini | Model for all agent LLM calls |
+| `OPENAI_REASONING_EFFORT` | No | low | Reasoning effort: low, medium, high |
 | `LOG_LEVEL` | No | INFO | Logging level |
 | `REDIS_HOST` | No | localhost | Redis host for session caching |
 | `REDIS_PORT` | No | 6379 | Redis port |
