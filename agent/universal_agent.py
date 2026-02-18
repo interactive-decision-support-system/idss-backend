@@ -502,8 +502,7 @@ class UniversalAgent:
                     # Include recent history for conversational flow context
                     *self.history[-3:]
                 ],
-                response_format=GeneratedQuestion,
-                temperature=0.7  # Slightly higher for natural variety
+                response_format=GeneratedQuestion
             )
             result = completion.choices[0].message.parsed
             logger.info(f"Generated IDSS-style question: {result.question}")
@@ -590,8 +589,7 @@ Products found:
 
 Write the recommendation message."""}
                 ],
-                temperature=0.7,
-                max_tokens=200,
+                max_completion_tokens=2000,
             )
             message = completion.choices[0].message.content.strip()
             logger.info(f"Generated recommendation explanation: {message[:80]}...")
