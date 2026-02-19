@@ -11,19 +11,33 @@ from typing import Dict, List, Any, Optional
 
 
 def _parse_reviews(reviews_raw: Optional[str]) -> Dict[str, Any]:
-    """Parse reviews JSON and return summary."""
+    """Parse reviews (JSON or Supabase text format) and return summary."""
     if not reviews_raw:
         return {"average_rating": None, "review_count": 0, "summary": "No reviews yet.", "sample_comments": []}
+
+    # Handle Supabase text format: "Average rating: 4.5/5 (1000 reviews)"
+    if isinstance(reviews_raw, str):
+        m = re.match(r'Average rating:\s*([\d.]+)/5\s*\((\d+)\s*reviews?\)', reviews_raw)
+        if m:
+            avg = float(m.group(1))
+            count = int(m.group(2))
+            return {
+                "average_rating": round(avg, 1),
+                "review_count": count,
+                "summary": f"{count} reviews, average {avg:.1f}/5 stars.",
+                "sample_comments": [],
+            }
+
     try:
         data = json.loads(reviews_raw) if isinstance(reviews_raw, str) else reviews_raw
         if isinstance(data, dict):
-            avg = data.get("average_rating")
-            count = data.get("review_count", 0)
+            avg: Optional[float] = data.get("average_rating")
+            count: int = data.get("review_count", 0)
             reviews_list = data.get("reviews", [])
         elif isinstance(data, list):
             reviews_list = data
             count = len(reviews_list)
-            avg = sum(r.get("rating", 0) for r in reviews_list) / count if count else None
+            avg = float(sum(r.get("rating", 0) for r in reviews_list)) / count if count else None
         else:
             return {"average_rating": None, "review_count": 0, "summary": "No reviews yet.", "sample_comments": []}
         sample = [r.get("comment", "") for r in reviews_list[:3] if r.get("comment")]
@@ -121,7 +135,7 @@ def _product_to_flat_dict(p: Dict[str, Any]) -> Dict[str, Any]:
     flat = {}
     for k in ["product_id", "name", "brand", "price", "category", "subcategory", "color",
               "gpu_model", "gpu_vendor", "product_type", "description"]:
-        v = p.get(k) or p.get("_product", {}).get(k)
+        v = p.get(k) if p.get(k) is not None else p.get("_product", {}).get(k)
         if v is not None:
             flat[k] = str(v)[:100] if k == "description" else v
     # Reviews summary
@@ -165,10 +179,34 @@ def generate_recommendation_reasons(
     """
     Annotate each product dict in-place with a '_reason' key explaining
     why it was recommended (e.g. 'KG match', 'Brand match', 'Best price').
+
+    Also includes spec-constraint and use-case reasons when present in filters.
     """
     filters = filters or {}
     kg_set = set(kg_candidate_ids) if kg_candidate_ids else set()
     brand_filter = (filters.get("brand") or "").lower()
+
+    # Collect spec constraints for display
+    spec_parts: List[str] = []
+    if filters.get("min_ram_gb"):
+        spec_parts.append(f"{filters['min_ram_gb']}GB+ RAM")
+    if filters.get("min_storage_gb"):
+        spec_parts.append(f"{filters['min_storage_gb']}GB+ storage")
+    if filters.get("min_screen_inches"):
+        spec_parts.append(f'{filters["min_screen_inches"]}"+ screen')
+    if filters.get("min_battery_hours"):
+        spec_parts.append(f"{filters['min_battery_hours']}h+ battery")
+    spec_reason = f"Specs: {', '.join(spec_parts)}" if spec_parts else ""
+
+    use_case_labels = {
+        "ml": "ML/AI", "web_dev": "Web dev", "gaming": "Gaming",
+        "creative": "Creative", "linux": "Linux", "programming": "Programming",
+    }
+    use_cases = filters.get("use_cases") or []
+    uc_reason = ""
+    if use_cases:
+        labels = [use_case_labels.get(uc, uc) for uc in use_cases]
+        uc_reason = f"Use: {', '.join(labels)}"
 
     for i, p in enumerate(product_dicts):
         reasons = []
@@ -177,8 +215,16 @@ def generate_recommendation_reasons(
             reasons.append("Knowledge graph match")
         if brand_filter and (p.get("brand") or "").lower() == brand_filter:
             reasons.append("Brand match")
-        if i == 0:
-            reasons.append("Best price")
+        if filters.get("price_max_cents"):
+            product_price = p.get("price_cents", 0)
+            if product_price and product_price <= filters["price_max_cents"]:
+                reasons.append("Within budget")
+        if spec_reason:
+            reasons.append(spec_reason)
+        if uc_reason:
+            reasons.append(uc_reason)
+        if i == 0 and not reasons:
+            reasons.append("Top match")
         p["_reason"] = "; ".join(reasons) if reasons else "Relevant match"
 
 
@@ -227,3 +273,42 @@ def build_comparison_table(products: List[Dict[str, Any]], compare_by: Optional[
         },
         "products": result_products,
     }
+
+
+def comparison_to_frontend_format(comparison: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert our comparison dict to the old frontend format used by ComparisonTable.tsx.
+
+    Old format (from interactive-decision-support-system repo):
+        { "headers": ["Attribute", "Product A", "Product B"],
+          "rows": [["Price", "$1499", "$1899"], ["Brand", "Dell", "Lenovo"], ...] }
+
+    This allows the frontend ComparisonTable component (with Select Fields dropdown)
+    to render our data without changes.
+    """
+    products = comparison.get("products", [])
+    attrs = comparison.get("attributes", [])
+    labels = comparison.get("attribute_labels", {})
+
+    if not products:
+        return {"headers": ["Attribute"], "rows": []}
+
+    headers = ["Attribute"] + [p.get("name", "Unknown") for p in products]
+    rows = []
+    for attr in attrs:
+        label = labels.get(attr, attr.replace("_", " ").title())
+        row = [label]
+        for p in products:
+            val = p.get("values", {}).get(attr, "—")
+            # Format price as dollar string
+            if attr == "price" and isinstance(val, (int, float)) and val > 0:
+                row.append(f"${val:,.0f}" if val >= 1 else str(val))
+            elif attr == "review_rating" and isinstance(val, (int, float)):
+                row.append(f"{val}/5")
+            elif val is None:
+                row.append("—")
+            else:
+                row.append(str(val))
+        rows.append(row)
+
+    return {"headers": headers, "rows": rows}
