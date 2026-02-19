@@ -93,8 +93,11 @@ def similarity_ratio(a: str, b: str) -> float:
 
 
 def normalize_typos(text: str) -> str:
-    """Reduce 3+ repeated characters to 2 (e.g., coooool -> cool)."""
-    return re.sub(r"(.)\1{2,}", r"\1\1", text)
+    """Reduce 3+ repeated characters to 2 (e.g., coooool -> cool).
+
+    Skips digit sequences so prices like '2000' or '10000' are preserved.
+    """
+    return re.sub(r"([^\d])\1{2,}", r"\1\1", text)
 
 
 def correct_typo(word: str, dictionary: Iterable[str]) -> Optional[str]:
