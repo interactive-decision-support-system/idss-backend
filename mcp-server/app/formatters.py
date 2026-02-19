@@ -261,16 +261,35 @@ def _count_reviews(reviews: Optional[str]) -> Optional[int]:
 
 
 def _extract_policy_from_description(description: str) -> Dict[str, Optional[str]]:
-    """Extract shipping, return policy, and warranty info from a product description."""
+    """Extract shipping, return policy, warranty, and promotion info from a product description."""
     import re
 
     result: Dict[str, Optional[str]] = {
         "shipping": None,
         "return_policy": None,
         "warranty": None,
+        "promotion_info": None,
     }
     if not description:
         return result
+
+    # Promotion keywords (checked across whole description first for multi-word patterns)
+    promo_patterns = [
+        r"(\d+%\s*off[^.]*)",
+        r"(save\s+\$?\d+[^.]*)",
+        r"(free\s+(?:shipping|gift|bonus)[^.]*)",
+        r"(limited[- ]time\s+(?:offer|deal|sale)[^.]*)",
+        r"(buy\s+\d+\s+get\s+\d+[^.]*)",
+        r"(coupon|promo(?:tion)?|discount|clearance|sale\s+price)[^.]*",
+    ]
+    desc_lower = description.lower()
+    for pat in promo_patterns:
+        m = re.search(pat, desc_lower)
+        if m and result["promotion_info"] is None:
+            # Find the original-case version of the matched text
+            start, end = m.start(), m.end()
+            result["promotion_info"] = description[start:end].strip().rstrip(".")
+            break
 
     # Match sentences/phrases containing each keyword
     sentences = re.split(r'[.\n]+', description)
