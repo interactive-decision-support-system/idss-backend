@@ -11,7 +11,7 @@ Per week6tips: Product discovery responses include enriched agent-ready fields
 from __future__ import annotations
 
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from enum import Enum
 
@@ -216,10 +216,14 @@ class ProductSummary(BaseModel):
     provenance: Optional[ProvenanceInfo] = Field(None, description="Data source provenance")
 
     # Enriched agent-ready fields (week6tips: delivery, return, warranty, promotion)
-    shipping: Optional[ShippingInfo] = Field(None, description="Delivery ETA, method, cost (synthetic OK)")
+    # shipping: str from description parser, or ShippingInfo from checkout/IDSS paths
+    shipping: Optional[Union[ShippingInfo, str]] = Field(None, description="Delivery ETA, method, cost (synthetic OK)")
     return_policy: Optional[str] = Field(None, description="e.g. Free 30-day returns")
     warranty: Optional[str] = Field(None, description="e.g. 1-year manufacturer warranty")
     promotion_info: Optional[str] = Field(None, description="e.g. 10% off through [date]; holiday promo")
+
+    # Why this product was recommended (week7: "why recommended" explanation)
+    reason: Optional[str] = Field(None, description="Why this product was recommended (e.g. 'Brand match; Best price')")
 
 
 class ProductDetail(BaseModel):
@@ -254,7 +258,7 @@ class ProductDetail(BaseModel):
     metadata: Optional[Dict[str, Any]] = Field(None, description="Type-specific metadata (VIN, SKU, etc)")
 
     # Enriched agent-ready fields (week6tips: delivery, return, warranty, promotion)
-    shipping: Optional[ShippingInfo] = Field(None, description="Delivery ETA, method, cost (synthetic OK)")
+    shipping: Optional[Union[ShippingInfo, str]] = Field(None, description="Delivery ETA, method, cost (synthetic OK)")
     return_policy: Optional[str] = Field(None, description="e.g. Free 30-day returns")
     warranty: Optional[str] = Field(None, description="e.g. 1-year manufacturer warranty")
     promotion_info: Optional[str] = Field(None, description="e.g. 10% off through [date]; holiday promo")
