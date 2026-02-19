@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, cast, Float
 
 from app.models import Product, Price, Inventory, Cart, CartItem, Order
 from app.schemas import (
@@ -846,7 +846,8 @@ async def search_products(
     
     # Route through IDSS backend if books or laptops (same complex system as vehicles)
     # BUT: skip IDSS for specific book title searches - those go directly to PostgreSQL
-    if (is_books or is_laptops) and not is_specific_title_search:
+    # AND: skip IDSS for specific multi-constraint queries (Reddit-style with ≥2 constraints)
+    if (is_books or is_laptops) and not is_specific_title_search and not is_specific:
         import httpx
         logger.info("routing_to_idss", f"Routing {detected_domain.value if detected_domain != Domain.NONE else 'books/laptops'} through IDSS backend for interview system", {
             "query": search_query[:100],
@@ -1052,8 +1053,9 @@ async def search_products(
         )
         .join(Price)
         .join(Inventory)
+        .filter(Price.price_cents > 0)  # Exclude $0 products (week7: conversion bug guard)
     )
-    
+
     # Filter: allow seed products (NULL) and web-scraped (WooCommerce, Shopify, BigCommerce, Generic).
     # Include mc-demo, pluginrepublic, etc. per user: all scraped products (iPods, MacBooks) should be searchable.
     base_query = base_query.filter(
@@ -1545,6 +1547,69 @@ async def search_products(
             else:
                 db_query = db_query.filter(Price.price_cents <= price_max_cents)
     
+    # ── Hardware spec filters from query_parser (kg_features JSON column) ──
+    # These handle Reddit-style complex queries like "16GB RAM, 512GB SSD, 15.6-inch"
+    # Filters are soft: products without kg_features are still included (OR kg_features IS NULL)
+    # Uses func.json_extract for SQLite compat; PostgreSQL uses json_extract_path_text
+    from sqlalchemy import func, String
+    def _kg_float(key: str):
+        """Cross-DB JSON field extraction: returns castable FLOAT expression for kg_features->key."""
+        dialect_name = db.bind.dialect.name if db.bind else "sqlite"
+        if dialect_name == "postgresql":
+            return cast(func.json_extract_path_text(Product.kg_features, key), Float)
+        return cast(func.json_extract(Product.kg_features, f"$.{key}"), Float)
+
+    def _kg_text(key: str):
+        """Cross-DB JSON field as text (for booleans stored as true/false)."""
+        dialect_name = db.bind.dialect.name if db.bind else "sqlite"
+        if dialect_name == "postgresql":
+            return func.json_extract_path_text(Product.kg_features, key)
+        return cast(func.json_extract(Product.kg_features, f"$.{key}"), String)
+
+    if filters.get("min_ram_gb"):
+        min_ram = int(filters["min_ram_gb"])
+        db_query = db_query.filter(
+            or_(_kg_float("ram_gb") >= min_ram, Product.kg_features.is_(None))
+        )
+    if filters.get("min_storage_gb"):
+        min_storage = int(filters["min_storage_gb"])
+        db_query = db_query.filter(
+            or_(_kg_float("storage_gb") >= min_storage, Product.kg_features.is_(None))
+        )
+    if filters.get("min_screen_inches"):
+        min_screen = float(filters["min_screen_inches"])
+        db_query = db_query.filter(
+            or_(_kg_float("screen_size_inches") >= min_screen, Product.kg_features.is_(None))
+        )
+    if filters.get("min_battery_hours"):
+        min_battery = int(filters["min_battery_hours"])
+        db_query = db_query.filter(
+            or_(_kg_float("battery_life_hours") >= min_battery, Product.kg_features.is_(None))
+        )
+    if filters.get("min_year"):
+        min_year = int(filters["min_year"])
+        db_query = db_query.filter(
+            or_(_kg_float("year") >= min_year, Product.kg_features.is_(None))
+        )
+    if filters.get("use_cases"):
+        # Use-case tags: good_for_ml, good_for_web_dev, good_for_gaming, etc.
+        # Include products where ANY requested use-case is true, OR kg_features is NULL
+        use_case_tag_map = {
+            "ml": "good_for_ml",
+            "web_dev": "good_for_web_dev",
+            "gaming": "good_for_gaming",
+            "creative": "good_for_creative",
+            "linux": "good_for_linux",
+            "programming": "good_for_programming",  # separate from web_dev
+        }
+        uc_conditions = [Product.kg_features.is_(None)]
+        for uc in filters["use_cases"]:
+            kg_key = use_case_tag_map.get(uc)
+            if kg_key:
+                # Boolean kg_features are stored as true/false (not 1/0)
+                uc_conditions.append(_kg_text(kg_key).in_(["true", "1"]))
+        db_query = db_query.filter(or_(*uc_conditions))
+
     # Get total count for pagination
     total_count = db_query.count()
 
@@ -1567,7 +1632,7 @@ async def search_products(
     relaxation_reason: Optional[str] = None
 
     def _demo_and_category_query(session):
-        q = session.query(Product).join(Price).join(Inventory)
+        q = session.query(Product).join(Price).join(Inventory).filter(Price.price_cents > 0)
         q = q.filter(
             or_(
                 Product.scraped_from_url.is_(None),
@@ -1724,7 +1789,7 @@ async def search_products(
     products_with_scores = []
     
     for product in products:
-        # Extract enriched fields from description (shipping, return, warranty)
+        # Extract enriched fields from description (shipping, return, warranty, promotion)
         desc = getattr(product, 'description', '') or ''
         policies = _extract_policy_from_description(desc)
 
@@ -1742,6 +1807,7 @@ async def search_products(
             shipping=policies.get("shipping"),
             return_policy=policies.get("return_policy"),
             warranty=policies.get("warranty"),
+            promotion_info=policies.get("promotion_info"),
         )
         products_with_scores.append((summary, product))
     
@@ -1850,7 +1916,7 @@ async def search_products(
             })
             # Fall through to default ranking
     
-    # Apply ranking: KG candidates first, then vector scores, then price (if IDSS ranking not applied)
+    # Apply ranking: KG candidates first, then vector scores, then popularity (if IDSS ranking not applied)
     if not filters.get("_use_idss_ranking"):
         if kg_candidate_ids:
             # KG candidates are already ordered by relevance
@@ -1866,7 +1932,21 @@ async def search_products(
                 key=lambda x: score_map.get(x[0].product_id, 0.0),
                 reverse=True
             )
-    
+        else:
+            # No KG or vector ranking — use popularity score as tiebreaker
+            # Popular products (more views) rank higher within same price tier
+            try:
+                pop_scores = {
+                    s.product_id: cache_client.get_popularity_score(s.product_id)
+                    for s, _ in products_with_scores[:request.limit]
+                }
+                products_with_scores.sort(
+                    key=lambda x: pop_scores.get(x[0].product_id, 0.0),
+                    reverse=True,
+                )
+            except Exception:
+                pass  # Popularity ranking failure is non-fatal
+
     # Extract summaries (limit to requested limit)
     product_summaries = [summary for summary, _ in products_with_scores[:request.limit]]
 
@@ -1887,13 +1967,30 @@ async def search_products(
             total_count = max(0, total_count - dropped)  # Approximate: we only have this page
     post_validation_count = len(product_summaries)
 
+    # ── "Why recommended" annotation (week7 §564) ────────────────────────
+    from app.research_compare import generate_recommendation_reasons
+    product_dicts_for_reasons = [
+        {"product_id": s.product_id, "brand": s.brand, "price_cents": s.price_cents}
+        for s in product_summaries
+    ]
+    generate_recommendation_reasons(product_dicts_for_reasons, filters, kg_candidate_ids)
+    for s, d in zip(product_summaries, product_dicts_for_reasons):
+        s.reason = d.get("_reason")
+
     # ── Cache search results for next time ───────────────────────────────
     if product_summaries:
         try:
             serialized = [s.model_dump(mode="json", exclude_none=True) for s in product_summaries]
-            cache_client.set_search_results(search_cache_key, serialized)
+            cache_client.set_search_results(search_cache_key, serialized, adaptive=True)
         except Exception:
             pass  # Cache write failure is non-fatal
+
+    # Record search impressions for top results (view signal for popularity ranking)
+    try:
+        for s in product_summaries[:3]:
+            cache_client.record_access(s.product_id)
+    except Exception:
+        pass  # Non-critical
 
     # Calculate next cursor
     next_cursor = None
@@ -2198,11 +2295,14 @@ def get_product(
             version=create_version_info()
         )
         
+        # Track access for Bélády-inspired adaptive TTL
+        cache_client.record_access(request.product_id)
+
         # Event logging for research replay
         log_mcp_event(db, request_id, "get_product", "/api/get-product", request, response)
-        
+
         return response
-    
+
     # STEP 2: Cache miss - query PostgreSQL (authoritative source)
     logger.info("processing_step", "Step 1 Result: Cache MISS - querying PostgreSQL", {
         "request_id": request_id,
@@ -2325,24 +2425,30 @@ def get_product(
             "reviews": getattr(product, 'reviews', None),
             "created_at": product.created_at.isoformat(),
             "updated_at": product.updated_at.isoformat()
-        }
+        },
+        adaptive=True
     )
-    
+
     cache_client.set_price(
         product.product_id,
         {
             "price_cents": product.price_info.price_cents,
             "currency": product.price_info.currency
-        }
+        },
+        adaptive=True
     )
-    
+
     cache_client.set_inventory(
         product.product_id,
         {
             "available_qty": product.inventory_info.available_qty
-        }
+        },
+        adaptive=True
     )
-    
+
+    # Track access for Bélády-inspired adaptive TTL
+    cache_client.record_access(product.product_id)
+
     # STEP 5: Apply field projection if requested
     if request.fields:
         logger.info("processing_step", "Step 5: Applying field projection", {
@@ -2766,8 +2872,11 @@ def checkout(
     db.commit()
     
     # Invalidate cache for all products in the cart (inventory changed)
+    # Record purchase as strong popularity signal (5x weight vs view)
     for item in cart_items:
         cache_client.invalidate_product(item.product_id)
+        for _ in range(5):
+            cache_client.record_access(item.product_id)
     
     timings["db"] = (time.time() - db_start) * 1000
     timings["total"] = (time.time() - start_time) * 1000
