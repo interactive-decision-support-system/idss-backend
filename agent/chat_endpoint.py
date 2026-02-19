@@ -1209,13 +1209,15 @@ async def _search_ecommerce_products(
         query = query.order_by(Price.price_cents.asc())
         products = query.limit(n_rows * n_per_row * 2).all()
 
-        # Fallback: relax price_min
+        # Fallback: relax price_min (but KEEP product_type)
         if not products and filters.get("price_min_cents"):
             query = db.query(Product).filter(Product.category == category)
             if exclude_ids:
                 query = query.filter(~Product.product_id.in_(exclude_ids))
             if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
                 query = query.filter(Product.brand == filters["brand"])
+            if filters.get("product_type"):
+                query = query.filter(Product.product_type == filters["product_type"])
             if filters.get("subcategory"):
                 query = query.filter(Product.subcategory == filters["subcategory"])
             if filters.get("color"):
@@ -1226,13 +1228,15 @@ async def _search_ecommerce_products(
             query = query.order_by(Price.price_cents.asc())
             products = query.limit(n_rows * n_per_row * 2).all()
 
-        # Fallback: relax subcategory
+        # Fallback: relax subcategory (but KEEP product_type to avoid mixing laptops/watches/iPads)
         if not products and filters.get("subcategory"):
             query = db.query(Product).filter(Product.category == category)
             if exclude_ids:
                 query = query.filter(~Product.product_id.in_(exclude_ids))
             if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
                 query = query.filter(Product.brand == filters["brand"])
+            if filters.get("product_type"):
+                query = query.filter(Product.product_type == filters["product_type"])
             query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
             if filters.get("price_max_cents"):
                 query = query.filter(Price.price_cents <= filters["price_max_cents"])
