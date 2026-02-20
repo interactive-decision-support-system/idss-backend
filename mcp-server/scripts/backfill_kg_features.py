@@ -5,9 +5,9 @@ Backfill kg_features (PostgreSQL) for richer KG (§7).
 Sets Reddit-style features from existing product data (per week6tips: 30+ features).
 Features inferred:
 - good_for_ml, good_for_gaming, good_for_web_dev, good_for_creative
-- good_for_linux, repairable, refurbished
-- battery_life_hours, ram_gb, storage_gb, screen_size_inches
-- keyboard_quality (when keyboard/typing mentioned)
+- good_for_linux, good_for_programming, repairable, refurbished
+- battery_life_hours, ram_gb, storage_gb, screen_size_inches, year
+- keyboard_quality (tiered: excellent/good based on context)
 
 Run from mcp-server: python scripts/backfill_kg_features.py
 """
@@ -71,6 +71,17 @@ def parse_screen_inches(text: str) -> float | None:
     return None
 
 
+def parse_year(text: str) -> int | None:
+    """Extract product/model year. e.g. '2024 model', 'Laptop (2023)', 'MacBook Pro 2024'."""
+    # Pattern: standalone year like "(2024)", "2023 laptop", "laptop 2024"
+    m = re.search(r"\b(20[12]\d)\b", text)
+    if m:
+        year = int(m.group(1))
+        if 2015 <= year <= 2026:
+            return year
+    return None
+
+
 def build_kg_features(product: Product) -> dict | None:
     """Build kg_features dict for a product from existing fields (30+ features per week6tips)."""
     features: dict = {}
@@ -86,14 +97,32 @@ def build_kg_features(product: Product) -> dict | None:
     # good_for_gaming
     if "gaming" in sub or "gaming" in combined or "gaming_laptop" == (product.product_type or ""):
         features["good_for_gaming"] = True
-    # good_for_ml: NVIDIA GPU, 16GB+ RAM, "machine learning", "deep learning"
-    if any(x in combined for x in ["nvidia", "rtx", "gtx", "32gb", "64gb", "machine learning", "deep learning", "ml ", " ai "]):
+    # good_for_ml: NVIDIA/AMD GPU, 32GB+ RAM, ML/AI keywords, CUDA, data science
+    if any(x in combined for x in [
+        "nvidia", "rtx", "gtx", "32gb", "64gb", "128gb",
+        "machine learning", "deep learning", "ml ", " ai ",
+        "cuda", "tensor", "data science", "jupyter", "pytorch", "tensorflow",
+        "instinct", "intel arc", "a100", "h100", "v100",
+    ]):
         features["good_for_ml"] = True
-    # good_for_web_dev: general purpose / work
-    if "work" in sub or "school" in sub or "business" in combined or "coding" in combined or "developer" in combined or "web dev" in combined:
+    # good_for_web_dev: actual web dev tools/frameworks (tightened from broad "work")
+    if any(x in combined for x in [
+        "web dev", "web development", "frontend", "fullstack", "full-stack",
+        "react", "node", "angular", "vue", "figma", "webflow", "xano",
+    ]) or "work" in sub or "school" in sub:
         features["good_for_web_dev"] = True
-    # good_for_creative: video, photo, creative
-    if "creative" in sub or "video" in combined or "photo" in combined or "editing" in combined:
+    # good_for_programming: general coding/IDE/language mentions
+    if any(x in combined for x in [
+        "programming", "developer", "coding", "software development",
+        "ide", "compiler", "debug", "python", "java ", "c++", "rust",
+        "vscode", "pycharm", "intellij", "vim", "emacs",
+    ]):
+        features["good_for_programming"] = True
+    # good_for_creative: video, photo, creative, 3D
+    if "creative" in sub or any(x in combined for x in [
+        "video", "photo", "editing", "3d modeling", "blender",
+        "photoshop", "premiere", "davinci", "autocad",
+    ]):
         features["good_for_creative"] = True
 
     # good_for_linux: System76, Framework, Pop!_OS, Linux
@@ -108,9 +137,11 @@ def build_kg_features(product: Product) -> dict | None:
     if "back market" in source or "backmarket" in source or "refurbished" in combined:
         features["refurbished"] = True
 
-    # keyboard_quality: when keyboard/typing mentioned (Reddit-style query)
-    if "keyboard" in combined or "typing" in combined or "backlit" in combined:
-        features["keyboard_quality"] = "good"  # assume good when mentioned
+    # keyboard_quality: tiered based on context
+    if any(x in combined for x in ["thinkpad", "mechanical keyboard", "travel keyboard", "excellent keyboard"]):
+        features["keyboard_quality"] = "excellent"
+    elif "keyboard" in combined or "typing" in combined or "backlit" in combined:
+        features["keyboard_quality"] = "good"
 
     # battery_life_hours
     hours = parse_battery_hours(product.description, product.name)
@@ -129,6 +160,11 @@ def build_kg_features(product: Product) -> dict | None:
     screen = parse_screen_inches(combined)
     if screen is not None:
         features["screen_size_inches"] = screen
+
+    # year (model/release year)
+    year = parse_year(combined)
+    if year is not None:
+        features["year"] = year
 
     # Phones: battery_life_hours fallback
     if product.category == "Electronics" and (product.product_type or "").lower() in ("phone", "smartphone"):

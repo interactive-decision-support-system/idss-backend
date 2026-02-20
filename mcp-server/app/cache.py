@@ -28,7 +28,15 @@ class CacheClient:
     Supports separate namespaces for MCP vs Agent caching:
     - MCP cache: mcp:{key} (product data, prices, inventory, search results)
     - Agent cache: agent:{key} (sessions, conversations, context)
+
+    Bélády-inspired adaptive TTL:
+    - Tracks access frequency via Redis sorted set (ZINCRBY)
+    - Hot products (≥10 accesses) get 3x TTL — predicted to be needed again soon
+    - Warm products (3-9 accesses) get standard TTL
+    - Cold products (<3 accesses) get 0.5x TTL — evicted sooner
     """
+
+    POPULARITY_KEY = "mcp:popularity:access_count"
 
     def __init__(self, namespace: str = "mcp"):
         """
@@ -97,6 +105,48 @@ class CacheClient:
 
 
     # ──────────────────────────────────────────────────────────────────────
+    # Bélády-Inspired Popularity Tracking
+    # ──────────────────────────────────────────────────────────────────────
+
+    def record_access(self, product_id: str) -> None:
+        """Track product access frequency via ZINCRBY on a sorted set."""
+        try:
+            self.client.zincrby(self.POPULARITY_KEY, 1, product_id)
+        except Exception:
+            pass  # Non-critical — caching still works without popularity
+
+    def get_popularity_score(self, product_id: str) -> float:
+        """Get access count for a product. Returns 0 if unknown."""
+        try:
+            score = self.client.zscore(self.POPULARITY_KEY, product_id)
+            return float(score) if score else 0.0
+        except Exception:
+            return 0.0
+
+    def get_adaptive_ttl(self, product_id: str, base_ttl: int) -> int:
+        """
+        Bélády-inspired adaptive TTL based on access frequency.
+
+        Hot products (≥10 accesses):  3x base TTL — keep longer
+        Warm products (3-9 accesses): 1x base TTL — standard
+        Cold products (<3 accesses):  0.5x base TTL — evict sooner
+        """
+        score = self.get_popularity_score(product_id)
+        if score >= 10:
+            return int(base_ttl * 3)
+        elif score >= 3:
+            return base_ttl
+        else:
+            return max(int(base_ttl * 0.5), 10)
+
+    def get_top_products(self, n: int = 50) -> List:
+        """Get top N most accessed products (for cache warming)."""
+        try:
+            return self.client.zrevrange(self.POPULARITY_KEY, 0, n - 1, withscores=True)
+        except Exception:
+            return []
+
+    # ──────────────────────────────────────────────────────────────────────
     # Product Summary Cache
     # ──────────────────────────────────────────────────────────────────────
 
@@ -113,11 +163,12 @@ class CacheClient:
             return None
 
 
-    def set_product_summary(self, product_id: str, summary: Dict[str, Any]) -> bool:
-        """Cache a product summary (TTL: 5 min)."""
+    def set_product_summary(self, product_id: str, summary: Dict[str, Any], adaptive: bool = False) -> bool:
+        """Cache a product summary (TTL: 5 min base, adaptive if enabled)."""
         key = self._key(f"prod_summary:{product_id}")
+        ttl = self.get_adaptive_ttl(product_id, self.ttl_product_summary) if adaptive else self.ttl_product_summary
         try:
-            self.client.setex(key, self.ttl_product_summary, json.dumps(summary))
+            self.client.setex(key, ttl, json.dumps(summary))
             return True
         except Exception as e:
             print(f"Cache write error for {key}: {e}")
@@ -141,11 +192,12 @@ class CacheClient:
             return None
 
 
-    def set_price(self, product_id: str, price_data: Dict[str, Any]) -> bool:
-        """Cache price (TTL: 60s — prices change frequently)."""
+    def set_price(self, product_id: str, price_data: Dict[str, Any], adaptive: bool = False) -> bool:
+        """Cache price (TTL: 60s base, adaptive if enabled)."""
         key = self._key(f"price:{product_id}")
+        ttl = self.get_adaptive_ttl(product_id, self.ttl_price) if adaptive else self.ttl_price
         try:
-            self.client.setex(key, self.ttl_price, json.dumps(price_data))
+            self.client.setex(key, ttl, json.dumps(price_data))
             return True
         except Exception as e:
             print(f"Cache write error for {key}: {e}")
@@ -169,11 +221,12 @@ class CacheClient:
             return None
 
 
-    def set_inventory(self, product_id: str, inventory_data: Dict[str, Any]) -> bool:
-        """Cache inventory (TTL: 30s — most volatile data)."""
+    def set_inventory(self, product_id: str, inventory_data: Dict[str, Any], adaptive: bool = False) -> bool:
+        """Cache inventory (TTL: 30s base, adaptive if enabled)."""
         key = self._key(f"inventory:{product_id}")
+        ttl = self.get_adaptive_ttl(product_id, self.ttl_inventory) if adaptive else self.ttl_inventory
         try:
-            self.client.setex(key, self.ttl_inventory, json.dumps(inventory_data))
+            self.client.setex(key, ttl, json.dumps(inventory_data))
             return True
         except Exception as e:
             print(f"Cache write error for {key}: {e}")
@@ -212,11 +265,25 @@ class CacheClient:
             print(f"Search cache read error for {key}: {e}")
             return None
 
-    def set_search_results(self, cache_key: str, results: List[Dict[str, Any]]) -> bool:
-        """Cache search results (TTL: 5 min)."""
+    def set_search_results(self, cache_key: str, results: List[Dict[str, Any]], adaptive: bool = False) -> bool:
+        """Cache search results. TTL adapts based on popularity of returned products when adaptive=True."""
         key = self._key(cache_key)
+        ttl = self.ttl_search
+        if adaptive and results:
+            # Compute average popularity across result products
+            try:
+                scores = [self.get_popularity_score(r.get("product_id", "")) for r in results[:10]]
+                avg_score = sum(scores) / len(scores) if scores else 0
+                if avg_score >= 10:
+                    ttl = int(self.ttl_search * 3)   # Hot search: 15 min
+                elif avg_score >= 3:
+                    ttl = self.ttl_search             # Warm: 5 min
+                else:
+                    ttl = max(int(self.ttl_search * 0.5), 30)  # Cold: 2.5 min (min 30s)
+            except Exception:
+                pass  # Fall back to default TTL
         try:
-            self.client.setex(key, self.ttl_search, json.dumps(results))
+            self.client.setex(key, ttl, json.dumps(results))
             return True
         except Exception as e:
             print(f"Search cache write error for {key}: {e}")

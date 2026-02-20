@@ -58,6 +58,25 @@ USE_CASE_KEYWORDS = {
     "programming": "work",
     "business": "work",
     "education": "education",
+    "daily use": "work",
+    "everyday": "work",
+    "general use": "work",
+    # Reddit-style tool/framework mentions → use-case detection
+    "machine learning": "work",
+    "deep learning": "work",
+    "pytorch": "work",
+    "tensorflow": "work",
+    "web development": "work",
+    "web dev": "work",
+    "figma": "creative",
+    "webflow": "work",
+    "python": "work",
+    "pycharm": "work",
+    "linux": "work",
+    "unity": "gaming",
+    "godot": "gaming",
+    "blender": "creative",
+    "photoshop": "creative",
 }
 
 SOFT_PREFERENCE_KEYWORDS = {
@@ -72,6 +91,9 @@ SOFT_PREFERENCE_KEYWORDS = {
     "rugged": "durable",
     "portable": "portable",
     "lightweight": "portable",
+    "daily use": "general",
+    "everyday use": "general",
+    "general purpose": "general",
 }
 
 COLOR_KEYWORDS = {
@@ -91,19 +113,45 @@ def _normalize(text: str) -> str:
     return (text or "").lower().strip()
 
 
+def _parse_price_digits(raw: str) -> int:
+    """Strip commas from price string and return int. '2,000' → 2000."""
+    return int(raw.replace(",", ""))
+
+
+# Price digit pattern: matches "2000" or "2,000" (with optional comma separators)
+_PRICE_DIGITS = r"(\d{1,3}(?:,\d{3})|\d{2,5})"
+
+
 def _extract_price_range(query: str) -> Optional[Dict[str, int]]:
     text = _normalize(query)
-    range_match = re.search(r"\$?(\d{2,5})\s*[-–]\s*\$?(\d{2,5})", text)
+
+    # "no more than $2,000", "cost no more than $2000"
+    no_more_match = re.search(r"no\s+more\s+than\s*\$?" + _PRICE_DIGITS, text)
+    if no_more_match:
+        return {"max": _parse_price_digits(no_more_match.group(1))}
+
+    range_match = re.search(r"\$?" + _PRICE_DIGITS + r"\s*[-–]\s*\$?" + _PRICE_DIGITS, text)
     if range_match:
-        return {"min": int(range_match.group(1)), "max": int(range_match.group(2))}
+        return {"min": _parse_price_digits(range_match.group(1)), "max": _parse_price_digits(range_match.group(2))}
 
-    under_match = re.search(r"(under|below|<=)\s*\$?(\d{2,5})", text)
+    under_match = re.search(r"(under|below|<=)\s*\$?" + _PRICE_DIGITS, text)
     if under_match:
-        return {"max": int(under_match.group(2))}
+        return {"max": _parse_price_digits(under_match.group(2))}
 
-    over_match = re.search(r"(over|above|>=)\s*\$?(\d{2,5})", text)
+    over_match = re.search(r"(over|above|>=)\s*\$?" + _PRICE_DIGITS, text)
     if over_match:
-        return {"min": int(over_match.group(2))}
+        return {"min": _parse_price_digits(over_match.group(2))}
+
+    # Standalone dollar amount: "$2000", "$2,000" — treat as budget (max price)
+    # Only match when $ sign is present to avoid matching model numbers like "2000"
+    dollar_match = re.search(r"\$" + _PRICE_DIGITS, text)
+    if dollar_match:
+        return {"max": _parse_price_digits(dollar_match.group(1))}
+
+    # "budget 2000" or "budget of 2,000" patterns
+    budget_match = re.search(r"budget\s+(?:of\s+)?\$?" + _PRICE_DIGITS, text)
+    if budget_match:
+        return {"max": _parse_price_digits(budget_match.group(1))}
 
     return None
 

@@ -44,6 +44,10 @@ logger = logging.getLogger("mcp.universal_agent")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "low")
 
+# reasoning_effort is only valid for o-series reasoning models (o1, o3, etc.)
+_IS_REASONING_MODEL = OPENAI_MODEL.startswith("o1") or OPENAI_MODEL.startswith("o3")
+_REASONING_KWARGS = {"reasoning_effort": OPENAI_REASONING_EFFORT} if _IS_REASONING_MODEL else {}
+
 # Interview configuration
 DEFAULT_MAX_QUESTIONS = 3  # Maximum questions before showing recommendations
 
@@ -85,9 +89,9 @@ class GeneratedQuestion(BaseModel):
     topic: str = Field(description="The main topic this question addresses")
 
 class UniversalAgent:
-    def __init__(self, session_id: str, history: List[Dict[str, str]] = None, max_questions: int = DEFAULT_MAX_QUESTIONS):
+    def __init__(self, session_id: str, history: Optional[List[Dict[str, str]]] = None, max_questions: int = DEFAULT_MAX_QUESTIONS):
         self.session_id = session_id
-        self.history = history or []
+        self.history: List[Any] = history or []
         self.domain: Optional[str] = None
         self.filters: Dict[str, Any] = {}
         self.state = AgentState.INTENT_DETECTION
@@ -282,7 +286,7 @@ class UniversalAgent:
 
             completion = self.client.beta.chat.completions.parse(
                 model=OPENAI_MODEL,
-                reasoning_effort=OPENAI_REASONING_EFFORT,
+                **_REASONING_KWARGS,
                 messages=[
                     {"role": "system", "content": DOMAIN_DETECTION_PROMPT},
                     {"role": "user", "content": message}
@@ -290,6 +294,9 @@ class UniversalAgent:
                 response_format=DomainClassification,
             )
             result = completion.choices[0].message.parsed
+            if not result:
+                logger.warning("Domain detection returned None (parsing failed)")
+                return None
             logger.info(f"Domain detected: {result.domain} (conf: {result.confidence})")
 
             if result.domain == "unknown":
@@ -330,7 +337,7 @@ class UniversalAgent:
 
             completion = self.client.beta.chat.completions.parse(
                 model=OPENAI_MODEL,
-                reasoning_effort=OPENAI_REASONING_EFFORT,
+                **_REASONING_KWARGS,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": message}
@@ -338,6 +345,9 @@ class UniversalAgent:
                 response_format=ExtractedCriteria,
             )
             result = completion.choices[0].message.parsed
+            if not result:
+                logger.warning("Criteria extraction returned None")
+                return None
 
             # Merge extracted filters into state
             if result.criteria:
@@ -496,7 +506,7 @@ class UniversalAgent:
 
             completion = self.client.beta.chat.completions.parse(
                 model=OPENAI_MODEL,
-                reasoning_effort=OPENAI_REASONING_EFFORT,
+                **_REASONING_KWARGS,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     # Include recent history for conversational flow context
@@ -505,6 +515,8 @@ class UniversalAgent:
                 response_format=GeneratedQuestion
             )
             result = completion.choices[0].message.parsed
+            if not result:
+                raise ValueError("Question generation parsing returned None")
             logger.info(f"Generated IDSS-style question: {result.question}")
             logger.info(f"Quick replies: {result.quick_replies}")
             logger.info(f"Topic: {result.topic}")
@@ -579,7 +591,7 @@ class UniversalAgent:
 
             completion = self.client.chat.completions.create(
                 model=OPENAI_MODEL,
-                reasoning_effort=OPENAI_REASONING_EFFORT,
+                **_REASONING_KWARGS,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"""User's preferences: {criteria_text}
@@ -618,7 +630,7 @@ Write the recommendation message."""}
 
             completion = self.client.beta.chat.completions.parse(
                 model=OPENAI_MODEL,
-                reasoning_effort=OPENAI_REASONING_EFFORT,
+                **_REASONING_KWARGS,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": message},
@@ -626,6 +638,9 @@ Write the recommendation message."""}
                 response_format=RefinementClassification,
             )
             result = completion.choices[0].message.parsed
+            if not result:
+                logger.warning("Refinement classification returned None")
+                return None
             logger.info(f"Refinement classification: intent={result.intent}, reasoning={result.reasoning}")
 
             if result.intent == "refine_filters":

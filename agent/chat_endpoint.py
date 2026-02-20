@@ -230,11 +230,17 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 agent=agent,
             )
         elif domain in ("laptops", "books"):
-            category = "Electronics" if domain == "laptops" else "Books"
+            category = "electronics" if domain == "laptops" else "Books"
+            product_type = "laptop" if domain == "laptops" else "book"
             search_filters["category"] = category
-            # Use agent-extracted product_type if available, otherwise default
-            if "product_type" not in search_filters:
-                search_filters["product_type"] = "laptop" if domain == "laptops" else "book"
+            search_filters["product_type"] = product_type
+            # Extract hardware specs (RAM, storage, battery, screen) from user query
+            try:
+                from app.query_parser import enhance_search_request
+                _, spec_filters = enhance_search_request(request.message, search_filters)
+                search_filters.update(spec_filters)
+            except Exception:
+                pass  # Non-critical: spec extraction failure shouldn't block search
             return await _search_and_respond_ecommerce(
                 search_filters, category, domain, session_id, session, session_manager,
                 n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
@@ -495,6 +501,21 @@ async def _handle_post_recommendation(
             if product_ids:
                 products = _fetch_products_by_ids(product_ids)
                 if products:
+                    # Always sort products when compare_by is specified
+                    if compare_by:
+                        sort_attr = compare_by[0]
+                        logger.info("compare_sort_start", f"Sorting {len(products)} products by {sort_attr}", {
+                            "before": [(p.get("name", "?")[:25], p.get("price"), p.get("rating")) for p in products]
+                        })
+                        if sort_attr == "price":
+                            products.sort(key=lambda p: float(p.get("price") or 0))
+                        elif sort_attr in ("review_rating", "rating"):
+                            products.sort(key=lambda p: float(p.get("rating") or 0), reverse=True)
+                        elif sort_attr == "brand":
+                            products.sort(key=lambda p: (p.get("brand") or "").lower())
+                        logger.info("compare_sort_done", f"Sorted products by {sort_attr}", {
+                            "after": [(p.get("name", "?")[:25], p.get("price"), p.get("rating")) for p in products]
+                        })
                     comparison = build_comparison_table(products, compare_by=compare_by)
                     fmt_domain = "books" if category == "Books" else "laptops"
                     from app.formatters import format_product
@@ -582,9 +603,21 @@ async def _handle_post_recommendation(
 
     if "checkout" in msg_lower or "pay" in msg_lower or "transaction" in msg_lower:
         session_manager.add_message(session_id, "user", request.message)
+        fav_ids = list(session.favorite_product_ids or [])
+        if fav_ids:
+            fav_products = _fetch_products_by_ids(fav_ids)
+            total = sum(p.get("price", 0) for p in fav_products)
+            item_names = [p.get("name", "item")[:30] for p in fav_products[:5]]
+            msg = (
+                f"Your cart has {len(fav_products)} item(s) totaling ${total:,.2f}:\n"
+                + "\n".join(f"- {name}" for name in item_names)
+                + "\n\nClick the cart icon (top right) and then **Proceed to Checkout** to complete your purchase."
+            )
+        else:
+            msg = "Your cart is empty. Add items to your cart by clicking the heart icon on products you like, then come back to checkout."
         return ChatResponse(
             response_type="question",
-            message="I can help with checkout! For now, you can view the full listing for any product by clicking \"View Details\" on a recommendation. Would you like to see more options or have questions about a specific item?",
+            message=msg,
             session_id=session_id,
             quick_replies=["See similar items", "Compare items", "Back to recommendations"],
             filters=session.explicit_filters,
@@ -676,7 +709,9 @@ async def _handle_post_recommendation(
             )
         elif active_domain in ("laptops", "books"):
             category = _domain_to_category(active_domain)
+            product_type = "laptop" if active_domain == "laptops" else "book"
             search_filters["category"] = category
+            search_filters["product_type"] = product_type
             return await _search_and_respond_ecommerce(
                 search_filters, category, active_domain, session_id, session, session_manager,
                 n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
@@ -930,14 +965,16 @@ def list_sessions() -> Dict[str, Any]:
 # ============================================================================
 
 def _domain_to_category(active_domain: Optional[str]) -> str:
-    """Map domain to database category for e-commerce search."""
+    """Map domain to database category for e-commerce search.
+    Uses lowercase to match Supabase convention (most products are lowercase).
+    """
     if not active_domain:
-        return "Electronics"
+        return "electronics"
     m = {
-        "laptops": "Electronics",
+        "laptops": "electronics",
         "books": "Books",
     }
-    return m.get(active_domain, "Electronics")
+    return m.get(active_domain, "electronics")
 
 
 def _format_product_as_vehicle(product_dict: Dict[str, Any], category: str) -> Dict[str, Any]:
@@ -957,10 +994,10 @@ def _format_product_as_vehicle(product_dict: Dict[str, Any], category: str) -> D
     price = product_dict.get("price", 0)
     image_url = product_dict.get("image_url")
 
-    if category == "Electronics":
+    if category.lower() == "electronics":
         product_type = "laptop"
         body_style = "Electronics"
-    elif category == "Books":
+    elif category.lower() == "books":
         product_type = "book"
         body_style = "Books"
     else:
@@ -1061,34 +1098,35 @@ def _fetch_products_by_ids(product_ids: List[str]) -> List[Dict[str, Any]]:
     if not product_ids:
         return []
     from app.database import SessionLocal
-    from app.models import Product, Price, Inventory
+    from app.models import Product
     db = SessionLocal()
     try:
         products = db.query(Product).filter(Product.product_id.in_(product_ids)).all()
         id_order = {pid: i for i, pid in enumerate(product_ids)}
-        products = sorted(products, key=lambda p: id_order.get(p.product_id, 999))
+        products = sorted(products, key=lambda p: id_order.get(str(p.product_id), 999))
         result = []
         for product in products:
-            price = db.query(Price).filter(Price.product_id == product.product_id).first()
-            inv = db.query(Inventory).filter(Inventory.product_id == product.product_id).first()
+            price_dollars = float(product.price_value) if product.price_value else 0
             p_dict = {
-                "id": product.product_id,
-                "product_id": product.product_id,
+                "id": str(product.product_id),
+                "product_id": str(product.product_id),
                 "name": product.name,
                 "description": product.description,
                 "category": product.category,
-                "subcategory": product.subcategory,
+                "subcategory": getattr(product, "subcategory", None),
                 "brand": product.brand,
-                "price": round((price.price_cents / 100), 2) if price else 0,
-                "price_cents": price.price_cents if price else 0,
+                "price": round(price_dollars, 2),
+                "price_cents": int(price_dollars * 100),
                 "image_url": getattr(product, "image_url", None),
                 "product_type": product.product_type,
-                "gpu_vendor": product.gpu_vendor,
-                "gpu_model": product.gpu_model,
-                "color": product.color,
-                "tags": product.tags,
-                "reviews": product.reviews,
-                "available_qty": inv.available_qty if inv else 0,
+                "gpu_vendor": getattr(product, "gpu_vendor", None),
+                "gpu_model": getattr(product, "gpu_model", None),
+                "color": getattr(product, "color", None),
+                "tags": getattr(product, "tags", None),
+                "reviews": getattr(product, "reviews", None),
+                "available_qty": product.inventory or 0,
+                "rating": float(product.rating) if product.rating else None,
+                "rating_count": product.rating_count,
             }
             result.append(p_dict)
         return result
@@ -1103,9 +1141,9 @@ def _build_kg_search_query(filters: Dict[str, Any], category: str) -> str:
         parts.append(str(filters["subcategory"]))
     if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
         parts.append(str(filters["brand"]))
-    if category == "Electronics":
+    if category.lower() == "electronics":
         parts.append("laptop")
-    elif category == "Books":
+    elif category.lower() == "books":
         parts.append("book")
     return " ".join(parts) if parts else ""
 
@@ -1146,14 +1184,26 @@ async def _search_ecommerce_products(
     Returns products formatted to match IDSS vehicle structure for frontend compatibility.
     """
     from app.database import SessionLocal
-    from app.models import Product, Price, Inventory
+    from app.models import Product
     from app.formatters import format_product
+
+    # Safety: ensure product_type is set for Electronics to avoid mixing laptops/watches/speakers
+    if category.lower() == "electronics" and not filters.get("product_type"):
+        filters["product_type"] = "laptop"
+    elif category.lower() == "books" and not filters.get("product_type"):
+        filters["product_type"] = "book"
+
+    # Convert price_cents filters to dollars for Supabase (price column is in dollars)
+    price_min_dollars = filters.get("price_min_cents", 0) / 100 if filters.get("price_min_cents") else None
+    price_max_dollars = filters.get("price_max_cents", 0) / 100 if filters.get("price_max_cents") else None
 
     logger.info("search_ecommerce_start", "Searching products", {
         "category": category,
         "filters": filters,
         "n_rows": n_rows,
         "n_per_row": n_per_row,
+        "price_min_dollars": price_min_dollars,
+        "price_max_dollars": price_max_dollars,
     })
 
     # Knowledge graph: get candidate IDs when available
@@ -1178,69 +1228,100 @@ async def _search_ecommerce_products(
     except Exception as e:
         logger.warning("kg_search_skipped", f"KG search skipped: {e}", {"error": str(e)})
 
+    def _apply_common_filters(q, *, include_brand=True, include_product_type=True):
+        """Apply common filters to a query (brand, product_type)."""
+        if include_brand and filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
+            q = q.filter(Product.brand == filters["brand"])
+        if include_product_type and filters.get("product_type"):
+            q = q.filter(Product.product_type == filters["product_type"])
+        if exclude_ids:
+            q = q.filter(~Product.product_id.in_(exclude_ids))
+        return q
+
+    def _apply_price_filters(q, *, include_min=True, include_max=True):
+        """Apply price filters using Product.price_value (dollars, not cents)."""
+        if include_min and price_min_dollars:
+            q = q.filter(Product.price_value >= price_min_dollars)
+        if include_max and price_max_dollars:
+            q = q.filter(Product.price_value <= price_max_dollars)
+        q = q.order_by(Product.price_value.asc())
+        return q
+
+    def _apply_spec_filters(q):
+        """Apply hardware spec filters from attributes JSONB column."""
+        from sqlalchemy import Float
+        if filters.get("min_ram_gb"):
+            q = q.filter(
+                Product.attributes["ram_gb"].astext.cast(Float) >= float(filters["min_ram_gb"])
+            )
+        if filters.get("min_storage_gb"):
+            q = q.filter(
+                Product.attributes["storage_gb"].astext.cast(Float) >= float(filters["min_storage_gb"])
+            )
+        if filters.get("min_battery_hours"):
+            q = q.filter(
+                Product.attributes["battery_hours"].astext.cast(Float) >= float(filters["min_battery_hours"])
+            )
+        if filters.get("min_screen_inches"):
+            q = q.filter(
+                Product.attributes["screen_size"].astext.cast(Float) >= float(filters["min_screen_inches"])
+            )
+        return q
+
+    # Minimum price sanity for laptops — exclude obviously mispriced listings
+    if category.lower() == "electronics" and not price_min_dollars:
+        price_min_dollars = 50  # $50 minimum for laptops to filter junk listings
+
     db = SessionLocal()
     try:
-        query = db.query(Product).filter(Product.category == category)
-
-        if exclude_ids:
-            query = query.filter(~Product.product_id.in_(exclude_ids))
-
         category_count = db.query(Product).filter(Product.category == category).count()
         logger.info("search_category_count", f"Products in category {category}: {category_count}", {})
 
-        # First try: full filters
+        limit = n_rows * n_per_row * 2
+
+        # First try: full filters (brand + product_type + price range + specs)
         query = db.query(Product).filter(Product.category == category)
-        if exclude_ids:
-            query = query.filter(~Product.product_id.in_(exclude_ids))
-        if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
-            query = query.filter(Product.brand == filters["brand"])
-        if filters.get("subcategory"):
-            query = query.filter(Product.subcategory == filters["subcategory"])
-        if filters.get("product_type"):
-            query = query.filter(Product.product_type == filters["product_type"])
-        if filters.get("color"):
-            query = query.filter(Product.color == filters["color"])
-        if filters.get("gpu_vendor"):
-            query = query.filter(Product.gpu_vendor == filters["gpu_vendor"])
-        query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
-        if filters.get("price_min_cents"):
-            query = query.filter(Price.price_cents >= filters["price_min_cents"])
-        if filters.get("price_max_cents"):
-            query = query.filter(Price.price_cents <= filters["price_max_cents"])
-        query = query.order_by(Price.price_cents.asc())
-        products = query.limit(n_rows * n_per_row * 2).all()
+        query = _apply_common_filters(query)
+        query = _apply_spec_filters(query)
+        query = _apply_price_filters(query)
+        products = query.limit(limit).all()
 
-        # Fallback: relax price_min
-        if not products and filters.get("price_min_cents"):
+        # Fallback: relax spec filters (keep brand + price)
+        if not products and any(filters.get(k) for k in ("min_ram_gb", "min_storage_gb", "min_battery_hours", "min_screen_inches")):
             query = db.query(Product).filter(Product.category == category)
-            if exclude_ids:
-                query = query.filter(~Product.product_id.in_(exclude_ids))
-            if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
-                query = query.filter(Product.brand == filters["brand"])
-            if filters.get("subcategory"):
-                query = query.filter(Product.subcategory == filters["subcategory"])
-            if filters.get("color"):
-                query = query.filter(Product.color == filters["color"])
-            query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
-            if filters.get("price_max_cents"):
-                query = query.filter(Price.price_cents <= filters["price_max_cents"])
-            query = query.order_by(Price.price_cents.asc())
-            products = query.limit(n_rows * n_per_row * 2).all()
+            query = _apply_common_filters(query)
+            query = _apply_price_filters(query)
+            products = query.limit(limit).all()
 
-        # Fallback: relax subcategory
-        if not products and filters.get("subcategory"):
+        # Fallback: relax price_min ONLY when a price range is set (both min AND max)
+        # Never relax price_min for "Over $X" queries (only price_min, no price_max)
+        if not products and price_min_dollars and price_max_dollars:
             query = db.query(Product).filter(Product.category == category)
-            if exclude_ids:
-                query = query.filter(~Product.product_id.in_(exclude_ids))
-            if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
-                query = query.filter(Product.brand == filters["brand"])
-            query = query.join(Price, Product.product_id == Price.product_id, isouter=True)
-            if filters.get("price_max_cents"):
-                query = query.filter(Price.price_cents <= filters["price_max_cents"])
-            if filters.get("price_min_cents"):
-                query = query.filter(Price.price_cents >= filters["price_min_cents"])
-            query = query.order_by(Price.price_cents.asc())
-            products = query.limit(n_rows * n_per_row * 2).all()
+            query = _apply_common_filters(query)
+            query = _apply_price_filters(query, include_min=False)
+            products = query.limit(limit).all()
+
+        # Fallback: relax brand (keep product_type + price)
+        if not products and filters.get("brand"):
+            query = db.query(Product).filter(Product.category == category)
+            query = _apply_common_filters(query, include_brand=False)
+            query = _apply_price_filters(query)
+            products = query.limit(limit).all()
+
+        # Fallback: relax both brand AND price_min (keep product_type, price_max)
+        # Only relax price_min when a price range was set (both min AND max)
+        if not products and filters.get("brand") and price_min_dollars and price_max_dollars:
+            query = db.query(Product).filter(Product.category == category)
+            query = _apply_common_filters(query, include_brand=False)
+            query = _apply_price_filters(query, include_min=False)
+            products = query.limit(limit).all()
+
+        # Fallback: relax brand only (keep price constraints intact)
+        if not products and filters.get("brand") and price_min_dollars and not price_max_dollars:
+            query = db.query(Product).filter(Product.category == category)
+            query = _apply_common_filters(query, include_brand=False)
+            query = _apply_price_filters(query)
+            products = query.limit(limit).all()
 
         logger.info("search_query_result", f"Query returned {len(products)} products", {
             "brand_filter": filters.get("brand"),
@@ -1254,15 +1335,14 @@ async def _search_ecommerce_products(
         # Convert to product dicts
         product_dicts = []
         for product in products:
-            price = db.query(Price).filter(Price.product_id == product.product_id).first()
-            price_cents = price.price_cents if price else 0
-            inventory = db.query(Inventory).filter(Inventory.product_id == product.product_id).first()
-            available_qty = inventory.available_qty if inventory else 0
-            reviews_text = product.reviews
+            price_dollars = float(product.price_value) if product.price_value else 0
+            price_cents = int(price_dollars * 100)
+            reviews_text = getattr(product, "reviews", None)
 
             format_value = None
-            if product.product_type == "book" and product.tags:
-                for tag in product.tags:
+            tags = getattr(product, "tags", None)
+            if product.product_type == "book" and tags:
+                for tag in tags:
                     tag_lower = tag.lower()
                     if "hardcover" in tag_lower or "hardback" in tag_lower:
                         format_value = "Hardcover"
@@ -1278,25 +1358,27 @@ async def _search_ecommerce_products(
                         break
 
             product_dict = {
-                "product_id": product.product_id,
+                "product_id": str(product.product_id),
                 "name": product.name,
-                "description": product.description,
+                "description": getattr(product, "description", None),
                 "category": product.category,
-                "subcategory": product.subcategory,
+                "subcategory": getattr(product, "subcategory", None),
                 "brand": product.brand,
-                "price": price_cents / 100,
+                "price": round(price_dollars, 2),
                 "price_cents": price_cents,
                 "image_url": getattr(product, 'image_url', None),
                 "product_type": product.product_type,
-                "gpu_vendor": product.gpu_vendor,
-                "gpu_model": product.gpu_model,
-                "color": product.color,
-                "tags": product.tags,
+                "gpu_vendor": getattr(product, "gpu_vendor", None),
+                "gpu_model": getattr(product, "gpu_model", None),
+                "color": getattr(product, "color", None),
+                "tags": tags,
                 "reviews": reviews_text,
-                "available_qty": available_qty,
+                "available_qty": product.inventory or 0,
                 "format": format_value,
                 "author": product.brand if product.product_type == "book" else None,
-                "genre": product.subcategory if product.product_type == "book" else None,
+                "genre": getattr(product, "subcategory", None) if product.product_type == "book" else None,
+                "rating": float(product.rating) if product.rating else None,
+                "rating_count": product.rating_count,
             }
             product_dicts.append(product_dict)
 
@@ -1338,8 +1420,8 @@ async def _search_ecommerce_products(
             bucket_products = product_dicts[start:end]
             if bucket_products:
                 fmt_domain = (
-                    "laptops" if category == "Electronics"
-                    else "books" if category == "Books"
+                    "laptops" if category.lower() == "electronics"
+                    else "books" if category.lower() == "books"
                     else "laptops"
                 )
 
