@@ -76,8 +76,8 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
         category=product.get("category"),
         subcategory=product.get("subcategory"),
         color=product.get("color"),
-        rating=_calculate_rating(product.get("reviews")),
-        reviews_count=_count_reviews(product.get("reviews")),
+        rating=product.get("rating") or _calculate_rating(product.get("reviews")),
+        reviews_count=product.get("rating_count") or _count_reviews(product.get("reviews")),
         reviews=product.get("reviews"),  # Pass through for frontend to display
         available_qty=product.get("available_qty"),
         available=(product.get("available_qty") or 1) > 0,
