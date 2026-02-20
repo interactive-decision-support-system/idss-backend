@@ -11,8 +11,6 @@ INPUT_FILE = "query_data.csv"
 OUTPUT_FILE = "query_data_enriched.csv"
 client = openai.OpenAI(api_key=API_KEY)
 
-# #BLANK: INSERT YOUR EXTRACTION CONSTRAINTS HERE
-# (Example: "Extract price as an integer, GPU model, and RAM in GB")
 FILTER_INSTRUCTIONS = """
 Analyze the user's laptop request and extract criteria into the following structure. 
 Strictly use the keys defined below. If a value is unknown, use null.
