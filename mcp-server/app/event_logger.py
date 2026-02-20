@@ -240,8 +240,11 @@ def log_event(
         
     except Exception as e:
         # Don't fail the request if logging fails
-        # Just log the error and continue
+        # Rollback to clean up the DB session state (critical for Supabase where mcp_events may not exist)
+        try:
+            db.rollback()
+        except Exception:
+            pass
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"Failed to log event: {e}", exc_info=True)
-        db.rollback()  # Rollback the failed insert, but don't affect the main transaction
