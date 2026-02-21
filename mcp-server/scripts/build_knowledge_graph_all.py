@@ -26,7 +26,7 @@ else:
     load_dotenv()
 
 from app.database import SessionLocal
-from app.models import Product, Price, Inventory
+from app.models import Product
 from app.neo4j_config import Neo4jConnection
 from app.knowledge_graph import KnowledgeGraphBuilder
 import random
@@ -99,7 +99,7 @@ def _parse_screen_size(name: str, description: str) -> float:
 def extract_laptop_specs(product: Product) -> dict:
     """Extract detailed laptop specifications from product."""
     specs = {
-        "product_id": product.product_id,
+        "product_id": str(product.product_id),
         "name": product.name,
         "brand": product.brand or "Unknown",
         "model": product.name,
@@ -199,7 +199,7 @@ def extract_book_metadata(product: Product) -> dict:
     publisher_name = random.choice(list(BOOK_PUBLISHERS.keys()))
     publisher_info = BOOK_PUBLISHERS[publisher_name]
     return {
-        "product_id": product.product_id,
+        "product_id": str(product.product_id),
         "title": title,
         "name": product.name or title,
         "price": 0,
@@ -245,7 +245,7 @@ def extract_material_from_product(product: Product) -> str:
 def to_jewelry_data(product: Product, price: float) -> dict:
     """Build jewelry node data."""
     return {
-        "product_id": product.product_id,
+        "product_id": str(product.product_id),
         "name": product.name or "Jewelry",
         "brand": product.brand or "",
         "price": price,
@@ -262,7 +262,7 @@ def to_jewelry_data(product: Product, price: float) -> dict:
 def to_accessory_data(product: Product, price: float) -> dict:
     """Build accessory node data."""
     return {
-        "product_id": product.product_id,
+        "product_id": str(product.product_id),
         "name": product.name or "Accessory",
         "brand": product.brand or "",
         "price": price,
@@ -278,7 +278,7 @@ def to_accessory_data(product: Product, price: float) -> dict:
 def to_generic_product_data(product: Product, price: float) -> dict:
     """Build generic product node data (includes source/scraped_from_url for provenance)."""
     return {
-        "product_id": product.product_id,
+        "product_id": str(product.product_id),
         "name": product.name or "Product",
         "brand": product.brand or "",
         "price": price,
@@ -290,14 +290,14 @@ def to_generic_product_data(product: Product, price: float) -> dict:
         "color": product.color or "",
         "available": True,
         "source": product.source or "",
-        "scraped_from_url": product.scraped_from_url or "",
     }
 
 
-def get_price(pg_db, product_id: str, default: float = 29.99) -> float:
-    """Get product price in dollars."""
-    price_obj = pg_db.query(Price).filter(Price.product_id == product_id).first()
-    return price_obj.price_cents / 100 if price_obj else default
+def get_price_from_product(product: Product, default: float = 29.99) -> float:
+    """Get product price in dollars directly from the Product row (Supabase stores price on products table)."""
+    if product.price_value is not None:
+        return float(product.price_value)
+    return default
 
 
 def sanitize_jewelry_price(price: float, product_name: str, default: float = 49.99) -> float:
@@ -362,7 +362,7 @@ def main():
     laptop_ids = []
     for i, p in enumerate(laptops):
         try:
-            price = get_price(pg_db, p.product_id, 999.99)
+            price = get_price_from_product(p, 999.99)
             data = extract_laptop_specs(p)
             data["price"] = price
             pid = builder.create_laptop_node(data)
@@ -378,7 +378,7 @@ def main():
     book_ids = []
     for i, p in enumerate(books):
         try:
-            price = get_price(pg_db, p.product_id, 19.99)
+            price = get_price_from_product(p, 19.99)
             data = extract_book_metadata(p)
             data["price"] = price
             pid = builder.create_book_node(data)
@@ -394,7 +394,7 @@ def main():
     jewelry_ids = []
     for i, p in enumerate(jewelry):
         try:
-            price = get_price(pg_db, p.product_id, 49.99)
+            price = get_price_from_product(p, 49.99)
             price = sanitize_jewelry_price(price, p.name, 49.99)
             data = to_jewelry_data(p, price)
             pid = builder.create_jewelry_node(data)
@@ -408,7 +408,7 @@ def main():
     accessory_ids = []
     for i, p in enumerate(accessories):
         try:
-            price = get_price(pg_db, p.product_id, 29.99)
+            price = get_price_from_product(p, 29.99)
             data = to_accessory_data(p, price)
             pid = builder.create_accessory_node(data)
             accessory_ids.append(pid)
@@ -423,7 +423,7 @@ def main():
     other_elec_ids = []
     for i, p in enumerate(other_electronics):
         try:
-            price = get_price(pg_db, p.product_id, 199.99)
+            price = get_price_from_product(p, 199.99)
             data = to_generic_product_data(p, price)
             pid = builder.create_generic_product_node(data)
             other_elec_ids.append(pid)
@@ -438,7 +438,7 @@ def main():
     generic_ids = []
     for i, p in enumerate(generic):
         try:
-            price = get_price(pg_db, p.product_id, 24.99)
+            price = get_price_from_product(p, 24.99)
             data = to_generic_product_data(p, price)
             pid = builder.create_generic_product_node(data)
             generic_ids.append(pid)
