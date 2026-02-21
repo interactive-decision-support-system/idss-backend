@@ -9,6 +9,8 @@ class ChatRequest(BaseModel):
     """Request model for chat endpoint."""
     message: str = Field(description="User's message")
     session_id: Optional[str] = Field(default=None, description="Session ID (auto-generated if not provided)")
+    user_location: Optional[Dict[str, Any]] = Field(default=None, description="User location (lat, lng)")
+    user_actions: Optional[List[Dict[str, str]]] = Field(default=None, description="Favorite/unfavorite actions [{type, product_id}]")
 
     # Per-request config overrides
     k: Optional[int] = Field(default=None, description="Number of interview questions (0 = skip interview)")
