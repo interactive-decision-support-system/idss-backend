@@ -347,7 +347,6 @@ class KnowledgeGraphBuilder:
             p.color = $color,
             p.available = $available,
             p.source = $source,
-            p.scraped_from_url = $scraped_from_url,
             p.created_at = datetime()
         
         // Create or connect Brand
