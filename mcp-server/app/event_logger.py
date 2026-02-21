@@ -198,24 +198,26 @@ def log_event(
         
         # Insert event using raw SQL for append-only guarantee
         # (SQLAlchemy models can be updated, raw SQL ensures append-only)
+        # trace_id is a Supabase-added NOT NULL column; use request_id as the trace identifier
         insert_sql = text("""
             INSERT INTO mcp_events (
-                timestamp, request_id, session_id, tool_name, endpoint_path,
+                timestamp, trace_id, request_id, session_id, tool_name, endpoint_path,
                 input_hash, input_summary, outcome_status, constraints_count,
                 latency_ms, cache_hit, timings_breakdown, sources,
                 product_ids, cart_id, order_id, response_summary,
                 catalog_version, db_version
             ) VALUES (
-                :timestamp, :request_id, :session_id, :tool_name, :endpoint_path,
+                :timestamp, :trace_id, :request_id, :session_id, :tool_name, :endpoint_path,
                 :input_hash, :input_summary, :outcome_status, :constraints_count,
                 :latency_ms, :cache_hit, :timings_breakdown, :sources,
                 :product_ids, :cart_id, :order_id, :response_summary,
                 :catalog_version, :db_version
             )
         """)
-        
+
         db.execute(insert_sql, {
             'timestamp': datetime.now(timezone.utc),
+            'trace_id': request_id,
             'request_id': request_id,
             'session_id': session_id,
             'tool_name': tool_name,

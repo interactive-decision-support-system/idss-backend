@@ -10,8 +10,8 @@ Postgres is authoritative for:
 - Orders and checkout state
 """
 
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, JSON, Index, UniqueConstraint, Numeric, BigInteger, SmallInteger
-from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, UUID as PG_UUID
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Index, UniqueConstraint, Numeric, BigInteger, SmallInteger
+from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, UUID as PG_UUID, JSONB as PG_JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -59,7 +59,7 @@ class Product(Base):
     warranty = Column(Text, nullable=True)
     promotions_discounts = Column(Text, nullable=True)
     merchant_product_url = Column(Text, nullable=True)
-    attributes = Column(JSON, nullable=True)  # JSONB with product specs
+    attributes = Column(PG_JSONB, nullable=True)  # JSONB with product specs
 
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
