@@ -10,11 +10,14 @@ Usage:
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, _project_root)
+sys.path.insert(0, os.path.join(_project_root, "mcp-server"))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, Optional
+from typing import Dict, Any, Optional
+from pydantic import BaseModel
 import uuid
 import json
 from datetime import datetime
@@ -222,56 +225,31 @@ async def root():
     )
 
 
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/chat")
 async def chat(request: ChatRequest):
     """
     Main conversation endpoint.
 
-    Handles user messages, runs interview or generates recommendations.
-
-    Config overrides (optional):
-    - k: Number of interview questions (0 = skip interview)
-    - method: 'embedding_similarity' or 'coverage_risk'
-    - n_rows: Number of result rows
-    - n_per_row: Vehicles per row
+    Routes to MCP process_chat for multi-domain support (laptops, books, vehicles).
+    Supports user_actions (favorites sync), comparison sorting, checkout, etc.
     """
     try:
-        session_id, controller = get_or_create_session(
-            session_id=request.session_id,
-            k=request.k,
-            method=request.method,
-            n_rows=request.n_rows,
-            n_per_row=request.n_per_row
-        )
+        # Use MCP chat endpoint (agent/chat_endpoint.py) for all domains
+        from agent.chat_endpoint import process_chat as mcp_process_chat
+        from agent.chat_endpoint import ChatRequest as MCPChatRequest
 
-        # Process the user's message
-        response = controller.process_input(request.message)
+        # Build MCP request with all fields (including user_actions)
+        raw_body = request.model_dump()
+        mcp_request = MCPChatRequest(**{
+            "message": raw_body["message"],
+            "session_id": raw_body.get("session_id"),
+            "k": raw_body.get("k"),
+            "user_actions": raw_body.get("user_actions"),
+            "user_location": raw_body.get("user_location"),
+        })
 
-        # Log conversation for analytics
-        log_conversation(
-            session_id=session_id,
-            user_message=request.message,
-            response_type=response.response_type,
-            response_message=response.message,
-            filters=response.filters_extracted or {},
-            recommendations=response.recommendations,
-            bucket_labels=response.bucket_labels,
-            diversification_dimension=response.diversification_dimension,
-        )
-
-        return ChatResponse(
-            response_type=response.response_type,
-            message=response.message,
-            session_id=session_id,
-            quick_replies=response.quick_replies,
-            recommendations=response.recommendations,
-            bucket_labels=response.bucket_labels,
-            diversification_dimension=response.diversification_dimension,
-            filters=response.filters_extracted or {},
-            preferences=response.preferences_extracted or {},
-            question_count=controller.state.question_count,
-            domain=response.domain,  # Include domain in response
-        )
+        response = await mcp_process_chat(mcp_request)
+        return response
 
     except Exception as e:
         import traceback
@@ -530,9 +508,82 @@ async def compare_methods(request: RecommendRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# UCP Checkout Endpoints
+# ============================================================================
+
+class _CreateCheckoutReq(BaseModel):
+    line_items: list
+    currency: str = "USD"
+
+class _CompleteCheckoutReq(BaseModel):
+    payment_data: Dict[str, Any]
+
+@app.post("/ucp/checkout-sessions")
+async def ucp_create_checkout(request: _CreateCheckoutReq):
+    """Create UCP checkout session."""
+    try:
+        from app.ucp_checkout import create_checkout_session, CreateCheckoutSessionRequest
+        from app.database import SessionLocal
+        db = SessionLocal()
+        try:
+            req = CreateCheckoutSessionRequest(line_items=request.line_items, currency=request.currency)
+            session = create_checkout_session(req, db)
+            return session.model_dump()
+        finally:
+            db.close()
+    except Exception as e:
+        import traceback
+        logger.error(f"Checkout error: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/ucp/checkout-sessions/{session_id}")
+async def ucp_get_checkout(session_id: str):
+    """Get UCP checkout session."""
+    from app.ucp_checkout import get_checkout_session
+    session = get_checkout_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session.model_dump()
+
+@app.post("/ucp/checkout-sessions/{session_id}/complete")
+async def ucp_complete_checkout(session_id: str, request: _CompleteCheckoutReq):
+    """Complete UCP checkout session."""
+    try:
+        from app.ucp_checkout import complete_checkout_session, CompleteCheckoutRequest
+        from app.database import SessionLocal
+        db = SessionLocal()
+        try:
+            req = CompleteCheckoutRequest(payment_data=request.payment_data)
+            session = complete_checkout_session(session_id, req, db)
+            if not session:
+                raise HTTPException(status_code=404, detail="Session not found")
+            return session.model_dump()
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"Checkout complete error: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/ucp/checkout-sessions/{session_id}/cancel")
+async def ucp_cancel_checkout(session_id: str):
+    """Cancel UCP checkout session."""
+    from app.ucp_checkout import cancel_checkout_session
+    session = cancel_checkout_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session.model_dump()
+
+
+# ============================================================================
+# Development Server
+# ============================================================================
+
 if __name__ == "__main__":
     import uvicorn
-
     print("=" * 60)
     print("IDSS API Server")
     print("=" * 60)
