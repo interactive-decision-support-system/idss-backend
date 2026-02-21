@@ -685,8 +685,11 @@ async def ucp_create_checkout_session(
     Trigger: User clicks "Buy" on a product.
     """
     response = create_checkout_session(request, db)
-    # Log event for research replay
-    log_ucp_event(db, "ucp_create_checkout_session", "/ucp/checkout-sessions", request, response, session_id=response.id)
+    # Log event for research replay (non-critical, don't let it crash checkout)
+    try:
+        log_ucp_event(db, "ucp_create_checkout_session", "/ucp/checkout-sessions", request, response, session_id=response.id)
+    except Exception:
+        pass
     return response
 
 
