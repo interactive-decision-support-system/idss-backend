@@ -100,6 +100,9 @@ class UCPProductSummary(BaseModel):
     return_policy: Optional[str] = Field(None, description="e.g. Free 30-day returns")
     warranty: Optional[str] = Field(None, description="e.g. 1-year manufacturer warranty")
     promotion_info: Optional[str] = Field(None, description="Promotion or discount info")
+    rating: Optional[float] = Field(None, description="Average product rating")
+    rating_count: Optional[int] = Field(None, description="Number of ratings")
+    reviews: Optional[str] = Field(None, description="User reviews as free text")
 
 
 class UCPProductDetail(BaseModel):
@@ -119,6 +122,9 @@ class UCPProductDetail(BaseModel):
     return_policy: Optional[str] = Field(None, description="Return policy")
     warranty: Optional[str] = Field(None, description="Warranty")
     promotion_info: Optional[str] = Field(None, description="Promotion info")
+    rating: Optional[float] = Field(None, description="Average product rating")
+    rating_count: Optional[int] = Field(None, description="Number of ratings")
+    reviews: Optional[str] = Field(None, description="User reviews as free text")
 
 
 class UCPSearchResponse(BaseModel):
