@@ -210,7 +210,7 @@ def _calculate_rating(reviews: Optional[str]) -> Optional[float]:
         pass
     
     # Fallback: parse as plain text (old format)
-    # Look for ratings like "Rating: 4.5" or "4.5/5" or "★★★★☆"
+    # Look for ratings like "Rating: 4.5" or "4.5/5" or ""
     rating_pattern = r"(?:rating[:\s]+)?(\d+(?:\.\d+)?)\s*(?:/\s*5)?(?:\s*stars?)?"
     matches = re.findall(rating_pattern, reviews, re.IGNORECASE)
     
@@ -221,7 +221,7 @@ def _calculate_rating(reviews: Optional[str]) -> Optional[float]:
             return round(avg_rating, 1)
     
     # Count star symbols
-    star_count = reviews.count("★") + reviews.count("⭐")
+    star_count = reviews.count("") + reviews.count("")
     if star_count > 0:
         return min(5.0, float(star_count))
     

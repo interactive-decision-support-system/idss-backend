@@ -104,9 +104,9 @@ class CacheClient:
             return False
 
 
-    # ──────────────────────────────────────────────────────────────────────
+    # 
     # Bélády-Inspired Popularity Tracking
-    # ──────────────────────────────────────────────────────────────────────
+    # 
 
     def record_access(self, product_id: str) -> None:
         """Track product access frequency via ZINCRBY on a sorted set."""
@@ -146,9 +146,9 @@ class CacheClient:
         except Exception:
             return []
 
-    # ──────────────────────────────────────────────────────────────────────
+    # 
     # Product Summary Cache
-    # ──────────────────────────────────────────────────────────────────────
+    # 
 
     def get_product_summary(self, product_id: str) -> Optional[Dict[str, Any]]:
         """Get cached product summary by ID. Returns None on miss."""
@@ -175,9 +175,9 @@ class CacheClient:
             return False
 
 
-    # ──────────────────────────────────────────────────────────────────────
+    # 
     # Price Cache
-    # ──────────────────────────────────────────────────────────────────────
+    # 
 
     def get_price(self, product_id: str) -> Optional[Dict[str, Any]]:
         """Get cached price. Returns None on miss."""
@@ -204,9 +204,9 @@ class CacheClient:
             return False
 
 
-    # ──────────────────────────────────────────────────────────────────────
+    # 
     # Inventory Cache
-    # ──────────────────────────────────────────────────────────────────────
+    # 
 
     def get_inventory(self, product_id: str) -> Optional[Dict[str, Any]]:
         """Get cached inventory. Returns None on miss."""
@@ -233,9 +233,9 @@ class CacheClient:
             return False
 
 
-    # ──────────────────────────────────────────────────────────────────────
+    # 
     # Search Result Cache
-    # ──────────────────────────────────────────────────────────────────────
+    # 
 
     @staticmethod
     def make_search_key(filters: Dict[str, Any], category: str, page: int = 1, limit: int = 20) -> str:
@@ -290,9 +290,9 @@ class CacheClient:
             return False
 
 
-    # ──────────────────────────────────────────────────────────────────────
+    # 
     # Brand / Category Index Queries (uses existing Redis sets)
-    # ──────────────────────────────────────────────────────────────────────
+    # 
 
     def get_product_ids_by_filters(
         self, category: Optional[str] = None, brand: Optional[str] = None
@@ -322,9 +322,9 @@ class CacheClient:
             return None
 
 
-    # ──────────────────────────────────────────────────────────────────────
+    # 
     # Cache Invalidation
-    # ──────────────────────────────────────────────────────────────────────
+    # 
 
     def invalidate_product(self, product_id: str) -> bool:
         """Invalidate all cached data for a product (summary, price, inventory)."""
@@ -361,9 +361,9 @@ class CacheClient:
             print(f"Cache flush error: {e}")
             return False
 
-    # ──────────────────────────────────────────────────────────────────────
+    # 
     # Session persistence (mcp:session:{session_id})
-    # ──────────────────────────────────────────────────────────────────────
+    # 
 
     def get_session_data(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Load session blob from Redis. Returns None if missing or on error."""

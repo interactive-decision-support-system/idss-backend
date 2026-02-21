@@ -16,7 +16,7 @@ import re
 from typing import Dict, List, Optional, Tuple
 
 
-# ── RAM extraction ────────────────────────────────────────────────────────
+#  RAM extraction 
 
 _RAM_PATTERNS = [
     # "at least 16 GB of RAM", "16GB RAM", "minimum 16 gigs ram"
@@ -42,7 +42,7 @@ def _extract_min_ram(text: str) -> Optional[int]:
     return None
 
 
-# ── Storage extraction ────────────────────────────────────────────────────
+#  Storage extraction 
 
 _STORAGE_PATTERNS = [
     # "at least 512 GB SSD", "512GB storage", "minimum 1 TB"
@@ -71,7 +71,7 @@ def _extract_min_storage(text: str) -> Optional[int]:
     return None
 
 
-# ── Screen size extraction ────────────────────────────────────────────────
+#  Screen size extraction 
 
 _SCREEN_PATTERNS = [
     # '15.6"', '15.6-inch', '16 inch screen', '14" display'
@@ -97,7 +97,7 @@ def _extract_min_screen(text: str) -> Optional[float]:
     return None
 
 
-# ── Battery life extraction ───────────────────────────────────────────────
+#  Battery life extraction 
 
 _BATTERY_PATTERNS = [
     # "at least 8 hours battery", "8+ hours of battery life", "minimum 10 hour battery"
@@ -123,7 +123,7 @@ def _extract_min_battery(text: str) -> Optional[int]:
     return None
 
 
-# ── Use-case extraction ───────────────────────────────────────────────────
+#  Use-case extraction 
 
 # Maps keyword phrases to canonical use-case tags (matching kg_features keys)
 USE_CASE_MAP: Dict[str, str] = {
@@ -189,7 +189,7 @@ USE_CASE_MAP: Dict[str, str] = {
 }
 
 
-# ── Year extraction ──────────────────────────────────────────────────────
+#  Year extraction 
 
 _YEAR_PATTERN = re.compile(
     r"\b(20[12]\d)\b\s*(?:model|edition|laptop|macbook|notebook)?",
@@ -207,7 +207,7 @@ def _extract_year(text: str) -> Optional[int]:
     return None
 
 
-# ── Use-case extraction ───────────────────────────────────────────────────
+#  Use-case extraction 
 
 def _extract_use_cases(text: str) -> List[str]:
     """Extract canonical use-case tags from query text."""
@@ -219,7 +219,7 @@ def _extract_use_cases(text: str) -> List[str]:
     return found
 
 
-# ── Main entry point ──────────────────────────────────────────────────────
+#  Main entry point 
 
 def enhance_search_request(
     normalized_query: str, filters: Dict[str, object]
