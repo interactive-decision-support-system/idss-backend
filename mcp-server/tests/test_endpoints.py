@@ -14,13 +14,20 @@ Uses PostgreSQL (same as app) via DATABASE_URL.
 
 import pytest
 import os
+import uuid
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.main import app
 from app.database import Base, get_db, DATABASE_URL
-from app.models import Product, Price, Inventory, Cart
+from app.models import Product
+
+# Deterministic UUID5 test product IDs (slug → UUID5)
+_NS = uuid.NAMESPACE_DNS
+TEST_PROD_001 = uuid.uuid5(_NS, "mcp-test-endpoint-001")
+TEST_PROD_002 = uuid.uuid5(_NS, "mcp-test-endpoint-002")
+TEST_PROD_003 = uuid.uuid5(_NS, "mcp-test-endpoint-003")
 
 
 # Use PostgreSQL (same as app) - tests run against real DB
@@ -53,81 +60,63 @@ client = TestClient(app)
 def setup_database():
     """
     Create tables if needed and add test products for each test.
+    Uses Supabase schema: price_value (dollars), inventory (BigInteger), attributes (JSONB).
     Cleans up test products after test (does not drop tables - preserves real data).
     """
     # Ensure tables exist (PostgreSQL - they usually do from app)
     Base.metadata.create_all(bind=engine)
-    
+
     # Add test products
     db = TestingSessionLocal()
-    test_ids = ["test-prod-001", "test-prod-002", "test-prod-003"]
-    
-    # Remove any leftover test products from previous run (child tables first)
-    for pid in test_ids:
-        db.query(Price).filter(Price.product_id == pid).delete(synchronize_session=False)
-        db.query(Inventory).filter(Inventory.product_id == pid).delete(synchronize_session=False)
-        db.query(Product).filter(Product.product_id == pid).delete(synchronize_session=False)
+    test_uuids = [TEST_PROD_001, TEST_PROD_002, TEST_PROD_003]
+
+    # Remove any leftover test products from previous run
+    for uid in test_uuids:
+        db.query(Product).filter(Product.product_id == uid).delete(synchronize_session=False)
     db.commit()
-    
-    # Product 1: In stock
-    product1 = Product(
-        product_id="test-prod-001",
+
+    # Product 1: In stock (price_value in dollars, inventory as BigInteger)
+    db.add(Product(
+        product_id=TEST_PROD_001,
         name="Test Laptop",
-        description="A test laptop",
         category="Electronics",
-        brand="TestBrand"
-    )
-    db.add(product1)
-    
-    price1 = Price(product_id="test-prod-001", price_cents=99999)
-    db.add(price1)
-    
-    inventory1 = Inventory(product_id="test-prod-001", available_qty=10)
-    db.add(inventory1)
-    
+        brand="TestBrand",
+        price_value=999.99,
+        inventory=10,
+        attributes={"description": "A test laptop"},
+    ))
+
     # Product 2: Low stock (for OUT_OF_STOCK testing)
-    product2 = Product(
-        product_id="test-prod-002",
+    db.add(Product(
+        product_id=TEST_PROD_002,
         name="Test Phone",
-        description="A test phone",
         category="Electronics",
-        brand="TestBrand"
-    )
-    db.add(product2)
-    
-    price2 = Price(product_id="test-prod-002", price_cents=79999)
-    db.add(price2)
-    
-    inventory2 = Inventory(product_id="test-prod-002", available_qty=1)
-    db.add(inventory2)
-    
+        brand="TestBrand",
+        price_value=799.99,
+        inventory=1,
+        attributes={"description": "A test phone"},
+    ))
+
     # Product 3: Another product for search testing
-    product3 = Product(
-        product_id="test-prod-003",
+    db.add(Product(
+        product_id=TEST_PROD_003,
         name="Test Headphones",
-        description="Wireless headphones",
         category="Electronics",
-        brand="AudioBrand"
-    )
-    db.add(product3)
-    
-    price3 = Price(product_id="test-prod-003", price_cents=29999)
-    db.add(price3)
-    
-    inventory3 = Inventory(product_id="test-prod-003", available_qty=50)
-    db.add(inventory3)
-    
+        brand="AudioBrand",
+        price_value=299.99,
+        inventory=50,
+        attributes={"description": "Wireless headphones"},
+    ))
+
     db.commit()
     db.close()
-    
+
     yield
-    
+
     # Clean up - remove only our test products (do not drop tables)
     db = TestingSessionLocal()
-    for pid in test_ids:
-        db.query(Price).filter(Price.product_id == pid).delete(synchronize_session=False)
-        db.query(Inventory).filter(Inventory.product_id == pid).delete(synchronize_session=False)
-        db.query(Product).filter(Product.product_id == pid).delete(synchronize_session=False)
+    for uid in test_uuids:
+        db.query(Product).filter(Product.product_id == uid).delete(synchronize_session=False)
     db.commit()
     db.close()
 
@@ -235,16 +224,16 @@ def test_ids_only_add_to_cart():
     Test that AddToCart only accepts product_id, never product name.
     The schema should enforce this at the type level.
     """
-    # Valid request with product_id
+    # Valid request with product_id (UUID5 for test product 1)
     response = client.post(
         "/api/add-to-cart",
         json={
             "cart_id": "test-cart-001",
-            "product_id": "test-prod-001",
+            "product_id": str(TEST_PROD_001),
             "qty": 1
         }
     )
-    
+
     assert response.status_code == 200
     assert response.json()["status"] == "OK"
 
@@ -258,7 +247,7 @@ def test_ids_only_checkout():
         "/api/add-to-cart",
         json={
             "cart_id": "test-cart-002",
-            "product_id": "test-prod-001",
+            "product_id": str(TEST_PROD_001),
             "qty": 1
         }
     )
@@ -296,28 +285,28 @@ def test_out_of_stock_constraint():
         "/api/add-to-cart",
         json={
             "cart_id": "test-cart-003",
-            "product_id": "test-prod-002",  # Only 1 in stock
+            "product_id": str(TEST_PROD_002),  # Only 1 in stock
             "qty": 5  # Requesting 5
         }
     )
-    
+
     assert response.status_code == 200
     data = response.json()
-    
+
     # Verify OUT_OF_STOCK status
     assert data["status"] == "OUT_OF_STOCK"
-    
+
     # Verify constraint structure
     assert len(data["constraints"]) > 0
     constraint = data["constraints"][0]
-    
+
     assert constraint["code"] == "OUT_OF_STOCK"
     assert "message" in constraint
     assert "details" in constraint
-    
+
     # Verify details contain the problem specifics
     details = constraint["details"]
-    assert details["product_id"] == "test-prod-002"
+    assert details["product_id"] == str(TEST_PROD_002)
     assert details["requested_qty"] == 5
     assert details["available_qty"] == 1
     
@@ -328,35 +317,37 @@ def test_out_of_stock_constraint():
 
 def test_out_of_stock_at_checkout():
     """
-    Test OUT_OF_STOCK detection at checkout time.
+    Test OUT_OF_STOCK detection at checkout time (race condition simulation).
     """
-    # Add item to cart
+    cart_id = "test-cart-004"
+    # Add item to cart (1 in stock → should succeed)
     client.post(
         "/api/add-to-cart",
         json={
-            "cart_id": "test-cart-004",
-            "product_id": "test-prod-002",  # Only 1 in stock
+            "cart_id": cart_id,
+            "product_id": str(TEST_PROD_002),
             "qty": 1
         }
     )
-    
-    # Manually reduce inventory to simulate race condition
+
+    # Manually reduce product inventory to 0 to simulate race condition
     db = TestingSessionLocal()
-    inventory = db.query(Inventory).filter(Inventory.product_id == "test-prod-002").first()
-    inventory.available_qty = 0
-    db.commit()
+    product = db.query(Product).filter(Product.product_id == TEST_PROD_002).first()
+    if product:
+        product.inventory = 0
+        db.commit()
     db.close()
-    
+
     # Try to checkout - should fail with OUT_OF_STOCK
     response = client.post(
         "/api/checkout",
         json={
-            "cart_id": "test-cart-004",
+            "cart_id": cart_id,
             "payment_method_id": "payment-123",
             "address_id": "address-456"
         }
     )
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "OUT_OF_STOCK"
@@ -521,7 +512,7 @@ def test_timing_breakdown():
     """
     response = client.post(
         "/api/get-product",
-        json={"product_id": "test-prod-001"}
+        json={"product_id": str(TEST_PROD_001)}
     )
     
     assert response.status_code == 200
@@ -548,21 +539,21 @@ def test_add_to_existing_cart():
     Test adding multiple items to same cart.
     """
     cart_id = "test-cart-multi"
-    
+
     # Add first item
     response1 = client.post(
         "/api/add-to-cart",
-        json={"cart_id": cart_id, "product_id": "test-prod-001", "qty": 1}
+        json={"cart_id": cart_id, "product_id": str(TEST_PROD_001), "qty": 1}
     )
     assert response1.status_code == 200
-    
+
     # Add second item
     response2 = client.post(
         "/api/add-to-cart",
-        json={"cart_id": cart_id, "product_id": "test-prod-003", "qty": 2}
+        json={"cart_id": cart_id, "product_id": str(TEST_PROD_003), "qty": 2}
     )
     assert response2.status_code == 200
-    
+
     data = response2.json()
     assert len(data["data"]["items"]) == 2
 
@@ -572,22 +563,22 @@ def test_increment_quantity_in_cart():
     Test that adding same product twice increments quantity.
     """
     cart_id = "test-cart-increment"
-    
+
     # Add item first time
     response1 = client.post(
         "/api/add-to-cart",
-        json={"cart_id": cart_id, "product_id": "test-prod-001", "qty": 1}
+        json={"cart_id": cart_id, "product_id": str(TEST_PROD_001), "qty": 1}
     )
     data1 = response1.json()
     assert data1["data"]["items"][0]["quantity"] == 1
-    
+
     # Add same item again
     response2 = client.post(
         "/api/add-to-cart",
-        json={"cart_id": cart_id, "product_id": "test-prod-001", "qty": 2}
+        json={"cart_id": cart_id, "product_id": str(TEST_PROD_001), "qty": 2}
     )
     data2 = response2.json()
-    
+
     # Should still be 1 item in cart, but quantity should be 3
     assert len(data2["data"]["items"]) == 1
     assert data2["data"]["items"][0]["quantity"] == 3
