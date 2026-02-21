@@ -63,6 +63,9 @@ def mcp_product_to_ucp_summary(mcp_product: Any, base_url: str = "https://exampl
         return_policy=getattr(mcp_product, "return_policy", None),
         warranty=getattr(mcp_product, "warranty", None),
         promotion_info=getattr(mcp_product, "promotion_info", None),
+        rating=getattr(mcp_product, "rating", None),
+        rating_count=getattr(mcp_product, "rating_count", None),
+        reviews=getattr(mcp_product, "reviews", None),
     )
 
 
@@ -107,6 +110,9 @@ def mcp_product_to_ucp_detail(mcp_product: Any, base_url: str = "https://example
         return_policy=getattr(mcp_product, "return_policy", None),
         warranty=getattr(mcp_product, "warranty", None),
         promotion_info=getattr(mcp_product, "promotion_info", None),
+        rating=getattr(mcp_product, "rating", None),
+        rating_count=getattr(mcp_product, "rating_count", None),
+        reviews=getattr(mcp_product, "reviews", None),
     )
 
 
