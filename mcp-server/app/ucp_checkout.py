@@ -196,40 +196,21 @@ def create_checkout_session(
         for idx, item_data in enumerate(request.line_items):
             item = item_data["item"]
             quantity = item_data.get("quantity", 1)
-            
-            # Get product price from database (Supabase: price is in dollars on Product)
-            product_id = item["id"]
-            product = None
-            try:
-                from app.models import Product
-                product = db.query(Product).filter(Product.product_id == product_id).first()
-            except Exception as db_err:
-                logger.warning(f"DB lookup failed for product {product_id}: {db_err}")
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
+            product_id = item.get("id", f"unknown_{idx}")
+            product_name = item.get("title", "Unknown Product")
 
-            if not product:
-                # Use price from request (frontend sends price in dollars)
-                price_dollars = item.get("price", 0)
-                if isinstance(price_dollars, (int, float)):
-                    price_cents = int(float(price_dollars) * 100)
-                else:
-                    price_cents = 0
-                product_name = item.get("title", "Unknown Product")
+            # Use price from frontend request (already in dollars)
+            price_dollars = item.get("price", 0)
+            if isinstance(price_dollars, (int, float)):
+                price_cents = int(float(price_dollars) * 100)
             else:
-                # Supabase stores price in dollars directly on Product.price_value
-                price_dollars = float(product.price_value) if product.price_value else 0
-                price_cents = int(price_dollars * 100)
-                product_name = product.name
-            
-            # Create line item
+                price_cents = 0
+
             line_item = UCPLineItem(
                 id=f"line_{idx + 1}",
                 item={
                     "id": product_id,
-                    "title": item.get("title", product_name),
+                    "title": product_name,
                     "price": price_cents
                 },
                 quantity=quantity,
@@ -389,23 +370,18 @@ def update_checkout_session(
         for idx, item_data in enumerate(request.line_items):
             item = item_data["item"]
             quantity = item_data.get("quantity", 1)
-            
-            product_id = item["id"]
-            from app.models import Product
-            product = db.query(Product).filter(Product.product_id == product_id).first()
-
-            if product:
-                price_dollars = float(product.price_value) if product.price_value else 0
-                price_cents = int(price_dollars * 100)
-                line_item = UCPLineItem(
-                    id=f"line_{idx + 1}",
-                    item={"id": product_id, "title": item.get("title", product.name), "price": price_cents},
-                    quantity=quantity,
-                    base_amount=price_cents,
-                    subtotal=price_cents * quantity,
-                    total=price_cents * quantity
-                )
-                line_items.append(line_item)
+            product_id = item.get("id", f"unknown_{idx}")
+            price_dollars = item.get("price", 0)
+            price_cents = int(float(price_dollars) * 100) if isinstance(price_dollars, (int, float)) else 0
+            line_item = UCPLineItem(
+                id=f"line_{idx + 1}",
+                item={"id": product_id, "title": item.get("title", "Product"), "price": price_cents},
+                quantity=quantity,
+                base_amount=price_cents,
+                subtotal=price_cents * quantity,
+                total=price_cents * quantity
+            )
+            line_items.append(line_item)
         
         session.line_items = line_items
     
