@@ -10,7 +10,7 @@ from app.complex_query import is_complex_query
 
 
 class TestIsComplexQuery:
-    # ── Simple queries (should NOT route to UniversalAgent) ───────────────
+    #  Simple queries (should NOT route to UniversalAgent) 
 
     def test_simple_domain_word(self):
         assert is_complex_query("laptops") is False
@@ -32,7 +32,7 @@ class TestIsComplexQuery:
     def test_short_query(self):
         assert is_complex_query("Dell laptop") is False
 
-    # ── Complex queries (SHOULD route to UniversalAgent) ──────────────────
+    #  Complex queries (SHOULD route to UniversalAgent) 
 
     def test_multi_sentence(self):
         query = "I need a laptop for web development. It should handle 50 browser tabs."
@@ -68,7 +68,7 @@ class TestIsComplexQuery:
         filters = {"brand": "Dell", "price_max_cents": 150000, "gpu_vendor": "NVIDIA", "color": "Silver"}
         assert is_complex_query("show me options", filters) is True
 
-    # ── Reddit-style complex queries ──────────────────────────────────────
+    #  Reddit-style complex queries 
 
     def test_reddit_style_laptop(self):
         query = (

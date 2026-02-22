@@ -75,31 +75,31 @@
 ## Test Coverage Areas
 
 ### Protocols
-- ✅ MCP Protocol (native)
-- ✅ UCP Protocol (conversion)
-- ✅ Tool Protocol (tool execution)
+-  MCP Protocol (native)
+-  UCP Protocol (conversion)
+-  Tool Protocol (tool execution)
 
 ### Endpoints
-- ✅ get_product (all protocols, edge cases)
-- ✅ search_products (all protocols, edge cases)
-- ✅ add_to_cart (all protocols, edge cases)
+-  get_product (all protocols, edge cases)
+-  search_products (all protocols, edge cases)
+-  add_to_cart (all protocols, edge cases)
 
 ### Features
-- ✅ Hard constraints (product_type, gpu_vendor, price_max, brand)
-- ✅ Soft constraints (implicit preferences)
-- ✅ Field projection
-- ✅ Pagination
-- ✅ Error handling (NOT_FOUND, OUT_OF_STOCK)
-- ✅ Domain detection (laptops, books, electronics)
-- ✅ Query normalization (typos, synonyms)
-- ✅ Response envelope structure
-- ✅ Trace information
-- ✅ Latency metrics
+-  Hard constraints (product_type, gpu_vendor, price_max, brand)
+-  Soft constraints (implicit preferences)
+-  Field projection
+-  Pagination
+-  Error handling (NOT_FOUND, OUT_OF_STOCK)
+-  Domain detection (laptops, books, electronics)
+-  Query normalization (typos, synonyms)
+-  Response envelope structure
+-  Trace information
+-  Latency metrics
 
 ### Integration
-- ✅ IDSS backend routing
-- ✅ IDSS recommendation algorithms
-- ✅ IDSS diversification
+-  IDSS backend routing
+-  IDSS recommendation algorithms
+-  IDSS diversification
 
 ## Running Tests
 

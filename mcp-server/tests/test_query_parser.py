@@ -22,7 +22,7 @@ from app.query_parser import (
 )
 
 
-# ── RAM extraction ────────────────────────────────────────────────────────
+#  RAM extraction 
 
 class TestExtractRam:
     def test_at_least_16gb_ram(self):
@@ -45,7 +45,7 @@ class TestExtractRam:
         assert _extract_min_ram("500 GB RAM") is None
 
 
-# ── Storage extraction ────────────────────────────────────────────────────
+#  Storage extraction 
 
 class TestExtractStorage:
     def test_512gb_ssd(self):
@@ -61,7 +61,7 @@ class TestExtractStorage:
         assert _extract_min_storage("a fast laptop") is None
 
 
-# ── Screen size extraction ────────────────────────────────────────────────
+#  Screen size extraction 
 
 class TestExtractScreen:
     def test_15_6_inch(self):
@@ -77,7 +77,7 @@ class TestExtractScreen:
         assert _extract_min_screen("a good laptop") is None
 
 
-# ── Battery extraction ────────────────────────────────────────────────────
+#  Battery extraction 
 
 class TestExtractBattery:
     def test_8_hours_battery_life(self):
@@ -93,7 +93,7 @@ class TestExtractBattery:
         assert _extract_min_battery("a good laptop") is None
 
 
-# ── Year extraction ──────────────────────────────────────────────────────
+#  Year extraction 
 
 class TestExtractYear:
     def test_2024_laptop(self):
@@ -113,7 +113,7 @@ class TestExtractYear:
         assert _extract_year("model from 2010") is None
 
 
-# ── Use-case extraction ───────────────────────────────────────────────────
+#  Use-case extraction 
 
 class TestExtractUseCases:
     def test_ml_and_web_dev(self):
@@ -138,7 +138,7 @@ class TestExtractUseCases:
         assert _extract_use_cases("I want a good laptop") == []
 
 
-# ── Full enhance_search_request (Reddit-style queries) ────────────────────
+#  Full enhance_search_request (Reddit-style queries) 
 
 class TestEnhanceSearchRequest:
     """Test the full pipeline with Reddit-style multi-constraint queries."""
@@ -203,7 +203,7 @@ class TestEnhanceSearchRequest:
         assert "gaming" in filters["use_cases"]
 
 
-# ── Recommendation reasons with spec context ─────────────────────────────
+#  Recommendation reasons with spec context 
 
 class TestRecommendationReasonsWithSpecs:
     """Verify generate_recommendation_reasons includes spec/use-case context."""
@@ -253,7 +253,7 @@ class TestRecommendationReasonsWithSpecs:
         assert "Knowledge graph match" in products[0]["_reason"]
 
 
-# ── ProductSummary schema has reason field ────────────────────────────────
+#  ProductSummary schema has reason field 
 
 class TestProductSummaryReasonField:
     def test_reason_field_exists(self):

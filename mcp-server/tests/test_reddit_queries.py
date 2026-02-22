@@ -211,7 +211,7 @@ def seed_reddit_products():
     db.close()
 
 
-# ─── Query Parser Tests ───────────────────────────────────────────────────────
+#  Query Parser Tests 
 
 
 class TestRedditQueryParsing:
@@ -251,7 +251,7 @@ class TestRedditQueryParsing:
         assert "gaming" in filters["use_cases"]  # Godot, Unity
 
 
-# ─── Multi-Constraint Specificity Tests ────────────────────────────────────────
+#  Multi-Constraint Specificity Tests 
 
 
 class TestMultiConstraintSpecificity:
@@ -283,7 +283,7 @@ class TestMultiConstraintSpecificity:
         assert len(attrs) > 0, f"Expected attributes extracted, got: {info}"
 
 
-# ─── End-to-End Search Tests ──────────────────────────────────────────────────
+#  End-to-End Search Tests 
 
 
 class TestRedditQuerySearch:
@@ -352,7 +352,7 @@ class TestRedditQuerySearch:
                 "Gaming Beast excluded (4h < 8h battery)"
 
 
-# ─── UCP /tools/execute Tests ─────────────────────────────────────────────────
+#  UCP /tools/execute Tests 
 
 
 class TestUCPToolExecute:
@@ -398,7 +398,7 @@ class TestUCPToolExecute:
         assert product_data.get("product_id") == str(REDDIT_UUIDS["reddit-devpro-16"])
 
 
-# ─── Comparison Table Tests ───────────────────────────────────────────────────
+#  Comparison Table Tests 
 
 
 class TestComparisonLogic:

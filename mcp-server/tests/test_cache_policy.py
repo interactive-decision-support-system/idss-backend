@@ -29,7 +29,7 @@ def client():
     os.environ.pop("REDIS_DB_MCP", None)
 
 
-# ── Search key generation ────────────────────────────────────────────────
+#  Search key generation 
 
 class TestMakeSearchKey:
     def test_deterministic(self):
@@ -70,7 +70,7 @@ class TestMakeSearchKey:
         assert len(key) == len("search:") + 16  # sha256[:16]
 
 
-# ── Search result caching ────────────────────────────────────────────────
+#  Search result caching 
 
 class TestSearchResultCaching:
     def test_set_and_get(self, client):
@@ -106,7 +106,7 @@ class TestSearchResultCaching:
         assert cached == []
 
 
-# ── Product summary / price / inventory (existing, regression) ───────────
+#  Product summary / price / inventory (existing, regression) 
 
 class TestExistingCacheMethods:
     def test_product_summary_round_trip(self, client):
@@ -141,7 +141,7 @@ class TestExistingCacheMethods:
         assert client.get_inventory("nonexistent") is None
 
 
-# ── Brand / Category index queries ───────────────────────────────────────
+#  Brand / Category index queries 
 
 class TestIndexQueries:
     def test_category_index(self, client):
@@ -173,7 +173,7 @@ class TestIndexQueries:
         assert result is None
 
 
-# ── Upstash URL support ─────────────────────────────────────────────────
+#  Upstash URL support 
 
 class TestUpstashSupport:
     def test_local_redis_default(self):
@@ -196,7 +196,7 @@ class TestUpstashSupport:
             os.environ.pop("UPSTASH_REDIS_URL", None)
 
 
-# ── Session caching (regression) ─────────────────────────────────────────
+#  Session caching (regression) 
 
 class TestSessionCaching:
     def test_session_round_trip(self, client):
@@ -212,7 +212,7 @@ class TestSessionCaching:
         assert client.get_session_data("sess-1") is None
 
 
-# ── Cache-aside integration: get_product populates Redis on miss ──────────
+#  Cache-aside integration: get_product populates Redis on miss 
 
 class TestCacheAsideGetProduct:
     """
@@ -258,7 +258,7 @@ class TestCacheAsideGetProduct:
         assert client.get_product_summary(pid) is None
 
 
-# ── Search result caching end-to-end ──────────────────────────────────────
+#  Search result caching end-to-end 
 
 class TestSearchCacheEndToEnd:
     """Verifies search result caching: repeated search = cache hit."""
@@ -298,7 +298,7 @@ class TestSearchCacheEndToEnd:
         assert client.get_search_results(key2) is None
 
 
-# ── Bélády-Inspired Popularity Tracking ──────────────────────────────────
+#  Bélády-Inspired Popularity Tracking 
 
 class TestPopularityTracking:
     """Tests for access frequency tracking and adaptive TTL."""
