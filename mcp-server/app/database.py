@@ -8,10 +8,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 import os
 
 # Get database URL from environment, with sensible default for local development
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://julih@localhost:5432/mcp_ecommerce"
-)
+DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://julih@localhost:5432/mcp_ecommerce"
 
 # Create database engine
 # pool_pre_ping ensures connections are alive before using them
