@@ -29,7 +29,7 @@ from app.database import Base, DATABASE_URL
 from app.models import Product
 
 # Use PostgreSQL (same as app)
-TEST_DATABASE_URL = os.getenv("DATABASE_URL", DATABASE_URL)
+TEST_DATABASE_URL = os.getenv("DATABASE_URL") or DATABASE_URL
 test_engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 

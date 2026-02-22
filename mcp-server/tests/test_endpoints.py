@@ -31,7 +31,7 @@ TEST_PROD_003 = uuid.uuid5(_NS, "mcp-test-endpoint-003")
 
 
 # Use PostgreSQL (same as app) - tests run against real DB
-TEST_DATABASE_URL = os.getenv("DATABASE_URL", DATABASE_URL)
+TEST_DATABASE_URL = os.getenv("DATABASE_URL") or DATABASE_URL
 engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

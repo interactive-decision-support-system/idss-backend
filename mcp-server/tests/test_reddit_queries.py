@@ -34,7 +34,7 @@ from app.research_compare import (
 )
 
 # Use same DB as app
-TEST_DATABASE_URL = os.getenv("DATABASE_URL", DATABASE_URL)
+TEST_DATABASE_URL = os.getenv("DATABASE_URL") or DATABASE_URL
 engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

@@ -29,7 +29,7 @@ LAPTOP_002 = uuid.uuid5(_NS, "test-mcp-pipeline-laptop-002")
 BOOK_001 = uuid.uuid5(_NS, "test-mcp-pipeline-book-001")
 
 # Use PostgreSQL (same as app)
-TEST_DATABASE_URL = os.getenv("DATABASE_URL", DATABASE_URL)
+TEST_DATABASE_URL = os.getenv("DATABASE_URL") or DATABASE_URL
 engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
