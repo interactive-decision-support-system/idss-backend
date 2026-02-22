@@ -6,7 +6,7 @@ import pytest
 from app.kg_service import KnowledgeGraphService, NEO4J_AVAILABLE
 
 
-NEO4J_ENV_READY = all(
+NEO4J_ENV_READY = all( 
     os.getenv(key) for key in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD")
 )
 

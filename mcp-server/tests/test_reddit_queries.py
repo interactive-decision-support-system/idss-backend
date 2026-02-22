@@ -16,6 +16,7 @@ import pytest
 import json
 import os
 import sys
+import uuid
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -23,7 +24,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.main import app
 from app.database import Base, get_db, DATABASE_URL
-from app.models import Product, Price, Inventory
+from app.models import Product
 from app.query_parser import enhance_search_request
 from app.query_specificity import is_specific_query
 from app.research_compare import (
@@ -57,6 +58,10 @@ REDDIT_PRODUCT_IDS = [
     "reddit-linux-thinkpad",
     "reddit-creative-studio",
 ]
+
+# Deterministic UUID5 IDs for each Reddit test product
+_NS = uuid.NAMESPACE_DNS
+REDDIT_UUIDS = {pid: uuid.uuid5(_NS, f"test-reddit-{pid}") for pid in REDDIT_PRODUCT_IDS}
 
 REDDIT_PRODUCTS = [
     {
@@ -165,35 +170,33 @@ REDDIT_PRODUCTS = [
 @pytest.fixture(scope="function", autouse=True)
 def seed_reddit_products():
     """Insert Reddit-style test products with known kg_features for deterministic testing."""
-    # Re-apply dependency override (other test modules may switch to SQLite)
+    # Re-apply dependency override (other test modules may have changed it)
     app.dependency_overrides[get_db] = override_get_db
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
 
     # Clean up any existing reddit test products
     for pid in REDDIT_PRODUCT_IDS:
-        db.query(Price).filter(Price.product_id == pid).delete(synchronize_session=False)
-        db.query(Inventory).filter(Inventory.product_id == pid).delete(synchronize_session=False)
-        db.query(Product).filter(Product.product_id == pid).delete(synchronize_session=False)
+        db.query(Product).filter(Product.product_id == REDDIT_UUIDS[pid]).delete(synchronize_session=False)
     db.commit()
 
-    # Insert products
+    # Insert products using new Supabase schema
     for p_data in REDDIT_PRODUCTS:
         product = Product(
-            product_id=p_data["product_id"],
+            product_id=REDDIT_UUIDS[p_data["product_id"]],  # UUID5
             name=p_data["name"],
-            description=p_data["description"],
             category=p_data["category"],
             brand=p_data["brand"],
             product_type=p_data.get("product_type"),
-            gpu_vendor=p_data.get("gpu_vendor"),
-            kg_features=p_data["kg_features"],
+            price_value=p_data["price_cents"] / 100.0,
+            inventory=10,
+            attributes={
+                "description": p_data["description"],
+                "gpu_vendor": p_data.get("gpu_vendor"),
+                **p_data.get("kg_features", {}),  # Flatten kg_features into attributes
+            }
         )
         db.add(product)
-        price = Price(product_id=p_data["product_id"], price_cents=p_data["price_cents"])
-        db.add(price)
-        inventory = Inventory(product_id=p_data["product_id"], available_qty=10)
-        db.add(inventory)
 
     db.commit()
     db.close()
@@ -203,9 +206,7 @@ def seed_reddit_products():
     # Cleanup
     db = TestingSessionLocal()
     for pid in REDDIT_PRODUCT_IDS:
-        db.query(Price).filter(Price.product_id == pid).delete(synchronize_session=False)
-        db.query(Inventory).filter(Inventory.product_id == pid).delete(synchronize_session=False)
-        db.query(Product).filter(Product.product_id == pid).delete(synchronize_session=False)
+        db.query(Product).filter(Product.product_id == REDDIT_UUIDS[pid]).delete(synchronize_session=False)
     db.commit()
     db.close()
 
@@ -315,11 +316,15 @@ class TestRedditQuerySearch:
         # Creative Studio EXCLUDED: $3499 > $2000
 
         # At minimum, DevPro should be in results (exact match)
-        reddit_matches = [pid for pid in product_ids if pid.startswith("reddit-")]
+        reddit_uuid_strs = [str(REDDIT_UUIDS[pid]) for pid in REDDIT_PRODUCT_IDS]
+        reddit_matches = [pid for pid in product_ids if pid in reddit_uuid_strs]
         if reddit_matches:
-            assert "reddit-budget-student" not in product_ids, "Budget Student should be excluded (8GB < 16GB)"
-            assert "reddit-gaming-beast" not in product_ids, "Gaming Beast should be excluded ($2499 > $2000)"
-            assert "reddit-creative-studio" not in product_ids, "Creative Studio should be excluded ($3499 > $2000)"
+            assert str(REDDIT_UUIDS["reddit-budget-student"]) not in product_ids, \
+                "Budget Student should be excluded (8GB < 16GB)"
+            assert str(REDDIT_UUIDS["reddit-gaming-beast"]) not in product_ids, \
+                "Gaming Beast should be excluded ($2499 > $2000)"
+            assert str(REDDIT_UUIDS["reddit-creative-studio"]) not in product_ids, \
+                "Creative Studio should be excluded ($3499 > $2000)"
 
     def test_reddit_q2_returns_linux_laptops(self):
         """Q2: 32GB RAM, 8h+ battery, Linux, web dev → CodeBook Ultra, Linux ThinkPad."""
@@ -338,10 +343,13 @@ class TestRedditQuerySearch:
                 pytest.skip("Interview flow triggered")
 
         product_ids = [p["product_id"] for p in products]
-        reddit_matches = [pid for pid in product_ids if pid.startswith("reddit-")]
+        reddit_uuid_strs = [str(REDDIT_UUIDS[pid]) for pid in REDDIT_PRODUCT_IDS]
+        reddit_matches = [pid for pid in product_ids if pid in reddit_uuid_strs]
         if reddit_matches:
-            assert "reddit-budget-student" not in product_ids, "Budget Student excluded (8GB < 32GB)"
-            assert "reddit-gaming-beast" not in product_ids, "Gaming Beast excluded (4h < 8h battery)"
+            assert str(REDDIT_UUIDS["reddit-budget-student"]) not in product_ids, \
+                "Budget Student excluded (8GB < 32GB)"
+            assert str(REDDIT_UUIDS["reddit-gaming-beast"]) not in product_ids, \
+                "Gaming Beast excluded (4h < 8h battery)"
 
 
 # ─── UCP /tools/execute Tests ─────────────────────────────────────────────────
@@ -381,13 +389,13 @@ class TestUCPToolExecute:
         """UCP get_product for a Reddit seed product."""
         response = client.post("/tools/execute", json={
             "tool_name": "get_product",
-            "parameters": {"product_id": "reddit-devpro-16"}
+            "parameters": {"product_id": str(REDDIT_UUIDS["reddit-devpro-16"])}
         })
         assert response.status_code == 200
         data = response.json()
         # get_product returns product data directly in "data" (not nested under "data.product")
         product_data = data.get("data", {})
-        assert product_data.get("product_id") == "reddit-devpro-16"
+        assert product_data.get("product_id") == str(REDDIT_UUIDS["reddit-devpro-16"])
 
 
 # ─── Comparison Table Tests ───────────────────────────────────────────────────
@@ -400,7 +408,7 @@ class TestComparisonLogic:
         """Get product dicts (simulating search results) for comparison."""
         return [
             {
-                "product_id": "reddit-devpro-16",
+                "product_id": str(REDDIT_UUIDS["reddit-devpro-16"]),
                 "name": "DevPro 16 Laptop",
                 "brand": "Dell",
                 "price": 1499.00,
@@ -410,7 +418,7 @@ class TestComparisonLogic:
                 "reviews": "Average rating: 4.5/5 (120 reviews)",
             },
             {
-                "product_id": "reddit-codebook-ultra",
+                "product_id": str(REDDIT_UUIDS["reddit-codebook-ultra"]),
                 "name": "CodeBook Ultra",
                 "brand": "Lenovo",
                 "price": 1899.00,

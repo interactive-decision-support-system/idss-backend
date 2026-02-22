@@ -165,11 +165,20 @@ def detect_domain(
     return Domain.NONE, "ambiguous"
 
 
-def is_domain_switch(active_domain: Optional[str], detected: Domain) -> bool:
-    """True if user switched to a different domain (should reset session)."""
-    if not active_domain or detected == Domain.NONE:
+def is_domain_switch(active_domain: Optional[str], detected) -> bool:
+    """True if user switched to a different domain (should reset session).
+    Accepts either a Domain enum or a plain string for `detected`."""
+    if not active_domain:
         return False
-    return active_domain != detected.value
+    if isinstance(detected, Domain):
+        if detected == Domain.NONE:
+            return False
+        return active_domain != detected.value
+    else:
+        detected_str = str(detected)
+        if not detected_str or detected_str == "none":
+            return False
+        return active_domain != detected_str
 
 
 def is_short_domain_intent(message: str) -> bool:

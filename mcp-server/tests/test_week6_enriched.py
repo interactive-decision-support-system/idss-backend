@@ -10,6 +10,7 @@ Tests:
 """
 
 import os
+import uuid
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -17,7 +18,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.main import app
 from app.database import Base, get_db, DATABASE_URL
-from app.models import Product, Price, Inventory, Cart, CartItem, Order
+from app.models import Product
 
 
 TEST_DATABASE_URL = os.getenv("DATABASE_URL", DATABASE_URL)
@@ -44,13 +45,9 @@ def setup_db():
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
     for pid in ["w6-p1", "w6-p2", "w6-p3"]:
-        db.query(CartItem).filter(CartItem.product_id == pid).delete(synchronize_session=False)
-        db.query(Price).filter(Price.product_id == pid).delete(synchronize_session=False)
-        db.query(Inventory).filter(Inventory.product_id == pid).delete(synchronize_session=False)
-        db.query(Product).filter(Product.product_id == pid).delete(synchronize_session=False)
-    db.query(Order).filter(Order.cart_id.in_(["w6-cart"])).delete(synchronize_session=False)
-    db.query(CartItem).filter(CartItem.cart_id == "w6-cart").delete(synchronize_session=False)
-    db.query(Cart).filter(Cart.cart_id == "w6-cart").delete(synchronize_session=False)
+        # Generate valid UUIDs for product_id
+        uuid_pid = uuid.uuid5(uuid.NAMESPACE_DNS, pid)
+        db.query(Product).filter(Product.product_id == uuid_pid).delete(synchronize_session=False)
     db.commit()
 
     for pid, name, cat, brand, price_cents, qty in [
@@ -58,21 +55,23 @@ def setup_db():
         ("w6-p2", "Week6 Book", "Books", "O'Reilly", 3999, 10),
         ("w6-p3", "Week6 Gadget", "Electronics", "Sony", 7999, 3),
     ]:
-        db.add(Product(product_id=pid, name=name, description=f"Desc {name}", category=cat, brand=brand))
-        db.add(Price(product_id=pid, price_cents=price_cents, currency="USD"))
-        db.add(Inventory(product_id=pid, available_qty=qty))
+        uuid_pid = uuid.uuid5(uuid.NAMESPACE_DNS, pid)
+        db.add(Product(
+            product_id=uuid_pid,
+            name=name,
+            category=cat,
+            brand=brand,
+            price_value=price_cents / 100.0,
+            inventory=qty,
+            attributes={"description": f"Desc {name}"}
+        ))
     db.commit()
     db.close()
     yield
     db = TestingSessionLocal()
     for pid in ["w6-p1", "w6-p2", "w6-p3"]:
-        db.query(CartItem).filter(CartItem.product_id == pid).delete(synchronize_session=False)
-        db.query(Price).filter(Price.product_id == pid).delete(synchronize_session=False)
-        db.query(Inventory).filter(Inventory.product_id == pid).delete(synchronize_session=False)
-        db.query(Product).filter(Product.product_id == pid).delete(synchronize_session=False)
-    db.query(Order).filter(Order.cart_id.in_(["w6-cart"])).delete(synchronize_session=False)
-    db.query(CartItem).filter(CartItem.cart_id == "w6-cart").delete(synchronize_session=False)
-    db.query(Cart).filter(Cart.cart_id == "w6-cart").delete(synchronize_session=False)
+        uuid_pid = uuid.uuid5(uuid.NAMESPACE_DNS, pid)
+        db.query(Product).filter(Product.product_id == uuid_pid).delete(synchronize_session=False)
     db.commit()
     db.close()
 
@@ -105,12 +104,13 @@ def test_search_returns_enriched_fields_on_each_product(setup_db):
 
 def test_get_product_returns_enriched_fields(setup_db):
     """Get product response must include shipping, return_policy, warranty, promotion_info."""
-    r = client.post("/api/get-product", json={"product_id": "w6-p1"})
+    uuid_pid = str(uuid.uuid5(uuid.NAMESPACE_DNS, "w6-p1"))
+    r = client.post("/api/get-product", json={"product_id": uuid_pid})
     assert r.status_code == 200
     data = r.json()
     assert data["status"] == "OK"
     detail = data.get("data", {})
-    assert detail.get("product_id") == "w6-p1"
+    assert detail.get("product_id") == uuid_pid
     assert "shipping" in detail
     assert "return_policy" in detail
     assert "warranty" in detail
@@ -123,11 +123,12 @@ def test_get_product_returns_enriched_fields(setup_db):
 
 def test_help_with_checkout_add_to_cart_then_checkout_succeeds(setup_db):
     """Help with checkout flow: add_to_cart then checkout returns success and order has shipping when applicable."""
-    # Create cart and add item
-    cart_id = "w6-cart"
+    # Create cart and add item using UUID5 product ID
+    cart_id = "w6-cart-" + str(uuid.uuid4())[:8]
+    uuid_pid = str(uuid.uuid5(uuid.NAMESPACE_DNS, "w6-p1"))
     r1 = client.post(
         "/api/add-to-cart",
-        json={"cart_id": cart_id, "product_id": "w6-p1", "qty": 1},
+        json={"cart_id": cart_id, "product_id": uuid_pid, "qty": 1},
     )
     assert r1.status_code == 200
     assert r1.json()["status"] == "OK"

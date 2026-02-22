@@ -7,7 +7,17 @@ import asyncio
 import pytest
 import sys
 import os
+import uuid
 from unittest.mock import Mock, patch
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env before any app imports so DATABASE_URL is set to Supabase
+_env_path = Path(__file__).parent.parent.parent / '.env'
+if _env_path.exists():
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -16,14 +26,18 @@ from app.schemas import SearchProductsRequest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.database import Base, DATABASE_URL
-from app.models import Product, Price, Inventory
+from app.models import Product
 
 # Use PostgreSQL (same as app)
 TEST_DATABASE_URL = os.getenv("DATABASE_URL", DATABASE_URL)
 test_engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
-TEST_IDS = ["PROD-NVIDIA-001", "PROD-LAPTOP-001"]
+_NS = uuid.NAMESPACE_DNS
+TEST_UUIDS = {
+    "PROD-NVIDIA-001": uuid.uuid5(_NS, "integration-test-nvidia-001"),
+    "PROD-LAPTOP-001": uuid.uuid5(_NS, "integration-test-laptop-001"),
+}
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -32,19 +46,15 @@ def setup_db():
     Base.metadata.create_all(bind=test_engine)
     # Remove leftover test products from previous run
     db = TestingSessionLocal()
-    for pid in TEST_IDS:
-        db.query(Price).filter(Price.product_id == pid).delete(synchronize_session=False)
-        db.query(Inventory).filter(Inventory.product_id == pid).delete(synchronize_session=False)
-        db.query(Product).filter(Product.product_id == pid).delete(synchronize_session=False)
+    for uid in TEST_UUIDS.values():
+        db.query(Product).filter(Product.product_id == uid).delete(synchronize_session=False)
     db.commit()
     db.close()
     yield
     # Clean up test products
     db = TestingSessionLocal()
-    for pid in TEST_IDS:
-        db.query(Price).filter(Price.product_id == pid).delete(synchronize_session=False)
-        db.query(Inventory).filter(Inventory.product_id == pid).delete(synchronize_session=False)
-        db.query(Product).filter(Product.product_id == pid).delete(synchronize_session=False)
+    for uid in TEST_UUIDS.values():
+        db.query(Product).filter(Product.product_id == uid).delete(synchronize_session=False)
     db.commit()
     db.close()
 
@@ -64,34 +74,28 @@ def sample_products(db_session):
     """Create sample products for testing."""
     products = [
         Product(
-            product_id="PROD-NVIDIA-001",
+            product_id=TEST_UUIDS["PROD-NVIDIA-001"],
             name="NVIDIA GeForce RTX 4090",
-            description="High-end gaming GPU with NVIDIA architecture",
             category="Electronics",
-            brand="NVIDIA"
+            brand="NVIDIA",
+            price_value=999.00,
+            inventory=10,
+            attributes={"description": "High-end gaming GPU with NVIDIA architecture"},
         ),
         Product(
-            product_id="PROD-LAPTOP-001",
+            product_id=TEST_UUIDS["PROD-LAPTOP-001"],
             name="Gaming Laptop",
-            description="Powerful laptop for gaming and work",
             category="Electronics",
-            brand="Dell"
+            brand="Dell",
+            price_value=1299.00,
+            inventory=10,
+            attributes={"description": "Powerful laptop for gaming and work"},
         ),
     ]
-    
+
     for product in products:
         db_session.add(product)
-        db_session.add(Price(
-            product_id=product.product_id,
-            price_cents=99900,
-            currency="USD"
-        ))
-        db_session.add(Inventory(
-            product_id=product.product_id,
-            available_qty=10,
-            reserved_qty=0
-        ))
-    
+
     db_session.commit()
     return products
 
