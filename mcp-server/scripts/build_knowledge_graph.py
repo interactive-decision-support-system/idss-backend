@@ -468,7 +468,7 @@ def main():
     print(f" Books: {stats['books']}")
     print(f"  Authors: {stats['authors']}")
     print(f" Reviews: {stats['reviews']}")
-    print(f"👥 Users: {stats['users']}")
+    print(f" Users: {stats['users']}")
     
     print("\n Node Types:")
     for item in stats['node_types'][:10]:

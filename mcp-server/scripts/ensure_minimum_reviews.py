@@ -81,7 +81,7 @@ def main():
                 updated_count += 1
                 
                 if updated_count <= 10:
-                    print(f"  ✓ {product.name[:50]:<50} {len(current_reviews)} reviews now")
+                    print(f"   {product.name[:50]:<50} {len(current_reviews)} reviews now")
         
         db.commit()
         

@@ -293,7 +293,7 @@ async def run_benchmark():
         overhead_mean = mcp_mean - direct_mean
         overhead_pct = (overhead_mean / direct_mean) * 100
         
-        print(f"\n📈 Latency Statistics (n={len(direct_latencies)}):")
+        print(f"\n Latency Statistics (n={len(direct_latencies)}):")
         print(f"\n  Direct IDSS Backend:")
         print(f"    Mean:     {direct_mean:7.2f}ms")
         print(f"    Median:   {direct_median:7.2f}ms")
@@ -326,7 +326,7 @@ async def run_benchmark():
     print("VALUE ASSESSMENT")
     print("=" * 80)
     
-    print(f"\n🎯 What MCP Adds:")
+    print(f"\n What MCP Adds:")
     print(f"     Product type identification (enables multi-product UIs)")
     print(f"     Rich metadata (15+ fields vs basic vehicle data)")
     print(f"     Standardized response format (MCP envelope)")
@@ -334,7 +334,7 @@ async def run_benchmark():
     print(f"     Multi-backend support (vehicles + e-commerce + more)")
     print(f"     Frontend abstraction (one UI for all product types)")
     
-    print(f"\n💰 Trade-offs:")
+    print(f"\n Trade-offs:")
     if direct_latencies and mcp_latencies:
         print(f"    Cost:    +{overhead_mean:.1f}ms average latency ({overhead_pct:+.1f}%)")
         print(f"    Benefit: Data enrichment + multi-product support + standardization")

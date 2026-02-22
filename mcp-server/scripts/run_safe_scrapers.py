@@ -256,7 +256,7 @@ def add_products_to_database(products: List[Dict[str, Any]], db):
                     db.add(inventory)
                 
                 updated += 1
-                print(f"  🔄 Updated: {product_data['name'][:50]}")
+                print(f"   Updated: {product_data['name'][:50]}")
             else:
                 # Create new product
                 category_prefix = "elec" if product_data["category"] == "Electronics" else "prod"
@@ -317,13 +317,13 @@ def main():
         print("SCRAPING SUMMARY")
         print("="*80)
         print(f" Added: {added} new products")
-        print(f"🔄 Updated: {updated} existing products")
-        print(f"⏭️ Skipped: {skipped} (errors)")
+        print(f" Updated: {updated} existing products")
+        print(f"⏭ Skipped: {skipped} (errors)")
         print(f"\nTotal Database:")
         print(f"   Total products: {total}")
         print(f"   Electronics: {electronics}")
         print(f"   Books: {db.query(Product).filter(Product.category == 'Books').count()}")
-        print(f"  🎨 Other: {total - electronics - db.query(Product).filter(Product.category == 'Books').count()}")
+        print(f"   Other: {total - electronics - db.query(Product).filter(Product.category == 'Books').count()}")
         print("="*80)
         
         print("\n Scraping completed successfully!")

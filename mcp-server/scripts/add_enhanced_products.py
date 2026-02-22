@@ -314,7 +314,7 @@ def add_products(db, products):
         existing = db.query(Product).filter(Product.name == product_data["name"]).first()
         
         if existing:
-            print(f"  ⏭️ Skipped (exists): {product_data['name']}")
+            print(f"  ⏭ Skipped (exists): {product_data['name']}")
             skipped += 1
             continue
         
@@ -380,7 +380,7 @@ def main():
         print("SUMMARY")
         print("="*80)
         print(f" Added: {added} new products")
-        print(f"⏭️ Skipped: {skipped} (already exist)")
+        print(f"⏭ Skipped: {skipped} (already exist)")
         print(f"\nTotal Database:")
         print(f"   Total products: {total}")
         print(f"   Electronics: {electronics}")

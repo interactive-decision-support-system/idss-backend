@@ -19,7 +19,7 @@ Environment:
 
 Schema differences from old local DB:
     OLD (local SQLite/PG)             NEW (Supabase)
-    ─────────────────────────────     ──────────────────────────────
+         
     product_id VARCHAR(50)            id UUID (auto-generated)
     name VARCHAR(500)                 title TEXT
     description TEXT                  attributes->>'description'
@@ -31,7 +31,7 @@ Schema differences from old local DB:
     gpu_model VARCHAR(100)            attributes->>'gpu_model'
     tags ARRAY                        attributes->>'tags'
     kg_features JSON                  attributes (merged into attributes)
-    ─── Removed tables ───
+     Removed tables 
     prices                            (price on products table)
     inventory                         (inventory column on products)
     carts / cart_items                (handled by Supabase/frontend)
@@ -105,7 +105,7 @@ def main():
             "FROM products GROUP BY category, product_type ORDER BY 1, 2"
         ))
         print(f"\n   {'Category':<15} {'Type':<15} {'Count':>5}")
-        print(f"   {'─'*15} {'─'*15} {'─'*5}")
+        print(f"   {''*15} {''*15} {''*5}")
         total = 0
         for row in result:
             print(f"   {row[0]:<15} {row[1]:<15} {row[2]:>5}")

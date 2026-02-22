@@ -1014,7 +1014,7 @@ def main():
     
     # Overall score
     percentage = passed_tests / total_tests * 100
-    print(f"\n🎯 Overall: {passed_tests}/{total_tests} tests passed ({percentage:.0f}%)")
+    print(f"\n Overall: {passed_tests}/{total_tests} tests passed ({percentage:.0f}%)")
     
     # Failed tests (if any)
     failed = [r for r in all_results if not r[2]]
@@ -1031,10 +1031,10 @@ def main():
         print("\n Perfect Score! All components working flawlessly!")
         print("\n Database: 533 products (105 from Shopify)")
         print(" Reviews: 1000+ added with sentiment")
-        print("🤖 ACP: 3/3 tools OpenAI-compliant")
-        print("🧠 Recommender: Advanced laptop scoring")
+        print(" ACP: 3/3 tools OpenAI-compliant")
+        print(" Recommender: Advanced laptop scoring")
         print(" Neo4j: Complex graph ready")
-        print("🔍 Shopify: 7 stores integrated")
+        print(" Shopify: 7 stores integrated")
         print("\n Ready to deploy to production!")
         print("\n Frontend: https://github.com/interactive-decision-support-system/idss-web")
         return 0

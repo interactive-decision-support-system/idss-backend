@@ -208,7 +208,7 @@ def seed_all_products():
             db.add(price)
             db.add(inventory)
             
-            print(f"  ✓ Added: {book['name']} by {book.get('author', 'Unknown')} (${book['price']/100:.2f})")
+            print(f"   Added: {book['name']} by {book.get('author', 'Unknown')} (${book['price']/100:.2f})")
         
         db.commit()
         print(f"\n Successfully added {len(books)} books")
@@ -256,7 +256,7 @@ def seed_all_products():
             db.add(price)
             db.add(inventory)
             
-            print(f"  ✓ Added: {elec['name']} - {elec['brand']} (${elec['price']/100:.2f})")
+            print(f"   Added: {elec['name']} - {elec['brand']} (${elec['price']/100:.2f})")
         
         db.commit()
         print(f"\n Successfully added {len(electronics)} electronics")

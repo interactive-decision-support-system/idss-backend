@@ -30,7 +30,7 @@ def test_reviews_displayed():
         product = data["recommendations"][0][0]
         
         print(f" Product: {product['name']}")
-        print(f"   Rating: {product.get('rating', 'N/A')} ★")
+        print(f"   Rating: {product.get('rating', 'N/A')} ")
         print(f"   Reviews: {product.get('reviews_count', 0)} reviews")
         
         # The backend sends reviews in the response

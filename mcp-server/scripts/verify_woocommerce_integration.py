@@ -34,7 +34,7 @@ def main():
         
         # Check prices
         woo_with_prices = sum(1 for p in woo_products if p.price_info)
-        print(f"💰 Products with prices: {woo_with_prices}/{len(woo_products)}")
+        print(f" Products with prices: {woo_with_prices}/{len(woo_products)}")
         
         # Check inventory
         woo_with_inventory = sum(1 for p in woo_products if p.inventory_info)
@@ -46,7 +46,7 @@ def main():
         
         # Check brands
         brands = set(p.brand for p in woo_products if p.brand)
-        print(f"🏷️  Unique brands: {len(brands)}")
+        print(f"  Unique brands: {len(brands)}")
         print(f"   Brands: {', '.join(sorted(brands))}")
         
         # Check categories
@@ -55,12 +55,12 @@ def main():
             cat = p.category or 'Unknown'
             categories[cat] = categories.get(cat, 0) + 1
         
-        print(f"\n📂 Categories:")
+        print(f"\n Categories:")
         for cat, count in sorted(categories.items()):
             print(f"   {cat}: {count}")
         
         # Show sample products
-        print(f"\n🔍 Sample Products:")
+        print(f"\n Sample Products:")
         for i, p in enumerate(woo_products[:5], 1):
             price = f"${p.price_info.price_cents/100:.2f}" if p.price_info else "N/A"
             stock = p.inventory_info.available_qty if p.inventory_info else 0

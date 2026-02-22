@@ -290,10 +290,10 @@ def test_case_1_simple_brand_filter():
     agent = ThomasAIAgentSimulator()
     result = agent.process_user_query("Show me Dell laptops")
     
-    print(f"\n📝 User Query: {result['query']}")
-    print(f"🎯 Intent Type: {result['intent']['type']}")
+    print(f"\n User Query: {result['query']}")
+    print(f" Intent Type: {result['intent']['type']}")
     print(f" Entities Extracted: {json.dumps(result['intent']['entities'], indent=2)}")
-    print(f"\n🔧 MCP Filters Generated:")
+    print(f"\n MCP Filters Generated:")
     print(json.dumps(result['mcp_filters'], indent=2))
     
     analysis = result['analysis']
@@ -320,10 +320,10 @@ def test_case_2_or_operation():
     agent = ThomasAIAgentSimulator()
     result = agent.process_user_query("Compare Dell OR HP laptops")
     
-    print(f"\n📝 User Query: {result['query']}")
-    print(f"🎯 Intent Type: {result['intent']['type']}")
+    print(f"\n User Query: {result['query']}")
+    print(f" Intent Type: {result['intent']['type']}")
     print(f" Entities Extracted: {json.dumps(result['intent']['entities'], indent=2)}")
-    print(f"\n🔧 MCP Filters Generated:")
+    print(f"\n MCP Filters Generated:")
     print(json.dumps(result['mcp_filters'], indent=2))
     
     analysis = result['analysis']
@@ -351,11 +351,11 @@ def test_case_3_complex_with_preferences():
         "I need a gaming laptop with NVIDIA under $2000 that's portable"
     )
     
-    print(f"\n📝 User Query: {result['query']}")
-    print(f"🎯 Intent Type: {result['intent']['type']}")
+    print(f"\n User Query: {result['query']}")
+    print(f" Intent Type: {result['intent']['type']}")
     print(f" Entities Extracted: {json.dumps(result['intent']['entities'], indent=2)}")
-    print(f"💡 Preferences: {json.dumps(result['intent']['preferences'], indent=2)}")
-    print(f"\n🔧 MCP Filters Generated:")
+    print(f" Preferences: {json.dumps(result['intent']['preferences'], indent=2)}")
+    print(f"\n MCP Filters Generated:")
     print(json.dumps(result['mcp_filters'], indent=2))
     
     analysis = result['analysis']
@@ -367,7 +367,7 @@ def test_case_3_complex_with_preferences():
     
     if analysis.get('price_range'):
         pr = analysis['price_range']
-        print(f"\n💰 Price Range:")
+        print(f"\n Price Range:")
         print(f"   Min: ${pr['min']:.2f}")
         print(f"   Max: ${pr['max']:.2f}")
         print(f"   Avg: ${pr['avg']:.2f}")
@@ -384,10 +384,10 @@ def test_case_4_price_and_or():
     agent = ThomasAIAgentSimulator()
     result = agent.process_user_query("ASUS or Lenovo laptop under $1500")
     
-    print(f"\n📝 User Query: {result['query']}")
-    print(f"🎯 Intent Type: {result['intent']['type']}")
+    print(f"\n User Query: {result['query']}")
+    print(f" Intent Type: {result['intent']['type']}")
     print(f" Entities: {json.dumps(result['intent']['entities'], indent=2)}")
-    print(f"\n🔧 MCP Filters:")
+    print(f"\n MCP Filters:")
     print(json.dumps(result['mcp_filters'], indent=2))
     
     analysis = result['analysis']

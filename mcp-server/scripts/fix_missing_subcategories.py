@@ -79,7 +79,7 @@ def main():
                 updated += 1
                 
                 if updated <= 5:  # Show first 5 examples
-                    print(f"  ✓ {laptop.name[:40]:<40} → {inferred}")
+                    print(f"   {laptop.name[:40]:<40} → {inferred}")
             
             db.commit()
             print(f"\n Updated {updated} laptop subcategories")
