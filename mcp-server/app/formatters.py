@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional
-from .schemas import UnifiedProduct, ProductType, ImageInfo, VehicleDetails, LaptopDetails, BookDetails, LaptopSpecs
+from .schemas import UnifiedProduct, ProductType, ImageInfo, VehicleDetails, LaptopDetails, BookDetails, LaptopSpecs, RetailListing
 
 def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
     """
@@ -30,7 +30,9 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
     # 2. Extract Common Fields
     # ID mapping: vehicles use 'vin', others use 'product_id' or 'id'
     p_id = str(product.get("product_id") or product.get("id") or product.get("vin") or product.get("@id") or "")
-    name = product.get("name") or f"{product.get('year')} {product.get('make')} {product.get('model')}"
+    
+    src = product.get("vehicle", product)
+    name = product.get("name") or src.get("name") or f"{src.get('year')} {src.get('make')} {src.get('model')}"
     
     # Extract price with fallbacks
     price_val = product.get("price")
@@ -39,6 +41,13 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
              price_val = product["vehicle"].get("price")
         if price_val is None and product.get("retailListing"):
              price_val = product["retailListing"].get("price")
+             
+    # Fallback to the nested retailListing or vehicle explicitly since product gets flattened
+    if price_val is None or price_val == 0:
+        price_val = product.get("retailListing", {}).get("price")
+    if price_val is None or price_val == 0:
+        price_val = src.get("price")
+        
     price = int(price_val or 0)
     
     
@@ -66,16 +75,16 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
         id=p_id,
         productType=product_type,
         name=name,
-        brand=product.get("brand") or product.get("make"),
+        brand=product.get("brand") or src.get("make"),
         price=price,
         image=image_info,
-        url=product.get("url") or product.get("vdp"),
+        url=product.get("url") or product.get("vdp") or src.get("vdp"),
         
         # Additional fields for frontend display
         description=product.get("description"),
-        category=product.get("category"),
+        category=product.get("category") or src.get("bodyStyle") or src.get("body_style"),
         subcategory=product.get("subcategory"),
-        color=product.get("color"),
+        color=product.get("color") or src.get("exteriorColor"),
         rating=product.get("rating") or _calculate_rating(product.get("reviews")),
         reviews_count=product.get("rating_count") or _count_reviews(product.get("reviews")),
         reviews=product.get("reviews"),  # Pass through for frontend to display
@@ -107,6 +116,9 @@ def _extract_vehicle_details(p: Dict[str, Any]) -> VehicleDetails:
     # Handle nested IDSS structure if present
     src = p.get("vehicle", p)
     
+    price_val = src.get("price")
+    if price_val is None: price_val = p.get("price")
+    
     return VehicleDetails(
         year=src.get("year", 2024),
         make=src.get("make", ""),
@@ -114,7 +126,7 @@ def _extract_vehicle_details(p: Dict[str, Any]) -> VehicleDetails:
         trim=src.get("trim"),
         bodyStyle=src.get("bodyStyle") or src.get("body_style"),
         mileage=src.get("mileage"),
-        price=int(src.get("price") or p.get("price") or 0), # Price might be top-level
+        price=int(price_val if price_val is not None else 0),
         vin=src.get("vin") or p.get("vin") or p.get("@id"),
         fuel=src.get("fuel"),
         transmission=src.get("transmission"),
@@ -154,26 +166,29 @@ def _extract_book_details(p: Dict[str, Any]) -> BookDetails:
         publishedDate=p.get("published_date")
     )
 
-def _create_legacy_listing(p: Dict, price: int, img: Optional[str]):
-    return {
-        "price": price,
-        "primaryImage": img,
-        "photoCount": 1 if img else 0,
-        "dealer": p.get("dealer", {}).get("name") if isinstance(p.get("dealer"), dict) else p.get("dealer"),
-        "city": p.get("dealer", {}).get("city") if isinstance(p.get("dealer"), dict) else None,
-        "state": p.get("dealer", {}).get("state") if isinstance(p.get("dealer"), dict) else None,
-        "vdp": p.get("vdp"),
-        "used": p.get("used", False)
-    }
+def _create_legacy_listing(p: Dict, price: int, img: Optional[str]) -> RetailListing:
+    return RetailListing(
+        price=price,
+        primaryImage=img,
+        photoCount=1 if img else 0,
+        dealer=p.get("dealer", {}).get("name") if isinstance(p.get("dealer"), dict) else p.get("dealer"),
+        city=p.get("dealer", {}).get("city") if isinstance(p.get("dealer"), dict) else None,
+        state=p.get("dealer", {}).get("state") if isinstance(p.get("dealer"), dict) else None,
+        vdp=p.get("vdp"),
+        used=p.get("used", False),
+        cpo=p.get("cpo", False),
+        carfaxUrl=p.get("carfaxUrl") or p.get("carfax_url")
+    )
 
-def _create_legacy_listing_for_non_vehicle(p: Dict, price: int, img: Optional[str], dealer_name: str):
-    return {
-        "price": price,
-        "primaryImage": img,
-        "photoCount": 1 if img else 0,
-        "dealer": p.get("brand") or dealer_name,
-        "used": False
-    }
+def _create_legacy_listing_for_non_vehicle(p: Dict, price: int, img: Optional[str], dealer_name: str) -> RetailListing:
+    return RetailListing(
+        price=price,
+        primaryImage=img,
+        photoCount=1 if img else 0,
+        dealer=p.get("brand") or dealer_name,
+        used=False,
+        cpo=False,
+    )
 
 def _extract_spec(p: Dict, key: str) -> Optional[str]:
     """Helper to extract specs from description using regex if not in top level."""

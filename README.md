@@ -15,24 +15,24 @@ An LLM-driven Interactive Decision Support System that helps users find products
 │  POST /chat ─────► agent/                                │
 │                    ├── UniversalAgent (LLM brain)         │
 │                    │   ├── Domain detection               │
-│                    │   ├── Criteria extraction              │
-│                    │   ├── Question generation              │
-│                    │   └── Post-rec refinement              │
-│                    ├── chat_endpoint.py (orchestrator)     │
-│                    └── interview/session_manager.py        │
+│                    │   ├── Criteria extraction            │
+│                    │   ├── Question generation            │
+│                    │   └── Post-rec refinement            │
+│                    ├── chat_endpoint.py (orchestrator)    │
+│                    └── interview/session_manager.py       │
 │                                                          │
 │  Search dispatch:                                        │
-│    vehicles ──► IDSS (direct import, no HTTP)            │
+│    vehicles ──► Supabase (direct import, no HTTP)        │
 │    laptops  ──► PostgreSQL                               │
 │    books    ──► PostgreSQL                               │
 └──────────────────────────────────────────────────────────┘
               │                         │
               ▼                         ▼
 ┌─────────────────────────┐   ┌─────────────────────────┐
-│   SQLite + FAISS        │   │      PostgreSQL          │
-│   Vehicle Data (~2GB)   │   │    (mcp_ecommerce)       │
+│        Supabase         │   │      PostgreSQL          │
+│   Vehicle Data          │   │    (mcp_ecommerce)       │
 │   ~147k vehicles        │   │  - Electronics (~21k)    │
-│                         │   │  - Books (~66)           │
+│   Embeddings + Phrases  │   │  - Books (~66)           │
 └─────────────────────────┘   └─────────────────────────┘
 ```
 
@@ -74,7 +74,6 @@ idss-backend/
 │   └── core/                        # Controller
 │
 ├── config/default.yaml              # IDSS recommendation config
-├── data/                            # Vehicle data (symlink to dataset)
 ├── requirements.txt
 └── .env                             # Environment variables
 ```
@@ -116,6 +115,10 @@ Create a `.env` file in the **project root** (not inside `mcp-server/`):
 # Required
 OPENAI_API_KEY="sk-your-openai-api-key"
 DATABASE_URL="postgresql://YOUR_USERNAME@localhost:5432/mcp_ecommerce"
+
+# Supabase (vehicle search)
+SUPABASE_URL="https://your-project.supabase.co"
+SUPABASE_KEY="your-supabase-anon-key"
 
 # LLM model configuration
 OPENAI_MODEL="gpt-4o-mini"           # Model for all agent LLM calls
@@ -179,35 +182,16 @@ Without Supabase import (seed data only):
  Books       |    50
 ```
 
-### 4. Setup Vehicle Data (optional)
-
-Vehicle search requires a separate dataset (~2GB). Skip this step if you only need laptops/books.
-
-```bash
-# Symlink or copy the vehicle dataset
-ln -s /path/to/car_dataset_idss data/car_dataset_idss
-
-# Required files in data/car_dataset_idss/:
-# - uni_vehicles.db (~1.5 GB SQLite database)
-# - vehicle_reviews_tavily.db (~22 MB)
-# - bm25_index.pkl
-# - phrase_embeddings/
-```
-
-### 5. Start the Server
+### 4. Start the Server
 
 ```bash
 source venv/bin/activate
 uvicorn app.main:app --app-dir mcp-server --reload --port 8001
 ```
 
-First startup preloads IDSS vehicle models (~60-120 seconds). To skip vehicle preloading during development:
+First startup preloads vehicle embedding models (~60-120 seconds).
 
-```bash
-MCP_SKIP_PRELOAD=1 uvicorn app.main:app --app-dir mcp-server --reload --port 8001
-```
-
-### 6. Verify
+### 5. Verify
 
 ```bash
 # Health check
@@ -223,7 +207,7 @@ curl -X POST http://localhost:8001/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "looking for a mystery novel"}'
 
-# Test vehicle flow (requires step 4)
+# Test vehicle flow
 curl -X POST http://localhost:8001/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "I need an SUV under 30k"}'
@@ -363,7 +347,7 @@ python -m pytest tests/
 
 **Neo4j connection refused** — Neo4j is optional. The warning `Connection refused on port 7687` is harmless.
 
-**IDSS models slow to load** — First startup preloads ~2GB of vehicle data. Use `MCP_SKIP_PRELOAD=1` for faster dev restarts (vehicles won't work until first request triggers lazy load).
+**Vehicle search returns no results** — Check that `SUPABASE_URL` and `SUPABASE_KEY` are set correctly in your `.env` file.
 
 **Server crashes on startup (ImportError)** — Make sure you're running from the repo root with `--app-dir mcp-server`. The agent package must be importable from the repo root.
 
@@ -373,10 +357,11 @@ python -m pytest tests/
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | Yes | - | OpenAI API key for agent LLM calls |
 | `DATABASE_URL` | Yes | - | PostgreSQL connection string (e.g. `postgresql://user@localhost:5432/mcp_ecommerce`) |
+| `SUPABASE_URL` | Yes | - | Supabase project URL for vehicle search |
+| `SUPABASE_KEY` | Yes | - | Supabase anon key for vehicle search |
 | `OPENAI_MODEL` | No | gpt-4o-mini | Model for all agent LLM calls |
 | `OPENAI_REASONING_EFFORT` | No | low | Reasoning effort: low, medium, high |
 | `LOG_LEVEL` | No | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `REDIS_HOST` | No | localhost | Redis host for session caching |
 | `REDIS_PORT` | No | 6379 | Redis port |
 | `NEO4J_URI` | No | - | Neo4j connection for knowledge graph |
-| `MCP_SKIP_PRELOAD` | No | 0 | Skip IDSS vehicle model preloading (dev only) |
