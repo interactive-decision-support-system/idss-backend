@@ -7,38 +7,38 @@ An LLM-driven Interactive Decision Support System that helps users find products
 ```
                         Frontend (Port 3000)
                        Next.js Chat Interface
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────┐
-│                  IDSS Server (Port 8000)                  │
-│  POST /chat ──────► agent/chat_endpoint.py               │
-│  POST /ucp/checkout-sessions ──► UCP checkout            │
-│                                                          │
-│            ┌──── OR ────┐                                │
-│            ▼             ▼                                │
-│   MCP Server (Port 8001)  (same agent/, same endpoints)  │
-│                                                          │
-│  Agent pipeline:                                         │
-│    ├── UniversalAgent (LLM brain)                        │
-│    │   ├── Domain detection                              │
-│    │   ├── Criteria extraction                           │
-│    │   ├── Question generation                           │
-│    │   └── Post-rec refinement                           │
-│    ├── chat_endpoint.py (orchestrator)                   │
-│    └── interview/session_manager.py                      │
-│                                                          │
-│  Search:  Supabase PostgreSQL (24,150 products)          │
-│  KG:      Neo4j (24,868 nodes / 40,585 relationships)   │
-│  Cache:   Upstash Redis (cloud) or local Redis           │
-└──────────────────────────────────────────────────────────┘
-              │                         │
-              ▼                         ▼
-┌─────────────────────────┐   ┌─────────────────────────┐
-│   SQLite + FAISS        │   │      PostgreSQL          │
-│   Vehicle Data (~2GB)   │   │    (mcp_ecommerce)       │
-│   ~147k vehicles        │   │  - Electronics (~21k)    │
-│                         │   │  - Books (~66)           │
-└─────────────────────────┘   └─────────────────────────┘
+                              
+                              
+
+                  IDSS Server (Port 8000)                  
+  POST /chat  agent/chat_endpoint.py               
+  POST /ucp/checkout-sessions  UCP checkout            
+                                                          
+             OR                                 
+                                                         
+   MCP Server (Port 8001)  (same agent/, same endpoints)  
+                                                          
+  Agent pipeline:                                         
+     UniversalAgent (LLM brain)                        
+        Domain detection                              
+        Criteria extraction                           
+        Question generation                           
+        Post-rec refinement                           
+     chat_endpoint.py (orchestrator)                   
+     interview/session_manager.py                      
+                                                          
+  Search:  Supabase PostgreSQL (24,150 products)          
+  KG:      Neo4j (24,868 nodes / 40,585 relationships)   
+  Cache:   Upstash Redis (cloud) or local Redis           
+
+                                       
+                                       
+   
+   SQLite + FAISS                 PostgreSQL          
+   Vehicle Data (~2GB)          (mcp_ecommerce)       
+   ~147k vehicles             - Electronics (~21k)    
+                              - Books (~66)           
+   
 ```
 
 **Key design:** Both port 8000 (IDSS server) and port 8001 (MCP server) use the same `agent/chat_endpoint.py` pipeline. The frontend connects to port 8000 by default.
@@ -97,42 +97,42 @@ Fields that were previously separate columns (`description`, `color`, `gpu_vendo
 
 ```
 idss-backend/
-├── agent/                           # Agent brain (independent of server)
-│   ├── __init__.py                  # Public API re-exports
-│   ├── universal_agent.py           # LLM-driven pipeline
-│   ├── domain_registry.py           # Domain schemas (slots, priorities, allowed values)
-│   ├── prompts.py                   # All LLM prompt templates
-│   ├── chat_endpoint.py             # /chat orchestrator + search dispatchers
-│   └── interview/
-│       └── session_manager.py       # Session state + Redis/Neo4j persistence
-│
-├── mcp-server/                      # HTTP server + tools
-│   ├── app/
-│   │   ├── main.py                  # FastAPI app (port 8001)
-│   │   ├── endpoints.py             # MCP tool-call endpoints
-│   │   ├── formatters.py            # Product formatting for frontend
-│   │   ├── research_compare.py      # Post-rec research/compare handlers
-│   │   ├── database.py              # Supabase PostgreSQL connection
-│   │   ├── models.py                # SQLAlchemy models (Supabase schema)
-│   │   ├── ucp_checkout.py          # UCP checkout (Google Universal Commerce)
-│   │   ├── neo4j_config.py          # Neo4j connection
-│   │   ├── knowledge_graph.py       # KG builder (node/relationship creation)
-│   │   └── ...                      # Cache, metrics, etc.
-│   ├── scripts/
-│   │   ├── seed_diverse.sql         # Creates tables + seed products
-│   │   ├── seed_laptops_expanded.sql # Additional laptop data
-│   │   ├── seed_books_expanded.sql  # Additional book data
-│   │   └── merge_supabase_data.py   # Import ~24k products from Supabase
-│   └── tests/
-│
-├── idss/                            # IDSS Server (port 8000)
-│   └── api/
-│       ├── server.py                # FastAPI app → routes /chat to agent/
-│       └── models.py                # Request/response models
-│
-├── config/default.yaml              # Recommendation config
-├── requirements.txt
-└── .env                             # Environment variables
+ agent/                           # Agent brain (independent of server)
+    __init__.py                  # Public API re-exports
+    universal_agent.py           # LLM-driven pipeline
+    domain_registry.py           # Domain schemas (slots, priorities, allowed values)
+    prompts.py                   # All LLM prompt templates
+    chat_endpoint.py             # /chat orchestrator + search dispatchers
+    interview/
+        session_manager.py       # Session state + Redis/Neo4j persistence
+
+ mcp-server/                      # HTTP server + tools
+    app/
+       main.py                  # FastAPI app (port 8001)
+       endpoints.py             # MCP tool-call endpoints
+       formatters.py            # Product formatting for frontend
+       research_compare.py      # Post-rec research/compare handlers
+       database.py              # Supabase PostgreSQL connection
+       models.py                # SQLAlchemy models (Supabase schema)
+       ucp_checkout.py          # UCP checkout (Google Universal Commerce)
+       neo4j_config.py          # Neo4j connection
+       knowledge_graph.py       # KG builder (node/relationship creation)
+       ...                      # Cache, metrics, etc.
+    scripts/
+       seed_diverse.sql         # Creates tables + seed products
+       seed_laptops_expanded.sql # Additional laptop data
+       seed_books_expanded.sql  # Additional book data
+       merge_supabase_data.py   # Import ~24k products from Supabase
+    tests/
+
+ idss/                            # IDSS Server (port 8000)
+    api/
+        server.py                # FastAPI app → routes /chat to agent/
+        models.py                # Request/response models
+
+ config/default.yaml              # Recommendation config
+ requirements.txt
+ .env                             # Environment variables
 ```
 
 ## Prerequisites
