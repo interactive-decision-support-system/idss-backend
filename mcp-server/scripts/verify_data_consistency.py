@@ -95,9 +95,9 @@ def verify_redis():
             
             if summary and price and inventory:
                 cached_count += 1
-                print(f"  ✓ {product.product_id}: Cached")
+                print(f"   {product.product_id}: Cached")
             else:
-                print(f"  ✗ {product.product_id}: Not cached")
+                print(f"   {product.product_id}: Not cached")
         
         print(f"\nCached products: {cached_count}/{len(sample_products)}")
         

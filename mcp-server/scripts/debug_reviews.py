@@ -35,7 +35,7 @@ def main():
                 
                 if isinstance(rating, (int, float)) and 1 <= rating <= 5:
                     valid_ratings += 1
-                    print(f"     ✓ Review {j}: rating={rating}")
+                    print(f"      Review {j}: rating={rating}")
                 else:
                     print(f"     [FAIL] Review {j}: rating={rating} (INVALID)")
                     if len(invalid_examples) < 5:

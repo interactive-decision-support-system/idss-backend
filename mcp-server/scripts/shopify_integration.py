@@ -245,11 +245,11 @@ class ShopifyIntegration:
     def integrate_store(self, store: Dict, products_per_store: int = 20):
         """Integrate products from a single store."""
         print(f"\n{'='*60}")
-        print(f"🏪 {store['name']} ({store['domain']})")
+        print(f" {store['name']} ({store['domain']})")
         print(f"{'='*60}")
         
         # Fetch products
-        print(f"📥 Fetching products...")
+        print(f" Fetching products...")
         products = self.fetch_products(store['domain'], limit=products_per_store)
         
         if not products:
@@ -259,7 +259,7 @@ class ShopifyIntegration:
         print(f" Fetched {len(products)} products")
         
         # Process each product
-        print(f"🔄 Processing products...")
+        print(f" Processing products...")
         added_count = 0
         
         for i, shopify_product in enumerate(products, 1):
@@ -320,7 +320,7 @@ def main():
         print(f"   Products skipped: {integration.stats['skipped']}")
         print(f"   Errors: {integration.stats['errors']}")
         
-        print(f"\n📈 Database Growth:")
+        print(f"\n Database Growth:")
         print(f"   Before: {initial_count}")
         print(f"   After: {final_count}")
         print(f"   Added: +{final_count - initial_count}")

@@ -15,9 +15,9 @@ is needed for normal operation. Invalidation methods exist for:
   - Bulk data refreshes → invalidate_search_cache() or flush_all()
 """
 
-# ────────────────────────────────────────────────────────────────────────────
+# 
 # Cache Policy Table
-# ────────────────────────────────────────────────────────────────────────────
+# 
 #
 # Data Type        | Key Pattern               | TTL     | Rationale
 # -----------------+---------------------------+---------+--------------------------------
@@ -29,9 +29,9 @@ is needed for normal operation. Invalidation methods exist for:
 # Brand index      | brand:{name}              | None    | Persistent set; refreshed by populate script
 # Category index   | category:{name}           | None    | Persistent set; refreshed by populate script
 #
-# ────────────────────────────────────────────────────────────────────────────
+# 
 # Consistency Expectations
-# ────────────────────────────────────────────────────────────────────────────
+# 
 #
 # - Price/inventory may be stale by up to their TTL (60s / 30s).
 #   This is acceptable for browsing; checkout always reads from Postgres.
@@ -40,9 +40,9 @@ is needed for normal operation. Invalidation methods exist for:
 # - Brand/category indexes are only refreshed when populate_all_databases.py
 #   is re-run. New products won't appear in these indexes until then.
 #
-# ────────────────────────────────────────────────────────────────────────────
+# 
 # Cache Invalidation Strategy
-# ────────────────────────────────────────────────────────────────────────────
+# 
 #
 # Primary: TTL-based (automatic expiry, no coordination needed)
 # Secondary: Explicit invalidation for known mutations:
@@ -55,9 +55,9 @@ is needed for normal operation. Invalidation methods exist for:
 #   2. TTL-based expiry (5 min) is acceptable for search freshness
 #   3. Avoids complexity of tracking which search keys contain which products
 
-# ────────────────────────────────────────────────────────────────────────────
+# 
 # Bélády-Inspired Adaptive TTL Policy
-# ────────────────────────────────────────────────────────────────────────────
+# 
 #
 # Classic Bélády's algorithm (optimal page replacement) evicts the item that
 # will not be needed for the longest time in the future. Since we cannot

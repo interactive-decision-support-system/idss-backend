@@ -152,8 +152,8 @@ def main():
             
             if 'sample_product' in analysis:
                 sample = analysis['sample_product']
-                print(f"    📝 Sample: \"{sample['title']}\" by {sample['vendor']}")
-                print(f"    🏷️  Type: {sample['product_type']}")
+                print(f"     Sample: \"{sample['title']}\" by {sample['vendor']}")
+                print(f"      Type: {sample['product_type']}")
             
             results.append({
                 "store": store['name'],
@@ -203,7 +203,7 @@ def main():
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=2)
     
-    print(f"\n💾 Detailed results saved to: {output_file}")
+    print(f"\n Detailed results saved to: {output_file}")
     
     # Recommendations
     print("\n" + "="*80)

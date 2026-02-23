@@ -20,7 +20,7 @@ from app.research_compare import (
 )
 
 
-# ── _parse_reviews ────────────────────────────────────────────────────────
+#  _parse_reviews 
 
 class TestParseReviews:
     def test_supabase_text_format(self):
@@ -85,7 +85,7 @@ class TestParseReviews:
         assert result["review_count"] == 0
 
 
-# ── _product_to_flat_dict ─────────────────────────────────────────────────
+#  _product_to_flat_dict 
 
 class TestProductToFlatDict:
     def test_with_supabase_reviews(self):
@@ -122,7 +122,7 @@ class TestProductToFlatDict:
         assert len(flat["description"]) == 100
 
 
-# ── build_comparison_table ────────────────────────────────────────────────
+#  build_comparison_table 
 
 class TestBuildComparisonTable:
     def _make_products(self):
@@ -171,7 +171,7 @@ class TestBuildComparisonTable:
         assert table["products"] == []
 
 
-# ── parse_compare_by ──────────────────────────────────────────────────────
+#  parse_compare_by 
 
 class TestParseCompareBy:
     def test_compare_by_price_and_rating(self):
@@ -188,7 +188,7 @@ class TestParseCompareBy:
         assert result is None
 
 
-# ── build_research_summary ────────────────────────────────────────────────
+#  build_research_summary 
 
 class TestBuildResearchSummary:
     def test_supabase_product(self):

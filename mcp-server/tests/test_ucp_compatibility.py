@@ -289,6 +289,9 @@ class TestUCPCompatibility:
         mcp_product.return_policy = None
         mcp_product.warranty = None
         mcp_product.promotion_info = None
+        mcp_product.rating = None
+        mcp_product.rating_count = None
+        mcp_product.reviews = None
         
         ucp_product = mcp_product_to_ucp_summary(mcp_product, base_url="https://test.com")
         
@@ -320,6 +323,9 @@ class TestUCPCompatibility:
         mcp_product.return_policy = None
         mcp_product.warranty = None
         mcp_product.promotion_info = None
+        mcp_product.rating = None
+        mcp_product.rating_count = None
+        mcp_product.reviews = None
         
         ucp_product = mcp_product_to_ucp_detail(mcp_product, base_url="https://test.com")
         

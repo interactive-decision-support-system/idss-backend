@@ -209,7 +209,7 @@ def main():
             print(f"  {i}. {p['name']} - ${p['price_cents']/100:.2f}")
             print(f"     Source: {p['source']}")
     
-    print("\n💡 To add more stores:")
+    print("\n To add more stores:")
     print("  1. Find Shopify stores (look for .myshopify.com or Shopify powered sites)")
     print("  2. Check if /products.json is accessible")
     print("  3. Add to SHOPIFY_STORES list")

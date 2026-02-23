@@ -47,14 +47,14 @@ This document records decisions made for week6instructions.txt and week6tips.txt
 
 | Area | Status | Notes |
 |------|--------|-------|
-| Real-only products | ✅ | No fake/seed; DB cleared on populate |
-| Laptops + phones | ✅ | System76, Framework, Fairphone, BigCommerce, Shopify |
-| Books | ⚠️ | B&N timeout; Open Library fallback added |
-| Images | ✅ | Missing images removed (use `--keep-missing-images` to keep) |
-| kg_features | ✅ | Backfill script run; 40+ products enriched |
-| Shipping/return/warranty | ✅ | In descriptions; _enrich_with_policy in populate flow |
-| 30+ features per product | ⚠️ | Scraped data ~10–15; kg_features add semantic features |
-| Each product type own KG | ⚠️ | Single KG for all; domain-specific KGs possible later |
+| Real-only products |  | No fake/seed; DB cleared on populate |
+| Laptops + phones |  | System76, Framework, Fairphone, BigCommerce, Shopify |
+| Books |  | B&N timeout; Open Library fallback added |
+| Images |  | Missing images removed (use `--keep-missing-images` to keep) |
+| kg_features |  | Backfill script run; 40+ products enriched |
+| Shipping/return/warranty |  | In descriptions; _enrich_with_policy in populate flow |
+| 30+ features per product |  | Scraped data ~10–15; kg_features add semantic features |
+| Each product type own KG |  | Single KG for all; domain-specific KGs possible later |
 
 ---
 

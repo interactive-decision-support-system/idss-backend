@@ -45,7 +45,7 @@ def main():
             print(f" Total relationships: {rel_count}")
             
             if node_count == 0:
-                print("\n💡 Database is empty. Run build_knowledge_graph.py to populate it:")
+                print("\n Database is empty. Run build_knowledge_graph.py to populate it:")
                 print("   python scripts/build_knowledge_graph.py")
             else:
                 # Show sample data

@@ -124,7 +124,7 @@ def scrape_woocommerce_product_list(store: Dict[str, str]) -> List[Dict[str, Any
                 product = extract_woocommerce_product(item, store)
                 if product and product.get('name') and product.get('price'):
                     products.append(product)
-                    print(f"  ✓ {product['name'][:50]:<50} ${product['price']}")
+                    print(f"   {product['name'][:50]:<50} ${product['price']}")
             except Exception as e:
                 print(f"  [WARN]  Error extracting product: {e}")
                 continue

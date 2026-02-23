@@ -1,42 +1,38 @@
-# MCP E-commerce Server - Stage 1 Dependencies
-# Python 3.11+ recommended
+# MCP E-commerce Server Dependencies
+# Python 3.13+
 
 # Web Framework
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-pydantic==2.5.3
-pydantic-settings==2.1.0
+fastapi==0.128.0
+uvicorn[standard]==0.40.0
+pydantic==2.12.5
 
 # Database
-sqlalchemy==2.0.25
-psycopg2-binary==2.9.9
-alembic==1.13.1
+sqlalchemy==2.0.46
+psycopg2-binary==2.9.11
 
 # Cache
-redis==5.0.1
-hiredis==2.3.2
+redis==7.1.0
 
 # Testing
-pytest==7.4.4
-pytest-asyncio==0.23.3
-httpx==0.26.0
+pytest==9.0.2
+httpx==0.28.1
 
-# Vector Search & Semantic Matching (Optional but recommended)
-sentence-transformers>=2.2.0
-faiss-cpu>=1.7.4
+# Vector Search & Semantic Matching
+sentence-transformers==5.2.2
+faiss-cpu==1.13.2
 
-# Knowledge Graph (Stage 3A - per week4notes.txt)
-neo4j>=5.15.0
+# Knowledge Graph
+neo4j==6.1.0
 
-# Web Scraping (for real product data)
-beautifulsoup4>=4.12.0
-requests>=2.31.0
-selenium>=4.15.0  # For dynamic sites like Shopify
-lxml>=4.9.0  # Faster HTML parsing
-pandas>=2.0.0  # For ShopifyScraper package
+# Web Scraping (for scripts, not needed for tests)
+beautifulsoup4==4.14.3
+requests==2.32.5
+selenium>=4.15.0
+lxml>=4.9.0
+pandas>=2.0.0
 
-# LLM (interview question generator: laptop/vehicle follow-up questions)
-openai>=1.0.0
+# LLM
+openai==2.16.0
 
 # Utilities
-python-dotenv==1.0.0
+python-dotenv==1.2.1

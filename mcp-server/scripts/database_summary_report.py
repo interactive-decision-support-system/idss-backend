@@ -36,7 +36,7 @@ def main():
     print(f"Other Categories: {total - len(electronics) - len(books)}")
     
     # Electronics breakdown
-    print(f"\n🖥️  ELECTRONICS BREAKDOWN ({len(electronics)} products)")
+    print(f"\n  ELECTRONICS BREAKDOWN ({len(electronics)} products)")
     print(f"{'='*80}")
     
     # By product type
@@ -60,7 +60,7 @@ def main():
     # Laptops detailed breakdown
     laptops = [p for p in electronics if p.product_type == "laptop"]
     if laptops:
-        print(f"\n💻 LAPTOP DETAILS ({len(laptops)} laptops)")
+        print(f"\n LAPTOP DETAILS ({len(laptops)} laptops)")
         print(f"{'='*80}")
         
         # Screen sizes
@@ -195,7 +195,7 @@ def main():
             print(f"  {pub:<30} {count:>3}")
     
     # Price analysis
-    print(f"\n💰 PRICE ANALYSIS")
+    print(f"\n PRICE ANALYSIS")
     print(f"{'='*80}")
     
     # Electronics prices
@@ -215,7 +215,7 @@ def main():
         print(f"  Average: ${sum(book_prices)/len(book_prices):>8,.2f}")
     
     # Data sources
-    print(f"\n🔍 DATA SOURCES")
+    print(f"\n DATA SOURCES")
     print(f"{'='*80}")
     
     all_products = db.query(Product).all()

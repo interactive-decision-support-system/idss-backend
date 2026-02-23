@@ -174,7 +174,7 @@ def benchmark_data_enrichment():
     print(f"   Product detail:        {len(detail_fields)} fields")
     print(f"   Metadata dict:         {metadata_fields} fields")
     
-    print(f"\n✨ Features Added by MCP:")
+    print(f"\n Features Added by MCP:")
     print(f"    product_type:       '{product_summary.product_type}'")
     print(f"    Standard format:    MCP ProductSummary schema")
     print(f"    VIN prefix:         '{product_summary.product_id[:10]}...'")
@@ -257,7 +257,7 @@ def benchmark_overhead_calculation():
     print(f"\n End-to-End Latency Breakdown:")
     print(f"   IDSS backend:      {idss_backend_time:7.1f} ms  (semantic parsing + ranking + diversification)")
     print(f"   MCP adapter:       {adapter_time:7.1f} ms  (grid flattening + transformation)")
-    print(f"   ────────────────────────────────")
+    print(f"   ")
     print(f"   Total:             {total_time:7.1f} ms")
     print(f"\n   MCP overhead:      {adapter_time:7.1f} ms  ({overhead_pct:+.1f}% of backend time)")
     
@@ -308,7 +308,7 @@ def run_benchmark():
     print(f"   Grid flattening:       {flatten_ms:.4f} ms per operation")
     print(f"   Total MCP overhead:    {overhead['adapter_time']:.1f} ms ({overhead['overhead_pct']:+.1f}%)")
     
-    print(f"\n✨ Value Added:")
+    print(f"\n Value Added:")
     print(f"   Data fields:           {original_fields} → {enriched_fields} (+{enriched_fields - original_fields})")
     print(f"   Metadata fields:       {metadata_count} structured fields")
     print(f"   Product type:           Enables multi-product UIs")
@@ -316,7 +316,7 @@ def run_benchmark():
     print(f"   Tracing:                Request timing & debugging")
     print(f"   Extensibility:          Easy to add new product types")
     
-    print(f"\n🎯 Trade-off Analysis:")
+    print(f"\n Trade-off Analysis:")
     print(f"   Cost:     {overhead['adapter_time']:.1f}ms latency overhead ({overhead['overhead_pct']:.1f}% of backend time)")
     print(f"   Benefit:  Rich metadata + multi-product support + standardization")
     
@@ -332,7 +332,7 @@ def run_benchmark():
         print(f"      Recommended for: Feature-rich UIs, multi-product catalogs")
         print(f"      Optimize: Add caching, profile transformations")
     
-    print(f"\n💡 Key Insight:")
+    print(f"\n Key Insight:")
     print(f"   The MCP adapter is a thin, fast translation layer that adds")
     print(f"   valuable features (metadata, product types, standardization)")
     print(f"   with minimal performance impact ({overhead['overhead_pct']:.1f}% overhead).")

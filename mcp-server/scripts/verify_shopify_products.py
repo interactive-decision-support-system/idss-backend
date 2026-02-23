@@ -116,7 +116,7 @@ def check_api_endpoints(product_ids):
     base_url = "http://localhost:8001"
     
     # Test search endpoint
-    print("\n🔍 Testing /api/search-products...")
+    print("\n Testing /api/search-products...")
     try:
         response = requests.post(
             f"{base_url}/api/search-products",
@@ -152,7 +152,7 @@ def check_api_endpoints(product_ids):
     
     # Test get product endpoint
     if product_ids:
-        print(f"\n🔍 Testing /api/get-product...")
+        print(f"\n Testing /api/get-product...")
         try:
             response = requests.post(
                 f"{base_url}/api/get-product",

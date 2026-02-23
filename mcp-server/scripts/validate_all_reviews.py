@@ -59,7 +59,7 @@ def main():
                     product.reviews = json.dumps(reviews)
                     fixed_count += 1
                     if fixed_count <= 5:
-                        print(f"  ✓ Fixed: {product.name}")
+                        print(f"   Fixed: {product.name}")
             
             except json.JSONDecodeError:
                 print(f"  [FAIL] Cannot parse JSON: {product.name}")

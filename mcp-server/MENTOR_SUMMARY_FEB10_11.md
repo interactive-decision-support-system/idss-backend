@@ -102,13 +102,13 @@ cd mcp-server && python scripts/scrape_merchant_laptops.py
 
 | Requirement | Status | Notes |
 |-------------|--------|-------|
-| No fake/seed/synthetic products | ✅ | DB cleared on populate; only real scraped |
-| Real scraped from: BigCommerce, Shopify, WooCommerce, Temu, Back Market, System76, Framework | ⚠️ | All attempted. Back Market: 0, Temu: 0 (blocked) |
-| Laptops and phones | ✅ | System76, Framework, Fairphone, BigCommerce, Shopify |
-| Richly populated (brand, image, price, etc.) | ✅ | Brand, price, description, source; images removed where missing |
-| Complete image sets (no missing images) | ✅ | Products without real images removed (`--keep-missing-images` to keep) |
-| Handle complex multi-constraint queries | ✅ | `kg_features` backfilled; KG supports complex queries |
-| Books | ✅ | B&N timeout → Open Library fallback (30 books) |
+| No fake/seed/synthetic products |  | DB cleared on populate; only real scraped |
+| Real scraped from: BigCommerce, Shopify, WooCommerce, Temu, Back Market, System76, Framework |  | All attempted. Back Market: 0, Temu: 0 (blocked) |
+| Laptops and phones |  | System76, Framework, Fairphone, BigCommerce, Shopify |
+| Richly populated (brand, image, price, etc.) |  | Brand, price, description, source; images removed where missing |
+| Complete image sets (no missing images) |  | Products without real images removed (`--keep-missing-images` to keep) |
+| Handle complex multi-constraint queries |  | `kg_features` backfilled; KG supports complex queries |
+| Books |  | B&N timeout → Open Library fallback (30 books) |
 
 ---
 
@@ -116,29 +116,29 @@ cd mcp-server && python scripts/scrape_merchant_laptops.py
 
 | Requirement | Status | Notes |
 |-------------|--------|-------|
-| Enriched outputs: delivery, ETA, return, shipping, warranty | ✅ | `DEFAULT_POLICY_SUFFIX` appended to descriptions |
-| Over 30 features per product (laptop, phone) | ⚠️ | Scraped data ~10–15; kg_features add semantic features |
-| KG supports complex queries | ✅ | `kg_features` backfill; schema supports kg_features |
-| Remove low quality (missing images) | ✅ | Products without real images removed |
-| Supabase + 161 real products | ❌ | PostgreSQL used; documented in WEEK6_COMPLIANCE_DECISIONS.md |
-| Google UCP standard | ⚠️ | UCP endpoints implemented; full spec alignment pending |
-| Each product type own KG | ⚠️ | Single KG for all; domain-specific KGs possible later |
+| Enriched outputs: delivery, ETA, return, shipping, warranty |  | `DEFAULT_POLICY_SUFFIX` appended to descriptions |
+| Over 30 features per product (laptop, phone) |  | Scraped data ~10–15; kg_features add semantic features |
+| KG supports complex queries |  | `kg_features` backfill; schema supports kg_features |
+| Remove low quality (missing images) |  | Products without real images removed |
+| Supabase + 161 real products |  | PostgreSQL used; documented in WEEK6_COMPLIANCE_DECISIONS.md |
+| Google UCP standard |  | UCP endpoints implemented; full spec alignment pending |
+| Each product type own KG |  | Single KG for all; domain-specific KGs possible later |
 
 ---
 
 ## 6. What Was Fulfilled
 
-- ✅ Real-only data only
-- ✅ Laptops domain prioritized: 9 rich merchant laptops (System76, Framework, Back Market) via `scrape_merchant_laptops.py`
-- ✅ Laptops and phones from multiple sources
-- ✅ Books from Open Library when B&N times out
-- ✅ Shipping/return/warranty in product descriptions
-- ✅ Products without real images removed
-- ✅ kg_features backfilled for complex queries
-- ✅ Neo4j KG built from real products
-- ✅ UCP schemas include shipping/return/warranty/promotion
-- ✅ All 206 unit tests passing
-- ✅ Documentation for Supabase and Google UCP decisions
+-  Real-only data only
+-  Laptops domain prioritized: 9 rich merchant laptops (System76, Framework, Back Market) via `scrape_merchant_laptops.py`
+-  Laptops and phones from multiple sources
+-  Books from Open Library when B&N times out
+-  Shipping/return/warranty in product descriptions
+-  Products without real images removed
+-  kg_features backfilled for complex queries
+-  Neo4j KG built from real products
+-  UCP schemas include shipping/return/warranty/promotion
+-  All 206 unit tests passing
+-  Documentation for Supabase and Google UCP decisions
 
 ---
 
