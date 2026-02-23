@@ -1,4 +1,21 @@
+
 # IDSS Backend - Multi-Domain Interactive Decision Support System
+
+## Quick Start (TL;DR)
+
+**Start all local servers (backend, MCP, frontend):**
+
+```bash
+bash start_all_local.sh
+```
+
+**Run all unit tests:**
+
+```bash
+bash run_all_tests.sh
+```
+
+---
 
 An LLM-driven Interactive Decision Support System that helps users find products through conversational interviews. The **Universal Agent** detects the user's domain, extracts preferences via structured LLM calls, and generates natural follow-up questions before delivering recommendations. Supports **vehicles**, **laptops**, **books**, and **24,000+ electronics** products.
 
