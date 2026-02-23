@@ -42,7 +42,6 @@ logger = logging.getLogger("mcp.universal_agent")
 
 # Model configuration — single model for all LLM calls, set via environment
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-# reasoning_effort is only supported by o1/o3 reasoning models, NOT gpt-4o-mini.
 # Default is "" (disabled). Set OPENAI_REASONING_EFFORT=low in .env only if using an o-series model.
 OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "")
 _REASONING_KWARGS = {"reasoning_effort": OPENAI_REASONING_EFFORT} if OPENAI_REASONING_EFFORT else {}
