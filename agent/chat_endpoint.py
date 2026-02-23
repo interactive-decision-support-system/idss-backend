@@ -229,9 +229,9 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 question_count=agent_response.get("question_count", 0),
                 agent=agent,
             )
-        elif domain in ("laptops", "books"):
-            category = "electronics" if domain == "laptops" else "Books"
-            product_type = "laptop" if domain == "laptops" else "book"
+        elif domain in ("laptops", "books", "phones"):
+            category = "Books" if domain == "books" else "electronics"
+            product_type = "book" if domain == "books" else ("phone" if domain == "phones" else "laptop")
             search_filters["category"] = category
             search_filters["product_type"] = product_type
             # Extract hardware specs (RAM, storage, battery, screen) from user query
@@ -251,9 +251,9 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
     # Fallback
     return ChatResponse(
         response_type="question",
-        message="I can help with Cars, Laptops, or Books. What are you looking for today?",
+        message="I can help with Cars, Laptops, Books, or Phones. What are you looking for today?",
         session_id=session_id,
-        quick_replies=["Vehicles", "Laptops", "Books"],
+        quick_replies=["Cars", "Laptops", "Books", "Phones"],
         filters={},
         preferences={},
         question_count=0,

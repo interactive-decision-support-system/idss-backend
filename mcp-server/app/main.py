@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import uvicorn
 import logging
 import traceback
@@ -761,9 +761,135 @@ async def ucp_cancel_checkout_session(session_id: str, db: Session = Depends(get
     return session
 
 
-# 
+#
+# Agent Action Endpoints (Frontend → Agent → Cart/Checkout)
+# These endpoints are called by the frontend via NEXT_PUBLIC_API_BASE_URL/NEXT_PUBLIC_MCP_BASE_URL.
+# They use user_id as the cart key (one cart per user, in-memory).
+#
+
+# In-memory user cart store: user_id → {product_id → {"qty": int, "product_snapshot": dict}}
+_USER_CARTS: Dict[str, Dict[str, Any]] = {}
+
+
+class FetchCartRequest(BaseModel):
+    user_id: str
+
+
+class CartItemOut(BaseModel):
+    id: str
+    product_id: str
+    product_snapshot: Dict[str, Any]
+    quantity: int
+
+
+class FetchCartResponse(BaseModel):
+    status: str
+    cart_id: Optional[str] = None
+    items: Optional[List[CartItemOut]] = None
+    item_count: Optional[int] = None
+    error: Optional[str] = None
+
+
+class AddToCartActionRequest(BaseModel):
+    user_id: str
+    product_id: str
+    quantity: int = 1
+    product_snapshot: Dict[str, Any] = {}
+
+
+class RemoveFromCartRequest(BaseModel):
+    user_id: str
+    product_id: str
+
+
+class CheckoutActionRequest(BaseModel):
+    user_id: str
+    items: Optional[List[Dict[str, Any]]] = None
+    product_type: Optional[str] = None
+
+
+class UCPUpdateCartParameters(BaseModel):
+    user_id: str
+    product_id: str
+    quantity: int
+
+
+class UCPUpdateCartRequest(BaseModel):
+    action: str
+    parameters: UCPUpdateCartParameters
+
+
+@app.post("/api/action/fetch-cart")
+def action_fetch_cart(request: FetchCartRequest):
+    """Return the current cart for a user (by user_id)."""
+    cart = _USER_CARTS.get(request.user_id, {})
+    items = [
+        CartItemOut(
+            id=product_id,
+            product_id=product_id,
+            product_snapshot=item_data.get("product_snapshot", {}),
+            quantity=item_data.get("qty", 1),
+        )
+        for product_id, item_data in cart.items()
+    ]
+    return FetchCartResponse(
+        status="success",
+        cart_id=request.user_id,
+        items=items,
+        item_count=len(items),
+    )
+
+
+@app.post("/api/action/add-to-cart")
+def action_add_to_cart(request: AddToCartActionRequest):
+    """Add (or increment) a product in the user's cart, storing the product snapshot."""
+    cart = _USER_CARTS.setdefault(request.user_id, {})
+    if request.product_id in cart:
+        cart[request.product_id]["qty"] += request.quantity
+    else:
+        cart[request.product_id] = {
+            "qty": request.quantity,
+            "product_snapshot": request.product_snapshot,
+        }
+    return {"status": "success"}
+
+
+@app.post("/api/action/remove-from-cart")
+def action_remove_from_cart(request: RemoveFromCartRequest):
+    """Remove a product from the user's cart."""
+    cart = _USER_CARTS.get(request.user_id, {})
+    cart.pop(request.product_id, None)
+    return {"status": "success"}
+
+
+@app.post("/api/action/checkout")
+def action_checkout(request: CheckoutActionRequest):
+    """Checkout the user's cart: create a stub order and clear the cart."""
+    import uuid as _uuid
+    cart = _USER_CARTS.get(request.user_id, {})
+    if not cart:
+        return {"status": "error", "error": "Cart is empty"}
+    order_id = f"ORDER-{_uuid.uuid4().hex[:8].upper()}"
+    _USER_CARTS[request.user_id] = {}  # Clear cart on checkout
+    return {"status": "success", "order_id": order_id}
+
+
+@app.post("/ucp/update_cart")
+def ucp_update_cart_action(request: UCPUpdateCartRequest):
+    """Update a cart item's quantity for a user (set to 0 to remove)."""
+    params = request.parameters
+    cart = _USER_CARTS.setdefault(params.user_id, {})
+    if params.product_id in cart:
+        if params.quantity <= 0:
+            cart.pop(params.product_id)
+        else:
+            cart[params.product_id]["qty"] = params.quantity
+    return {"status": "success"}
+
+
+#
 # Development Server
-# 
+#
 
 if __name__ == "__main__":
     # Run server with auto-reload for development
