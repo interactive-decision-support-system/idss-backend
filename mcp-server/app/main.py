@@ -62,6 +62,7 @@ from app.ucp_endpoints import (
     ucp_search, ucp_get_product, ucp_add_to_cart, ucp_checkout
 )
 from app.ucp_event_logger import log_ucp_event
+from app.supabase_cart import get_supabase_cart_client
 from app.supplier_api import router as supplier_router
 from agent import ChatRequest, ChatResponse, process_chat
 from agent.interview.session_manager import SessionResponse, ResetRequest, ResetResponse
@@ -747,9 +748,9 @@ async def ucp_cancel_checkout_session(session_id: str, db: Session = Depends(get
 
 
 #
-# Agent Action Endpoints (Frontend → Agent → Cart/Checkout)
-# These endpoints are called by the frontend via NEXT_PUBLIC_API_BASE_URL/NEXT_PUBLIC_MCP_BASE_URL.
-# They use user_id as the cart key (one cart per user, in-memory).
+# Agent Action Endpoints (Frontend → API → Agent → UCP → MCP → Supabase)
+# Frontend calls these with user_id (signed-in). When Supabase is configured,
+# they use the Supabase cart table and products.inventory; otherwise in-memory fallback.
 #
 
 # In-memory user cart store: user_id → {product_id → {"qty": int, "product_snapshot": dict}}
@@ -806,7 +807,25 @@ class UCPUpdateCartRequest(BaseModel):
 
 @app.post("/api/action/fetch-cart")
 def action_fetch_cart(request: FetchCartRequest):
-    """Return the current cart for a user (by user_id)."""
+    """Return the current cart for a user (by user_id). Agent → UCP → MCP (Supabase cart table)."""
+    client = get_supabase_cart_client()
+    if client:
+        rows = client.get_cart(request.user_id)
+        items = [
+            CartItemOut(
+                id=str(row.get("id", row.get("product_id", ""))),
+                product_id=str(row.get("product_id", "")),
+                product_snapshot=row.get("product_snapshot") or {},
+                quantity=int(row.get("quantity") or 1),
+            )
+            for row in rows
+        ]
+        return FetchCartResponse(
+            status="success",
+            cart_id=request.user_id,
+            items=items,
+            item_count=len(items),
+        )
     cart = _USER_CARTS.get(request.user_id, {})
     items = [
         CartItemOut(
@@ -827,7 +846,18 @@ def action_fetch_cart(request: FetchCartRequest):
 
 @app.post("/api/action/add-to-cart")
 def action_add_to_cart(request: AddToCartActionRequest):
-    """Add (or increment) a product in the user's cart, storing the product snapshot."""
+    """Add (or increment) a product in the user's cart. Agent → UCP → MCP (Supabase cart)."""
+    client = get_supabase_cart_client()
+    if client:
+        ok, err = client.add_to_cart(
+            request.user_id,
+            request.product_id,
+            request.product_snapshot,
+            request.quantity,
+        )
+        if ok:
+            return {"status": "success"}
+        return {"status": "error", "error": err or "Add to cart failed"}
     cart = _USER_CARTS.setdefault(request.user_id, {})
     if request.product_id in cart:
         cart[request.product_id]["qty"] += request.quantity
@@ -841,7 +871,13 @@ def action_add_to_cart(request: AddToCartActionRequest):
 
 @app.post("/api/action/remove-from-cart")
 def action_remove_from_cart(request: RemoveFromCartRequest):
-    """Remove a product from the user's cart."""
+    """Remove a product from the user's cart. Agent → UCP → MCP (Supabase cart)."""
+    client = get_supabase_cart_client()
+    if client:
+        ok, err = client.remove_from_cart(request.user_id, request.product_id)
+        if ok:
+            return {"status": "success"}
+        return {"status": "error", "error": err or "Remove failed"}
     cart = _USER_CARTS.get(request.user_id, {})
     cart.pop(request.product_id, None)
     return {"status": "success"}
@@ -849,7 +885,17 @@ def action_remove_from_cart(request: RemoveFromCartRequest):
 
 @app.post("/api/action/checkout")
 def action_checkout(request: CheckoutActionRequest):
-    """Checkout the user's cart: create a stub order and clear the cart."""
+    """Checkout the user's cart: decrement inventory, clear cart. Agent → UCP → MCP (Supabase)."""
+    client = get_supabase_cart_client()
+    if client:
+        ok, order_id, err, sold_out_ids = client.checkout(request.user_id)
+        if ok:
+            return {"status": "success", "order_id": order_id}
+        return {
+            "status": "error",
+            "error": err or "Checkout failed",
+            "details": {"sold_out_ids": sold_out_ids} if sold_out_ids else None,
+        }
     import uuid as _uuid
     cart = _USER_CARTS.get(request.user_id, {})
     if not cart:
@@ -861,8 +907,14 @@ def action_checkout(request: CheckoutActionRequest):
 
 @app.post("/ucp/update_cart")
 def ucp_update_cart_action(request: UCPUpdateCartRequest):
-    """Update a cart item's quantity for a user (set to 0 to remove)."""
+    """Update a cart item's quantity. Agent → UCP → MCP (Supabase cart). Set quantity to 0 to remove."""
     params = request.parameters
+    client = get_supabase_cart_client()
+    if client:
+        ok, err = client.update_quantity(params.user_id, params.product_id, params.quantity)
+        if ok:
+            return {"status": "success"}
+        return {"status": "error", "error": err or "Update failed"}
     cart = _USER_CARTS.setdefault(params.user_id, {})
     if params.product_id in cart:
         if params.quantity <= 0:
