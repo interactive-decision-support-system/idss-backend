@@ -129,7 +129,7 @@ Create a `.env` file in the **project root** (not inside `mcp-server/`):
 
 ```bash
 # Required
-OPENAI_API_KEY="sk-your-openai-api-key"
+OPENAI_API_KEY="sk-REPLACE-ME"
 DATABASE_URL="postgresql://YOUR_USERNAME@localhost:5432/mcp_ecommerce"
 
 # Supabase (vehicle search)
@@ -137,7 +137,7 @@ SUPABASE_URL="https://your-project.supabase.co"
 SUPABASE_KEY="your-supabase-anon-key"
 
 # LLM model configuration
-# OPENAI_MODEL="gpt-4o-mini"
+OPENAI_MODEL="gpt-5-nano"
 # OPENAI_REASONING_EFFORT="low"
 ```
 
@@ -312,11 +312,11 @@ Every `/chat` message goes through this flow:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | Yes | - | OpenAI API key for agent LLM calls |
+| `OPENAI_API_KEY` | Yes | - | OpenAI API key for agent LLM calls (do not commit real keys) |
 | `DATABASE_URL` | Yes | - | PostgreSQL connection string (e.g. `postgresql://user@localhost:5432/mcp_ecommerce`) |
 | `SUPABASE_URL` | Yes | - | Supabase project URL for vehicle search |
 | `SUPABASE_KEY` | Yes | - | Supabase anon key for vehicle search |
-| `OPENAI_MODEL` | No | gpt-4o-mini | Model for all agent LLM calls |
+| `OPENAI_MODEL` | No | gpt-5-nano | Model for all agent LLM calls |
 | `OPENAI_REASONING_EFFORT` | No | low | Reasoning effort: low, medium, high |
 | `LOG_LEVEL` | No | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `REDIS_HOST` | No | localhost | Redis host for session caching |

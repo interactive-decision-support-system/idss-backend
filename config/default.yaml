@@ -21,8 +21,8 @@ recommendation:
     alpha: 1.0                  # g function steepness (sum mode)
 
 models:
-  semantic_parser: "gpt-4o"
-  question_generator: "gpt-4o"
+  semantic_parser: "gpt-5-nano"
+  question_generator: "gpt-5-nano"
   temperature: 0
 
 data:
