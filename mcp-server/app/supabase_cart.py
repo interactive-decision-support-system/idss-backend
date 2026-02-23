@@ -64,6 +64,7 @@ class SupabaseCartClient:
 
     def get_cart(self, user_id: str) -> List[Dict[str, Any]]:
         """Return cart rows for user. Each item: id, product_id, product_snapshot, quantity."""
+        logger.info("supabase_cart: method=get_cart user_id=%s", user_id)
         try:
             resp = self._client.get(
                 "/rest/v1/cart",
@@ -71,9 +72,11 @@ class SupabaseCartClient:
             )
             resp.raise_for_status()
             rows = resp.json()
-            return [r for r in rows] if isinstance(rows, list) else []
+            result = [r for r in rows] if isinstance(rows, list) else []
+            logger.info("supabase_cart: method=get_cart user_id=%s result=success row_count=%s", user_id, len(result))
+            return result
         except Exception as e:
-            logger.error("get_cart failed: %s", e)
+            logger.error("supabase_cart: method=get_cart user_id=%s result=error error=%s", user_id, e)
             return []
 
     def add_to_cart(
@@ -88,6 +91,7 @@ class SupabaseCartClient:
         Returns (success, error_message).
         Validates product exists and has sufficient inventory when adding new row.
         """
+        logger.info("supabase_cart: method=add_to_cart user_id=%s product_id=%s quantity=%s", user_id, product_id, quantity)
         try:
             existing = self._client.get(
                 "/rest/v1/cart",
@@ -118,13 +122,14 @@ class SupabaseCartClient:
                 headers={"Prefer": "resolution=merge-duplicates,return=representation"},
             )
             if resp.status_code in (200, 201):
+                logger.info("supabase_cart: method=add_to_cart user_id=%s product_id=%s result=success", user_id, product_id)
                 return True, None
             # Conflict: row exists (e.g. race), try increment
             if resp.status_code == 409 or "duplicate" in (resp.text or "").lower():
                 return self.add_to_cart(user_id, product_id, product_snapshot, quantity)
             return False, resp.text or f"HTTP {resp.status_code}"
         except Exception as e:
-            logger.error("add_to_cart failed: %s", e)
+            logger.error("supabase_cart: method=add_to_cart user_id=%s product_id=%s result=error error=%s", user_id, product_id, e)
             return False, str(e)
 
     def _get_product(self, product_id: str) -> Optional[Dict[str, Any]]:
@@ -140,20 +145,23 @@ class SupabaseCartClient:
             return None
 
     def remove_from_cart(self, user_id: str, product_id: str) -> tuple[bool, Optional[str]]:
+        logger.info("supabase_cart: method=remove_from_cart user_id=%s product_id=%s", user_id, product_id)
         try:
             resp = self._client.delete(
                 "/rest/v1/cart",
                 params={"user_id": f"eq.{user_id}", "product_id": f"eq.{product_id}"},
             )
             resp.raise_for_status()
+            logger.info("supabase_cart: method=remove_from_cart user_id=%s product_id=%s result=success", user_id, product_id)
             return True, None
         except Exception as e:
-            logger.error("remove_from_cart failed: %s", e)
+            logger.error("supabase_cart: method=remove_from_cart user_id=%s product_id=%s result=error error=%s", user_id, product_id, e)
             return False, str(e)
 
     def _update_quantity(
         self, user_id: str, product_id: str, quantity: int
     ) -> tuple[bool, Optional[str]]:
+        logger.info("supabase_cart: method=update_quantity user_id=%s product_id=%s quantity=%s", user_id, product_id, quantity)
         if quantity <= 0:
             return self.remove_from_cart(user_id, product_id)
         try:
@@ -163,9 +171,10 @@ class SupabaseCartClient:
                 json={"quantity": quantity},
             )
             resp.raise_for_status()
+            logger.info("supabase_cart: method=update_quantity user_id=%s product_id=%s result=success", user_id, product_id)
             return True, None
         except Exception as e:
-            logger.error("update_cart quantity failed: %s", e)
+            logger.error("supabase_cart: method=update_quantity user_id=%s product_id=%s result=error error=%s", user_id, product_id, e)
             return False, str(e)
 
     def update_quantity(
@@ -181,8 +190,10 @@ class SupabaseCartClient:
         Checkout: decrement products.inventory for each cart item, then clear cart.
         Returns (success, order_id, error_message, sold_out_ids).
         """
+        logger.info("supabase_cart: method=checkout user_id=%s", user_id)
         cart_rows = self.get_cart(user_id)
         if not cart_rows:
+            logger.info("supabase_cart: method=checkout user_id=%s result=error error=Cart is empty", user_id)
             return False, None, "Cart is empty", None
 
         sold_out: List[str] = []
@@ -201,6 +212,7 @@ class SupabaseCartClient:
                 if available < qty:
                     sold_out.append(pid)
         if sold_out:
+            logger.info("supabase_cart: method=checkout user_id=%s result=error error=out_of_stock sold_out=%s", user_id, sold_out)
             return False, None, "Some items are out of stock", sold_out
 
         for row in cart_rows:
@@ -210,7 +222,7 @@ class SupabaseCartClient:
                 continue
             ok, err = self._decrement_inventory(pid, qty)
             if not ok:
-                logger.error("Checkout decrement inventory failed for %s: %s", pid, err)
+                logger.error("supabase_cart: method=checkout user_id=%s result=error error=decrement_inventory_failed product_id=%s err=%s", user_id, pid, err)
                 return False, None, "Failed to update inventory", None
 
         try:
@@ -220,13 +232,15 @@ class SupabaseCartClient:
             )
             resp.raise_for_status()
         except Exception as e:
-            logger.error("Checkout clear cart failed: %s", e)
+            logger.error("supabase_cart: method=checkout user_id=%s result=error error=clear_cart_failed err=%s", user_id, e)
             return False, None, str(e), None
 
         order_id = f"order-{uuid.uuid4().hex[:12]}"
+        logger.info("supabase_cart: method=checkout user_id=%s result=success order_id=%s", user_id, order_id)
         return True, order_id, None, None
 
     def _decrement_inventory(self, product_id: str, by: int) -> tuple[bool, Optional[str]]:
+        logger.info("supabase_cart: method=_decrement_inventory product_id=%s by=%s", product_id, by)
         try:
             resp = self._client.get(
                 "/rest/v1/products",

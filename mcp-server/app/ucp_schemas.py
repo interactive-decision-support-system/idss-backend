@@ -56,6 +56,7 @@ class UCPAddToCartParameters(BaseModel):
     product_id: str = Field(..., description="Unique product identifier")
     quantity: int = Field(1, alias="qty", description="Quantity to add", ge=1)
     cart_id: Optional[str] = Field(None, description="Existing cart ID (optional)")
+    product_snapshot: Optional[Dict[str, Any]] = Field(None, description="Product snapshot for Supabase cart (user-based)")
 
 
 class UCPAddToCartRequest(BaseModel):
@@ -81,6 +82,58 @@ class UCPCheckoutRequest(BaseModel):
     
     action: str = Field("checkout", description="Action type (always 'checkout')")
     parameters: UCPCheckoutParameters = Field(..., description="Checkout parameters")
+
+
+class UCPGetCartParameters(BaseModel):
+    """Parameters for UCP get_cart action."""
+    model_config = ConfigDict(extra="forbid")
+    
+    cart_id: str = Field(..., description="Cart identifier (user_id for signed-in)")
+
+
+class UCPGetCartRequest(BaseModel):
+    """UCP get_cart action request."""
+    model_config = ConfigDict(extra="forbid")
+    
+    action: str = Field("get_cart", description="Action type (always 'get_cart')")
+    parameters: UCPGetCartParameters = Field(..., description="Get cart parameters")
+
+
+class UCPRemoveFromCartParameters(BaseModel):
+    """Parameters for UCP remove_from_cart action."""
+    model_config = ConfigDict(extra="forbid")
+    
+    cart_id: str = Field(..., description="Cart identifier (user_id for signed-in)")
+    product_id: str = Field(..., description="Product to remove")
+
+
+class UCPRemoveFromCartRequest(BaseModel):
+    """UCP remove_from_cart action request."""
+    model_config = ConfigDict(extra="forbid")
+    
+    action: str = Field("remove_from_cart", description="Action type (always 'remove_from_cart')")
+    parameters: UCPRemoveFromCartParameters = Field(..., description="Remove parameters")
+
+
+class UCPUpdateCartParameters(BaseModel):
+    """Parameters for UCP update_cart action (quantity update; 0 = remove)."""
+    model_config = ConfigDict(extra="forbid")
+    
+    cart_id: Optional[str] = Field(None, description="Cart identifier (user_id for signed-in)")
+    user_id: Optional[str] = Field(None, description="Alias for cart_id (backward compat)")
+    product_id: str = Field(..., description="Product to update")
+    quantity: int = Field(..., ge=0, description="New quantity (0 to remove)")
+
+    def get_cart_id(self) -> str:
+        return (self.cart_id or self.user_id or "").strip()
+
+
+class UCPUpdateCartRequest(BaseModel):
+    """UCP update_cart action request."""
+    model_config = ConfigDict(extra="forbid")
+    
+    action: str = Field("update_cart", description="Action type (always 'update_cart')")
+    parameters: UCPUpdateCartParameters = Field(..., description="Update parameters")
 
 
 # ============================================================================
@@ -159,6 +212,38 @@ class UCPCheckoutResponse(BaseModel):
     status: str = Field(..., description="Response status (success | error)")
     order_id: Optional[str] = Field(None, description="Order identifier")
     total_price_cents: Optional[int] = Field(None, description="Total order price in cents")
+    error: Optional[str] = Field(None, description="Error message if status is error")
+    details: Optional[Dict[str, Any]] = Field(None, description="Additional error details")
+
+
+class UCPCartItemOut(BaseModel):
+    """Single cart item in UCP get_cart response."""
+    id: str = Field(..., description="Row or item id")
+    product_id: str = Field(..., description="Product identifier")
+    product_snapshot: Dict[str, Any] = Field(default_factory=dict, description="Product snapshot")
+    quantity: int = Field(..., description="Quantity")
+
+
+class UCPGetCartResponse(BaseModel):
+    """UCP get_cart action response."""
+    status: str = Field(..., description="Response status (success | error)")
+    cart_id: Optional[str] = Field(None, description="Cart identifier")
+    items: List[UCPCartItemOut] = Field(default_factory=list, description="Cart items")
+    item_count: Optional[int] = Field(None, description="Number of items")
+    error: Optional[str] = Field(None, description="Error message if status is error")
+    details: Optional[Dict[str, Any]] = Field(None, description="Additional error details")
+
+
+class UCPRemoveFromCartResponse(BaseModel):
+    """UCP remove_from_cart action response."""
+    status: str = Field(..., description="Response status (success | error)")
+    error: Optional[str] = Field(None, description="Error message if status is error")
+    details: Optional[Dict[str, Any]] = Field(None, description="Additional error details")
+
+
+class UCPUpdateCartResponse(BaseModel):
+    """UCP update_cart action response."""
+    status: str = Field(..., description="Response status (success | error)")
     error: Optional[str] = Field(None, description="Error message if status is error")
     details: Optional[Dict[str, Any]] = Field(None, description="Additional error details")
 

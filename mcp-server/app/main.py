@@ -56,12 +56,29 @@ from app.ucp_schemas import (
     UCPSearchRequest, UCPSearchResponse,
     UCPGetProductRequest, UCPGetProductResponse,
     UCPAddToCartRequest, UCPAddToCartResponse,
-    UCPCheckoutRequest, UCPCheckoutResponse
+    UCPCheckoutRequest, UCPCheckoutResponse,
+    UCPGetCartRequest, UCPGetCartResponse,
+    UCPRemoveFromCartRequest, UCPRemoveFromCartResponse,
+    UCPUpdateCartRequest, UCPUpdateCartResponse,
 )
 from app.ucp_endpoints import (
-    ucp_search, ucp_get_product, ucp_add_to_cart, ucp_checkout
+    ucp_search, ucp_get_product, ucp_add_to_cart, ucp_checkout,
+    ucp_get_cart, ucp_remove_from_cart, ucp_update_cart,
 )
 from app.ucp_event_logger import log_ucp_event
+from app.ucp_client import (
+    ucp_client_get_cart,
+    ucp_client_add_to_cart,
+    ucp_client_remove_from_cart,
+    ucp_client_checkout,
+)
+from app.cart_action_agent import (
+    build_ucp_get_cart,
+    build_ucp_add_to_cart,
+    build_ucp_remove_from_cart,
+    build_ucp_checkout,
+    build_ucp_update_cart,
+)
 from app.supabase_cart import get_supabase_cart_client
 from app.supplier_api import router as supplier_router
 from agent import ChatRequest, ChatResponse, process_chat
@@ -620,7 +637,9 @@ async def ucp_add_to_cart_endpoint(
     Implements Google's Universal Commerce Protocol for cart management.
     Maps UCP format to MCP add_to_cart tool.
     """
+    logger.info("mcp_ucp_request: path=/ucp/add_to_cart payload=%s", request.model_dump())
     response = await ucp_add_to_cart(request, db)
+    logger.info("mcp_ucp_response: path=/ucp/add_to_cart status=%s", response.status)
     # Log event for research replay
     log_ucp_event(db, "ucp_add_to_cart", "/ucp/add_to_cart", request, response, session_id=response.cart_id)
     return response
@@ -640,9 +659,41 @@ async def ucp_checkout_endpoint(
     Note: Minimal happy-path implementation for research purposes.
     Production would require payment processing, fraud detection, etc.
     """
+    logger.info("mcp_ucp_request: path=/ucp/checkout payload=%s", request.model_dump())
     response = await ucp_checkout(request, db)
+    logger.info("mcp_ucp_response: path=/ucp/checkout status=%s order_id=%s", response.status, getattr(response, "order_id", None))
     # Log event for research replay
     log_ucp_event(db, "ucp_checkout", "/ucp/checkout", request, response, session_id=request.parameters.cart_id)
+    return response
+
+
+@app.post("/ucp/get_cart", response_model=UCPGetCartResponse)
+async def ucp_get_cart_endpoint(request: UCPGetCartRequest, db: Session = Depends(get_db)):
+    """UCP get_cart. Agent sends this to fetch cart (e.g. cart_id = user_id)."""
+    logger.info("mcp_ucp_request: path=/ucp/get_cart payload=%s", request.model_dump())
+    response = await ucp_get_cart(request, db)
+    logger.info("mcp_ucp_response: path=/ucp/get_cart status=%s item_count=%s", response.status, response.item_count)
+    log_ucp_event(db, "ucp_get_cart", "/ucp/get_cart", request, response, session_id=request.parameters.cart_id)
+    return response
+
+
+@app.post("/ucp/remove_from_cart", response_model=UCPRemoveFromCartResponse)
+async def ucp_remove_from_cart_endpoint(request: UCPRemoveFromCartRequest, db: Session = Depends(get_db)):
+    """UCP remove_from_cart."""
+    logger.info("mcp_ucp_request: path=/ucp/remove_from_cart payload=%s", request.model_dump())
+    response = await ucp_remove_from_cart(request, db)
+    logger.info("mcp_ucp_response: path=/ucp/remove_from_cart status=%s", response.status)
+    log_ucp_event(db, "ucp_remove_from_cart", "/ucp/remove_from_cart", request, response, session_id=request.parameters.cart_id)
+    return response
+
+
+@app.post("/ucp/update_cart", response_model=UCPUpdateCartResponse)
+async def ucp_update_cart_endpoint(request: UCPUpdateCartRequest, db: Session = Depends(get_db)):
+    """UCP update_cart (set quantity; 0 = remove)."""
+    logger.info("mcp_ucp_request: path=/ucp/update_cart payload=%s", request.model_dump())
+    response = await ucp_update_cart(request, db)
+    logger.info("mcp_ucp_response: path=/ucp/update_cart status=%s", response.status)
+    log_ucp_event(db, "ucp_update_cart", "/ucp/update_cart", request, response, session_id=request.parameters.get_cart_id())
     return response
 
 
@@ -754,7 +805,7 @@ async def ucp_cancel_checkout_session(session_id: str, db: Session = Depends(get
 #
 
 # In-memory user cart store: user_id → {product_id → {"qty": int, "product_snapshot": dict}}
-_USER_CARTS: Dict[str, Dict[str, Any]] = {}
+# All cart ops go through Agent → UCP → MCP/Supabase (see action_* endpoints below).
 
 
 class FetchCartRequest(BaseModel):
@@ -794,134 +845,64 @@ class CheckoutActionRequest(BaseModel):
     product_type: Optional[str] = None
 
 
-class UCPUpdateCartParameters(BaseModel):
-    user_id: str
-    product_id: str
-    quantity: int
-
-
-class UCPUpdateCartRequest(BaseModel):
-    action: str
-    parameters: UCPUpdateCartParameters
-
-
 @app.post("/api/action/fetch-cart")
-def action_fetch_cart(request: FetchCartRequest):
-    """Return the current cart for a user (by user_id). Agent → UCP → MCP (Supabase cart table)."""
-    client = get_supabase_cart_client()
-    if client:
-        rows = client.get_cart(request.user_id)
-        items = [
-            CartItemOut(
-                id=str(row.get("id", row.get("product_id", ""))),
-                product_id=str(row.get("product_id", "")),
-                product_snapshot=row.get("product_snapshot") or {},
-                quantity=int(row.get("quantity") or 1),
-            )
-            for row in rows
-        ]
-        return FetchCartResponse(
-            status="success",
-            cart_id=request.user_id,
-            items=items,
-            item_count=len(items),
-        )
-    cart = _USER_CARTS.get(request.user_id, {})
+async def action_fetch_cart(request: FetchCartRequest, db: Session = Depends(get_db)):
+    """Return the current cart for a user. Agent sends UCP get_cart to MCP over HTTP."""
+    logger.info("action_api_request: action=%s user_id=%s", "fetch_cart", request.user_id)
+    ucp_req = build_ucp_get_cart(request.user_id)
+    logger.info("ucp_request: ucp_action=%s payload=%s", "get_cart", ucp_req.model_dump())
+    response = await ucp_client_get_cart(ucp_req)
+    logger.info("ucp_response: ucp_action=%s status=%s item_count=%s", "get_cart", response.status, response.item_count)
+    log_ucp_event(db, "ucp_get_cart", "/api/action/fetch-cart", ucp_req, response, session_id=request.user_id)
+    if response.status != "success":
+        return FetchCartResponse(status="error", error=response.error or "Failed to get cart")
     items = [
-        CartItemOut(
-            id=product_id,
-            product_id=product_id,
-            product_snapshot=item_data.get("product_snapshot", {}),
-            quantity=item_data.get("qty", 1),
-        )
-        for product_id, item_data in cart.items()
+        CartItemOut(id=it.id, product_id=it.product_id, product_snapshot=it.product_snapshot, quantity=it.quantity)
+        for it in response.items
     ]
-    return FetchCartResponse(
-        status="success",
-        cart_id=request.user_id,
-        items=items,
-        item_count=len(items),
-    )
+    return FetchCartResponse(status="success", cart_id=response.cart_id, items=items, item_count=response.item_count or len(items))
 
 
 @app.post("/api/action/add-to-cart")
-def action_add_to_cart(request: AddToCartActionRequest):
-    """Add (or increment) a product in the user's cart. Agent → UCP → MCP (Supabase cart)."""
-    client = get_supabase_cart_client()
-    if client:
-        ok, err = client.add_to_cart(
-            request.user_id,
-            request.product_id,
-            request.product_snapshot,
-            request.quantity,
-        )
-        if ok:
-            return {"status": "success"}
-        return {"status": "error", "error": err or "Add to cart failed"}
-    cart = _USER_CARTS.setdefault(request.user_id, {})
-    if request.product_id in cart:
-        cart[request.product_id]["qty"] += request.quantity
-    else:
-        cart[request.product_id] = {
-            "qty": request.quantity,
-            "product_snapshot": request.product_snapshot,
-        }
+async def action_add_to_cart(request: AddToCartActionRequest, db: Session = Depends(get_db)):
+    """Add (or increment) a product in the user's cart. Agent sends UCP add_to_cart to MCP over HTTP."""
+    logger.info("action_api_request: action=%s user_id=%s product_id=%s quantity=%s", "add_to_cart", request.user_id, request.product_id, request.quantity)
+    ucp_req = build_ucp_add_to_cart(request.user_id, request.product_id, request.quantity, request.product_snapshot)
+    logger.info("ucp_request: ucp_action=%s payload=%s", "add_to_cart", ucp_req.model_dump())
+    response = await ucp_client_add_to_cart(ucp_req)
+    logger.info("ucp_response: ucp_action=%s status=%s", "add_to_cart", response.status)
+    log_ucp_event(db, "ucp_add_to_cart", "/api/action/add-to-cart", ucp_req, response, session_id=request.user_id)
+    if response.status != "success":
+        return {"status": "error", "error": response.error or "Add to cart failed"}
     return {"status": "success"}
 
 
 @app.post("/api/action/remove-from-cart")
-def action_remove_from_cart(request: RemoveFromCartRequest):
-    """Remove a product from the user's cart. Agent → UCP → MCP (Supabase cart)."""
-    client = get_supabase_cart_client()
-    if client:
-        ok, err = client.remove_from_cart(request.user_id, request.product_id)
-        if ok:
-            return {"status": "success"}
-        return {"status": "error", "error": err or "Remove failed"}
-    cart = _USER_CARTS.get(request.user_id, {})
-    cart.pop(request.product_id, None)
+async def action_remove_from_cart(request: RemoveFromCartRequest, db: Session = Depends(get_db)):
+    """Remove a product from the user's cart. Agent sends UCP remove_from_cart to MCP over HTTP."""
+    logger.info("action_api_request: action=%s user_id=%s product_id=%s", "remove_from_cart", request.user_id, request.product_id)
+    ucp_req = build_ucp_remove_from_cart(request.user_id, request.product_id)
+    logger.info("ucp_request: ucp_action=%s payload=%s", "remove_from_cart", ucp_req.model_dump())
+    response = await ucp_client_remove_from_cart(ucp_req)
+    logger.info("ucp_response: ucp_action=%s status=%s", "remove_from_cart", response.status)
+    log_ucp_event(db, "ucp_remove_from_cart", "/api/action/remove-from-cart", ucp_req, response, session_id=request.user_id)
+    if response.status != "success":
+        return {"status": "error", "error": response.error or "Remove failed"}
     return {"status": "success"}
 
 
 @app.post("/api/action/checkout")
-def action_checkout(request: CheckoutActionRequest):
-    """Checkout the user's cart: decrement inventory, clear cart. Agent → UCP → MCP (Supabase)."""
-    client = get_supabase_cart_client()
-    if client:
-        ok, order_id, err, sold_out_ids = client.checkout(request.user_id)
-        if ok:
-            return {"status": "success", "order_id": order_id}
-        return {
-            "status": "error",
-            "error": err or "Checkout failed",
-            "details": {"sold_out_ids": sold_out_ids} if sold_out_ids else None,
-        }
-    import uuid as _uuid
-    cart = _USER_CARTS.get(request.user_id, {})
-    if not cart:
-        return {"status": "error", "error": "Cart is empty"}
-    order_id = f"ORDER-{_uuid.uuid4().hex[:8].upper()}"
-    _USER_CARTS[request.user_id] = {}  # Clear cart on checkout
-    return {"status": "success", "order_id": order_id}
-
-
-@app.post("/ucp/update_cart")
-def ucp_update_cart_action(request: UCPUpdateCartRequest):
-    """Update a cart item's quantity. Agent → UCP → MCP (Supabase cart). Set quantity to 0 to remove."""
-    params = request.parameters
-    client = get_supabase_cart_client()
-    if client:
-        ok, err = client.update_quantity(params.user_id, params.product_id, params.quantity)
-        if ok:
-            return {"status": "success"}
-        return {"status": "error", "error": err or "Update failed"}
-    cart = _USER_CARTS.setdefault(params.user_id, {})
-    if params.product_id in cart:
-        if params.quantity <= 0:
-            cart.pop(params.product_id)
-        else:
-            cart[params.product_id]["qty"] = params.quantity
-    return {"status": "success"}
+async def action_checkout(request: CheckoutActionRequest, db: Session = Depends(get_db)):
+    """Checkout the user's cart. Agent sends UCP checkout to MCP over HTTP."""
+    logger.info("action_api_request: action=%s user_id=%s", "checkout", request.user_id)
+    ucp_req = build_ucp_checkout(request.user_id)
+    logger.info("ucp_request: ucp_action=%s payload=%s", "checkout", ucp_req.model_dump())
+    response = await ucp_client_checkout(ucp_req)
+    logger.info("ucp_response: ucp_action=%s status=%s order_id=%s", "checkout", response.status, getattr(response, "order_id", None))
+    log_ucp_event(db, "ucp_checkout", "/api/action/checkout", ucp_req, response, session_id=request.user_id)
+    if response.status != "success":
+        return {"status": "error", "error": response.error or "Checkout failed", "details": getattr(response, "details", None)}
+    return {"status": "success", "order_id": response.order_id}
 
 
 #
