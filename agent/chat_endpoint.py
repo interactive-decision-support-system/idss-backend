@@ -772,12 +772,21 @@ async def _search_and_respond_vehicles(
             except Exception as e:
                 logger.error("rec_explanation_failed", f"Failed to generate explanation: {e}", {})
 
+        from app.formatters import format_product
+        formatted_recs = []
+        for bucket in result.recommendations:
+            formatted_bucket = [
+                format_product(v, "vehicles").model_dump(mode='json', exclude_none=True)
+                for v in bucket
+            ]
+            formatted_recs.append(formatted_bucket)
+
         return ChatResponse(
             response_type="recommendations",
             message=message,
             session_id=session_id,
             domain="vehicles",
-            recommendations=result.recommendations,
+            recommendations=formatted_recs,
             bucket_labels=result.bucket_labels,
             diversification_dimension=result.diversification_dimension,
             filters=search_filters,

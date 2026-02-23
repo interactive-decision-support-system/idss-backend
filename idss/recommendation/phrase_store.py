@@ -69,51 +69,158 @@ class PhraseStore:
         vehicles_db_path: Optional[Path] = None,
         embeddings_dir: Optional[Path] = None,
         model_name: str = "all-mpnet-base-v2",
-        preload: bool = True
+        preload: bool = False,
+        use_supabase: bool = True,
+        preload_model: bool = False
     ):
         """
-        Initialize phrase store with individual phrase embeddings.
-
-        Args:
-            reviews_db_path: Path to Tavily reviews database (only if building from scratch)
-            vehicles_db_path: Path to unified vehicle listings database
-            embeddings_dir: Path to pre-computed embeddings directory (default: data/car_dataset_idss/phrase_embeddings)
-            model_name: Sentence transformer model name (only if building from scratch)
-            preload: If True, load all embeddings at init
+        Initialize phrase store.
         """
-        if reviews_db_path is None:
-            reviews_db_path = Path("data/car_dataset_idss/vehicle_reviews_tavily.db")
-        if vehicles_db_path is None:
-            vehicles_db_path = Path("data/car_dataset_idss/uni_vehicles.db")
-        if embeddings_dir is None:
-            embeddings_dir = Path("data/car_dataset_idss/phrase_embeddings")
-
         self.reviews_db_path = reviews_db_path
         self.vehicles_db_path = vehicles_db_path
         self.embeddings_dir = embeddings_dir
         self.model_name = model_name
+        self.use_supabase = use_supabase
 
-        # Lazy-loaded encoder (only needed for encoding new user preferences)
+        # Lazy-loaded encoder
         self._encoder = None
 
-        # Pre-computed storage: (MAKE_UPPER, MODEL_UPPER, year) -> VehiclePhrases
+        # Cache: (MAKE_UPPER, MODEL_UPPER, year) -> VehiclePhrases
         self._phrases_by_mmy: Dict[Tuple[str, str, int], VehiclePhrases] = {}
 
-        # Pre-load all embeddings with imputation
-        if preload:
-            # Try to load from pre-computed files first
+        if self.use_supabase:
+            from idss.utils.supabase_client import supabase
+            self.supabase = supabase
+            logger.info("Using Supabase for phrase store")
+        elif preload:
             if self._load_precomputed_embeddings():
                 logger.info(f"Loaded pre-computed embeddings from {self.embeddings_dir}")
             else:
-                logger.warning(f"Pre-computed embeddings not found, building from scratch...")
-                # Fall back to computing on-the-fly
-                if not self.reviews_db_path.exists():
-                    logger.error(f"Reviews database not found: {self.reviews_db_path}")
-                    raise FileNotFoundError(f"Database not found: {self.reviews_db_path}")
-
                 self._preload_with_imputation()
 
-        logger.info(f"PhraseStore ready: {len(self._phrases_by_mmy)} MMYs loaded")
+        if preload_model:
+            self._get_encoder()
+
+    def get_phrases(
+        self,
+        make: str,
+        model: str,
+        year: int
+    ) -> Optional[VehiclePhrases]:
+        """Get pre-computed individual phrases."""
+        key_mmy = (make.upper(), model.upper(), year)
+        
+        # 1. Check cache
+        if key_mmy in self._phrases_by_mmy:
+            return self._phrases_by_mmy[key_mmy]
+
+        # 2. Check Supabase
+        if self.use_supabase:
+            return self._load_phrases_from_supabase(make, model, year)
+
+        return self._phrases_by_mmy.get(key_mmy)
+
+    def _load_phrases_from_supabase(self, make: str, model: str, year: int) -> Optional[VehiclePhrases]:
+        """Lazy load phrases for a specific MMY from Supabase."""
+        try:
+            # 1. Fetch metadata/reviews from 'vehicle_reviews'
+            res_review = self.supabase.select("vehicle_reviews", filters={
+                "make": f"ilike.{make}",
+                "model": f"ilike.{model}",
+                "year": f"eq.{year}"
+            }, limit=1)
+            
+            logger.info(f"Supabase review lookup for {make} {model} {year}: Found {len(res_review)} rows")
+            
+            if not res_review:
+                return self._impute_from_supabase(make, model, year)
+
+            # 2. Fetch all phrases for this MMY from 'phrase_embeddings'
+            res_embs = self.supabase.select("phrase_embeddings", filters={
+                "make": f"ilike.{make}",
+                "model": f"ilike.{model}",
+                "year": f"eq.{year}"
+            })
+            
+            logger.info(f"Supabase phrase lookup for {make} {model} {year}: Found {len(res_embs)} rows")
+
+            pros_phrases = []
+            cons_phrases = []
+            pros_embeddings_list = []
+            cons_embeddings_list = []
+
+            for row in res_embs:
+                p_type = row.get("phrase_type", "pro").lower()
+                text = row.get("phrase_text", "")
+                raw_emb = row.get("embedding")
+                
+                if not text or raw_emb is None: continue
+                
+                # Supabase returns embeddings as stringified JSON arrays
+                if isinstance(raw_emb, str):
+                    raw_emb = json.loads(raw_emb)
+                emb_np = np.array(raw_emb, dtype=np.float32)
+                if "pro" in p_type:
+                    pros_phrases.append(text)
+                    pros_embeddings_list.append(emb_np)
+                else:
+                    cons_phrases.append(text)
+                    cons_embeddings_list.append(emb_np)
+
+            # Convert to numpy arrays
+            pros_embeddings = np.array(pros_embeddings_list) if pros_embeddings_list else np.empty((0, 768))
+            cons_embeddings = np.array(cons_embeddings_list) if cons_embeddings_list else np.empty((0, 768))
+
+            vp = VehiclePhrases(
+                make=make,
+                model=model,
+                year=year,
+                pros_phrases=pros_phrases,
+                cons_phrases=cons_phrases,
+                pros_embeddings=pros_embeddings,
+                cons_embeddings=cons_embeddings,
+                imputed=False
+            )
+            self._phrases_by_mmy[(make.upper(), model.upper(), year)] = vp
+            return vp
+            
+        except Exception as e:
+            logger.error(f"Failed to load phrases from Supabase for {make} {model} {year}: {e}")
+            return None
+
+    def _impute_from_supabase(self, make: str, model: str, year: int) -> Optional[VehiclePhrases]:
+        """Find most recent year for the same make/model."""
+        try:
+            # Fetch most recent review for this MM
+            res = self.supabase.select(
+                "vehicle_reviews", 
+                filters={"make": f"ilike.{make}", "model": f"ilike.{model}"}, 
+                order="year.desc",
+                limit=1
+            )
+            if res:
+                source = res[0]
+                source_year = source["year"]
+                # Recursively load the source (it will be cached)
+                source_vp = self.get_phrases(make, model, source_year)
+                if source_vp:
+                    # Create imputed copy
+                    imputed = VehiclePhrases(
+                        make=make,
+                        model=model,
+                        year=year,
+                        pros_phrases=source_vp.pros_phrases.copy(),
+                        cons_phrases=source_vp.cons_phrases.copy(),
+                        pros_embeddings=source_vp.pros_embeddings.copy(),
+                        cons_embeddings=source_vp.cons_embeddings.copy(),
+                        imputed=True
+                    )
+                    self._phrases_by_mmy[(make.upper(), model.upper(), year)] = imputed
+                    return imputed
+            return None
+        except Exception as e:
+            logger.error(f"Imputation failed for {make} {model} {year}: {e}")
+            return None
 
     def _load_precomputed_embeddings(self) -> bool:
         """

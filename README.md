@@ -7,132 +7,75 @@ An LLM-driven Interactive Decision Support System that helps users find products
 ```
                         Frontend (Port 3000)
                        Next.js Chat Interface
-                              
-                              
-
-                  IDSS Server (Port 8000)                  
-  POST /chat  agent/chat_endpoint.py               
-  POST /ucp/checkout-sessions  UCP checkout            
-                                                          
-             OR                                 
-                                                         
-   MCP Server (Port 8001)  (same agent/, same endpoints)  
-                                                          
-  Agent pipeline:                                         
-     UniversalAgent (LLM brain)                        
-        Domain detection                              
-        Criteria extraction                           
-        Question generation                           
-        Post-rec refinement                           
-     chat_endpoint.py (orchestrator)                   
-     interview/session_manager.py                      
-                                                          
-  Search:  Supabase PostgreSQL (24,150 products)          
-  KG:      Neo4j (24,868 nodes / 40,585 relationships)   
-  Cache:   Upstash Redis (cloud) or local Redis           
-
-                                       
-                                       
-   
-   SQLite + FAISS                 PostgreSQL          
-   Vehicle Data (~2GB)          (mcp_ecommerce)       
-   ~147k vehicles             - Electronics (~21k)    
-                              - Books (~66)           
-   
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│                  MCP Server (Port 8001)                   │
+│                                                          │
+│  POST /chat ─────► agent/                                │
+│                    ├── UniversalAgent (LLM brain)         │
+│                    │   ├── Domain detection               │
+│                    │   ├── Criteria extraction            │
+│                    │   ├── Question generation            │
+│                    │   └── Post-rec refinement            │
+│                    ├── chat_endpoint.py (orchestrator)    │
+│                    └── interview/session_manager.py       │
+│                                                          │
+│  Search dispatch:                                        │
+│    vehicles ──► Supabase (direct import, no HTTP)        │
+│    laptops  ──► PostgreSQL                               │
+│    books    ──► PostgreSQL                               │
+└──────────────────────────────────────────────────────────┘
+              │                         │
+              ▼                         ▼
+┌─────────────────────────┐   ┌─────────────────────────┐
+│        Supabase         │   │      PostgreSQL          │
+│   Vehicle Data          │   │    (mcp_ecommerce)       │
+│   ~147k vehicles        │   │  - Electronics (~21k)    │
+│   Embeddings + Phrases  │   │  - Books (~66)           │
+└─────────────────────────┘   └─────────────────────────┘
 ```
 
-**Key design:** Both port 8000 (IDSS server) and port 8001 (MCP server) use the same `agent/chat_endpoint.py` pipeline. The frontend connects to port 8000 by default.
-
-## Database Schema (Supabase)
-
-The system uses a **single `products` table** in Supabase PostgreSQL. No separate prices, inventory, carts, or orders tables.
-
-```sql
-CREATE TABLE products (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    title               TEXT,           -- Product name (mapped to 'name' in Python)
-    price               NUMERIC,        -- Price in dollars (NOT cents)
-    brand               TEXT,
-    category            TEXT,           -- "Electronics", "Books", etc.
-    product_type        TEXT,           -- "laptop", "gaming_laptop", "book", "phone"
-    source              TEXT,           -- "System76", "Amazon", "BackMarket", etc.
-    imageurl            TEXT,           -- Image URL (no underscore!)
-    rating              NUMERIC,
-    rating_count        BIGINT,
-    series              TEXT,
-    model               TEXT,
-    link                TEXT,
-    ref_id              TEXT,
-    variant             TEXT,
-    inventory           BIGINT,
-    release_year        SMALLINT,
-    delivery_promise    TEXT,
-    return_policy       TEXT,
-    warranty            TEXT,
-    promotions_discounts TEXT,
-    merchant_product_url TEXT,
-    attributes          JSONB           -- Specs, description, color, GPU, etc.
-);
-```
-
-### SQLAlchemy Column Mapping
-
-The Python model maps Supabase column names to legacy attribute names so existing code works unchanged:
-
-| Supabase Column | Python Attribute | Notes |
-|-----------------|-----------------|-------|
-| `id` (UUID) | `product_id` | `Column("id", PG_UUID)` |
-| `title` | `name` | `Column("title", Text)` |
-| `price` (dollars) | `price_value` | `Column("price", Numeric)` |
-| `imageurl` | `image_url` | `Column("imageurl", Text)` |
-| `attributes` (JSONB) | `attributes` | Contains: description, color, gpu_vendor, gpu_model, ram_gb, tags, kg_features |
-
-Fields that were previously separate columns (`description`, `color`, `gpu_vendor`, `gpu_model`, `tags`, `kg_features`) are now accessed via `@property` methods that read from `attributes` JSONB.
-
-**Removed tables:** `prices` (price now on products), `inventory` (column on products), `carts`, `cart_items`, `orders` (handled by UCP checkout). Stub classes exist in `models.py` to prevent import errors.
+**Key design:** There is no separate IDSS API server. Vehicle search functions (`idss.recommendation.*`) are imported directly into the MCP server process. Only **one server** (port 8001) is needed.
 
 ## Project Structure
 
 ```
 idss-backend/
- agent/                           # Agent brain (independent of server)
-    __init__.py                  # Public API re-exports
-    universal_agent.py           # LLM-driven pipeline
-    domain_registry.py           # Domain schemas (slots, priorities, allowed values)
-    prompts.py                   # All LLM prompt templates
-    chat_endpoint.py             # /chat orchestrator + search dispatchers
-    interview/
-        session_manager.py       # Session state + Redis/Neo4j persistence
-
- mcp-server/                      # HTTP server + tools
-    app/
-       main.py                  # FastAPI app (port 8001)
-       endpoints.py             # MCP tool-call endpoints
-       formatters.py            # Product formatting for frontend
-       research_compare.py      # Post-rec research/compare handlers
-       database.py              # Supabase PostgreSQL connection
-       models.py                # SQLAlchemy models (Supabase schema)
-       ucp_checkout.py          # UCP checkout (Google Universal Commerce)
-       neo4j_config.py          # Neo4j connection
-       knowledge_graph.py       # KG builder (node/relationship creation)
-       ...                      # Cache, metrics, etc.
-    scripts/
-       seed_diverse.sql         # Creates tables + seed products
-       seed_laptops_expanded.sql # Additional laptop data
-       seed_books_expanded.sql  # Additional book data
-       merge_supabase_data.py   # Import ~24k products from Supabase
-    tests/
-
- idss/                            # IDSS Server (port 8000)
-    api/
-        server.py                # FastAPI app → routes /chat to agent/
-        models.py                # Request/response models
-
- config/default.yaml              # Recommendation config
- requirements.txt
- .env                             # Environment variables
+├── agent/                           # Agent brain (independent of server)
+│   ├── __init__.py                  # Public API re-exports
+│   ├── universal_agent.py           # LLM-driven pipeline (domain → extract → question → search)
+│   ├── domain_registry.py           # Domain schemas (slots, priorities, allowed values)
+│   ├── prompts.py                   # All LLM prompt templates (tune without touching logic)
+│   ├── chat_endpoint.py             # /chat orchestrator + search dispatchers
+│   └── interview/
+│       └── session_manager.py       # Session state + Redis/Neo4j persistence
+│
+├── mcp-server/                      # HTTP server + tools
+│   ├── app/
+│   │   ├── main.py                  # FastAPI app (port 8001)
+│   │   ├── endpoints.py             # MCP tool-call endpoints
+│   │   ├── tools/vehicle_search.py  # IDSS vehicle search wrapper (direct import)
+│   │   ├── formatters.py            # Product formatting for frontend
+│   │   ├── research_compare.py      # Post-rec research/compare handlers
+│   │   ├── database.py              # PostgreSQL connection
+│   │   ├── models.py                # SQLAlchemy models
+│   │   └── ...                      # Cache, metrics, UCP, etc.
+│   ├── scripts/
+│   │   ├── seed_diverse.sql         # Creates tables + seed products
+│   │   ├── seed_laptops_expanded.sql # Additional laptop data
+│   │   ├── seed_books_expanded.sql  # Additional book data
+│   │   └── merge_supabase_data.py   # Import ~24k products from Supabase
+│   └── tests/
+│
+├── idss/                            # IDSS Vehicle Recommendation Engine
+│   ├── recommendation/              # Embedding similarity, coverage-risk
+│   ├── diversification/             # Entropy bucketing
+│   └── core/                        # Controller
+│
+├── config/default.yaml              # IDSS recommendation config
+├── requirements.txt
+└── .env                             # Environment variables
 ```
 
 ## Prerequisites
@@ -170,15 +113,11 @@ Create a `.env` file in the **project root** (not inside `mcp-server/`):
 ```bash
 # Required
 OPENAI_API_KEY="sk-your-openai-api-key"
-DATABASE_URL="postgresql://postgres:password@localhost:5432/idss"
+DATABASE_URL="postgresql://YOUR_USERNAME@localhost:5432/mcp_ecommerce"
 
-# Neo4j (Docker)
-NEO4J_URI=bolt://localhost:7688
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=neo4jpassword
-
-# Optional: Upstash Redis (cloud cache)
-# UPSTASH_REDIS_URL="rediss://..."
+# Supabase (vehicle search)
+SUPABASE_URL="https://your-project.supabase.co"
+SUPABASE_KEY="your-supabase-anon-key"
 
 # LLM model configuration
 # OPENAI_MODEL="gpt-4o-mini"
@@ -245,19 +184,7 @@ Without Supabase import (seed data only):
  Books       |    50
 ```
 
-### 4. Setup Vehicle Data (optional)
-
-Vehicle search requires a separate dataset (~2GB). Skip this step if you only need laptops/books.
-
-```bash
-# Required files in data/car_dataset_idss/:
-# - uni_vehicles.db (~1.5 GB SQLite database)
-# - vehicle_reviews_tavily.db (~22 MB)
-# - bm25_index.pkl
-# - phrase_embeddings/
-```
-
-### 5. Start the Servers
+### 4. Start the Server
 
 ```bash
 # Terminal 1: IDSS server (port 8000) — frontend connects here
@@ -269,29 +196,9 @@ cd mcp-server
 uvicorn app.main:app --reload --port 8001
 ```
 
-First startup preloads IDSS vehicle models (~60-120 seconds). To skip vehicle preloading during development:
+First startup preloads vehicle embedding models (~60-120 seconds).
 
-```bash
-export MCP_SKIP_PRELOAD=1
-```
-
-### 6. Start the Frontend
-
-```bash
-cd ../idss-web
-npm install
-npm run dev
-# → http://localhost:3000
-```
-
-Configure the frontend to point to the backend:
-
-```bash
-# In idss-web/.env.local
-NEXT_PUBLIC_API_BASE_URL="http://localhost:8000"
-```
-
-### 7. Verify
+### 5. Verify
 
 ```bash
 # Health check
@@ -307,7 +214,7 @@ curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "looking for a mystery novel"}'
 
-# Test vehicle flow (requires step 4)
+# Test vehicle flow
 curl -X POST http://localhost:8001/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "I need an SUV under 30k"}'
@@ -380,7 +287,7 @@ Every `/chat` message goes through this flow:
 
 **Neo4j port confusion** — Docker maps `7475→7474` and `7688→7687`. Use `localhost:7475` for the browser and `bolt://localhost:7688` for the driver. Do NOT use the default ports (7474/7687) — those may be a separate local Neo4j install.
 
-**Redis connection errors** — Redis/Upstash is optional. Falls back to in-memory sessions.
+**Vehicle search returns no results** — Check that `SUPABASE_URL` and `SUPABASE_KEY` are set correctly in your `.env` file.
 
 **Server crashes on startup (ImportError)** — Make sure you're running from the repo root with `--app-dir mcp-server`. The agent package must be importable from the repo root.
 
@@ -390,10 +297,11 @@ Every `/chat` message goes through this flow:
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | Yes | - | OpenAI API key for agent LLM calls |
 | `DATABASE_URL` | Yes | - | PostgreSQL connection string (e.g. `postgresql://user@localhost:5432/mcp_ecommerce`) |
+| `SUPABASE_URL` | Yes | - | Supabase project URL for vehicle search |
+| `SUPABASE_KEY` | Yes | - | Supabase anon key for vehicle search |
 | `OPENAI_MODEL` | No | gpt-4o-mini | Model for all agent LLM calls |
 | `OPENAI_REASONING_EFFORT` | No | low | Reasoning effort: low, medium, high |
 | `LOG_LEVEL` | No | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `REDIS_HOST` | No | localhost | Redis host for session caching |
 | `REDIS_PORT` | No | 6379 | Redis port |
 | `NEO4J_URI` | No | - | Neo4j connection for knowledge graph |
-| `MCP_SKIP_PRELOAD` | No | 0 | Skip IDSS vehicle model preloading (dev

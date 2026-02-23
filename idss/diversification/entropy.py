@@ -42,12 +42,18 @@ def get_vehicle_value(vehicle: Dict[str, Any], dimension: str) -> Any:
         The value for that dimension, or None if not found
     """
     # Try vehicle section first
-    v = vehicle.get('vehicle', {})
+    v = vehicle.get('vehicle', vehicle)
 
     if dimension == 'price':
-        return v.get('price') or vehicle.get('retailListing', {}).get('price')
+        val = v.get('price')
+        if val is None: val = vehicle.get('retailListing', {}).get('price')
+        if val is None: val = vehicle.get('price')
+        return float(val) if val is not None else None
     elif dimension == 'mileage':
-        return v.get('mileage') or vehicle.get('retailListing', {}).get('miles')
+        val = v.get('mileage')
+        if val is None: val = vehicle.get('retailListing', {}).get('miles')
+        if val is None: val = vehicle.get('mileage')
+        return float(val) if val is not None else None
     elif dimension == 'year':
         return v.get('year')
     elif dimension == 'make':
@@ -55,7 +61,7 @@ def get_vehicle_value(vehicle: Dict[str, Any], dimension: str) -> Any:
     elif dimension == 'model':
         return v.get('model')
     elif dimension == 'body_style':
-        return v.get('bodyStyle') or v.get('norm_body_type')
+        return v.get('bodyStyle') or v.get('norm_body_type') or v.get('body_style')
     elif dimension == 'fuel_type':
         return v.get('fuel') or v.get('norm_fuel_type')
     elif dimension == 'drivetrain':

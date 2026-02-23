@@ -20,10 +20,12 @@ def get_dense_embedding_store(
     index_dir: Optional[Path] = None,
     model_name: str = "all-mpnet-base-v2",
     version: str = "v1",
-    index_type: str = "Flat"
+    index_type: str = "Flat",
+    use_supabase: bool = True,
+    preload_model: bool = False
 ) -> DenseEmbeddingStore:
     """Get cached DenseEmbeddingStore instance."""
-    cache_key = f"{index_dir}:{model_name}:{version}:{index_type}"
+    cache_key = f"{index_dir}:{model_name}:{version}:{index_type}:{use_supabase}"
 
     if cache_key not in _DENSE_STORE_CACHE:
         logger.info(f"Creating new DenseEmbeddingStore")
@@ -31,7 +33,9 @@ def get_dense_embedding_store(
             index_dir=index_dir,
             model_name=model_name,
             version=version,
-            index_type=index_type
+            index_type=index_type,
+            use_supabase=use_supabase,
+            preload_model=preload_model
         )
 
     return _DENSE_STORE_CACHE[cache_key]

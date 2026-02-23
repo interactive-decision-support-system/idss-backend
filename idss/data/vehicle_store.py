@@ -113,6 +113,208 @@ def _haversine_distance_sql(user_lat: float, user_lon: float) -> str:
 
 
 @dataclass
+class SupabaseVehicleStore:
+    """
+    Vehicle data access layer backed by Supabase.
+    """
+    client: Any = None
+    require_photos: bool = True
+
+    def __post_init__(self) -> None:
+        from idss.utils.supabase_client import supabase
+        self.client = supabase
+
+    def search_listings(
+        self,
+        filters: Dict[str, Any],
+        limit: int = 200,
+        offset: int = 0,
+        order_by: str = "price",
+        order_dir: str = "ASC",
+        user_latitude: Optional[float] = None,
+        user_longitude: Optional[float] = None,
+        max_per_make_model: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Execute filtered search against Supabase 'cars' table.
+        """
+        url_params = {
+            "select": "*",
+            "limit": str(limit),
+            "offset": str(offset)
+        }
+        
+        # Mapping sorting
+        order_col = order_by if order_by in ("price", "mileage", "year") else "price"
+        direction = "asc" if order_dir.upper() == "ASC" else "desc"
+        url_params["order"] = f"{order_col}.{direction}"
+
+        # Helper to add params safely (handling multiple conditions for the same key)
+        def add_param(k: str, v: str):
+            if k in url_params:
+                if isinstance(url_params[k], list):
+                    url_params[k].append(v)
+                else:
+                    url_params[k] = [url_params[k], v]
+            else:
+                url_params[k] = v
+
+        # Apply filters
+        for key, val in filters.items():
+            if not val: continue
+            
+            if key == "make":
+                add_param("make", f"ilike.{val}")
+            elif key == "model":
+                add_param("model", f"ilike.{val}")
+            elif key == "year":
+                lower, upper = _parse_numeric_range(str(val))
+                if lower is not None: add_param("year", f"gte.{int(lower)}")
+                if upper is not None: add_param("year", f"lte.{int(upper)}")
+            elif key == "price":
+                lower, upper = _parse_numeric_range(str(val))
+                # Enforce a minimum price of $1 to filter out $0 test listings
+                min_price = max(1, int(lower)) if lower is not None else 1
+                add_param("price", f"gte.{min_price}")
+                if upper is not None: add_param("price", f"lte.{int(upper)}")
+            elif key == "mileage":
+                lower, upper = _parse_numeric_range(str(val))
+                if lower is not None: add_param("mileage", f"gte.{int(lower)}")
+                if upper is not None: add_param("mileage", f"lte.{int(upper)}")
+            elif key == "body_style":
+                add_param("norm_body_type", f"eq.{val}")
+            elif key == "fuel_type":
+                add_param("norm_fuel_type", f"eq.{val}")
+            elif key == "is_used":
+                add_param("norm_is_used", f"eq.{1 if val else 0}")
+        
+        if self.require_photos:
+            # PostGREST: Use 'not.is.null' as the filter value
+            url_params["primary_image_url"] = "not.is.null"
+
+        # Call Supabase with stratified price sampling
+        # When a price range is present, we split the range into bands and fetch
+        # limit/n_strata vehicles from each band so the candidate pool spans the
+        # full price range rather than always picking the cheapest cars.
+        try:
+            effective_limit = min(limit, 100)
+            price_filter = filters.get("price") if filters else None
+            
+            payloads: List[Dict[str, Any]] = []
+
+            if price_filter:
+                lower, upper = _parse_numeric_range(str(price_filter))
+                min_p = int(max(1, lower)) if lower is not None else 1
+                max_p = int(upper) if upper is not None else 999_999
+                n_strata = 4
+                per_stratum = max(effective_limit // n_strata, 5)
+                step = (max_p - min_p) / n_strata
+                seen_vins: set = set()
+                for i in range(n_strata):
+                    band_lo = int(min_p + i * step)
+                    band_hi = int(min_p + (i + 1) * step) if i < n_strata - 1 else max_p
+                    # Build per-band params
+                    band_params = {k: v for k, v in url_params.items() if k != "price" and k != "order"}
+                    band_params["price"] = [f"gte.{band_lo}", f"lte.{band_hi}"]
+                    band_params["order"] = "price.asc"
+                    band_params["limit"] = str(per_stratum)
+                    resp = self.client.client.get("/rest/v1/cars", params=band_params)
+                    if resp.status_code == 200:
+                        for row in resp.json():
+                            vin = row.get("vin")
+                            if vin and vin not in seen_vins:
+                                seen_vins.add(vin)
+                                payloads.append(self._row_to_payload(row))
+                
+                # Shuffle so nearby price bands don't cluster in ranking
+                import random
+                random.shuffle(payloads)
+                
+                # Trim to effective_limit
+                payloads = payloads[:effective_limit]
+                
+            else:
+                url_params["limit"] = str(effective_limit)
+                response = self.client.client.get("/rest/v1/cars", params=url_params)
+                if response.status_code == 500:
+                    logger.warning("Supabase 500 error, retrying without photo filter")
+                    url_params.pop("primary_image_url", None)
+                    response = self.client.client.get("/rest/v1/cars", params=url_params)
+                response.raise_for_status()
+                for row in response.json():
+                    payloads.append(self._row_to_payload(row))
+
+            return payloads
+        except Exception as e:
+            logger.error(f"Supabase search failed: {e}")
+            return []
+
+
+    def get_by_vin(self, vin: str) -> Optional[Dict[str, Any]]:
+        res = self.client.select("cars", filters={"vin": vin.upper()}, limit=1)
+        return self._row_to_payload(res[0]) if res else None
+
+    def _row_to_payload(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        """Adapt Supabase row (dict) to downstream format."""
+        raw_json = row.get("raw_json")
+        if raw_json and isinstance(raw_json, str):
+            try:
+                payload = json.loads(raw_json)
+            except:
+                payload = row.copy()
+        else:
+            payload = row.copy()
+
+        # Reconstruct Auto.dev format
+        vehicle_data = {
+            "vin": row.get("vin"),
+            "year": row.get("year"),
+            "make": row.get("make"),
+            "model": row.get("model"),
+            "trim": row.get("trim"),
+            "price": row.get("price"),
+            "mileage": row.get("mileage"),
+            "bodyStyle": row.get("body_style") or row.get("norm_body_type"),
+            "drivetrain": row.get("drivetrain"),
+            "engine": row.get("engine"),
+            "fuel": row.get("fuel_type") or row.get("norm_fuel_type"),
+            "transmission": row.get("transmission"),
+            "doors": row.get("doors"),
+            "seats": row.get("seats"),
+            "exteriorColor": row.get("exterior_color"),
+            "interiorColor": row.get("interior_color"),
+            "build_city_mpg": row.get("build_city_mpg"),
+            "build_highway_mpg": row.get("build_highway_mpg"),
+            "norm_body_type": row.get("norm_body_type"),
+            "norm_fuel_type": row.get("norm_fuel_type"),
+            "norm_is_used": row.get("norm_is_used"),
+        }
+
+        retail_data = {
+            "price": row.get("price"),
+            "miles": row.get("mileage"),
+            "dealer": row.get("dealer_name"),
+            "city": row.get("dealer_city"),
+            "state": row.get("dealer_state"),
+            "zip": row.get("dealer_zip"),
+            "vdp": row.get("vdp_url"),
+            "carfaxUrl": row.get("carfax_url"),
+            "primaryImage": row.get("primary_image_url"),
+            "photoCount": row.get("photo_count"),
+            "used": bool(row.get("is_used", True)),
+            "cpo": bool(row.get("is_cpo", False)),
+        }
+
+        return {
+            "@id": f"supabase/{row.get('vin')}",
+            "vin": row.get("vin"),
+            "online": True,
+            "vehicle": vehicle_data,
+            "retailListing": retail_data,
+            "_original": payload,
+        }
+
+@dataclass
 class LocalVehicleStore:
     """
     Thin repository for vehicle listings stored in SQLite.
@@ -139,6 +341,47 @@ class LocalVehicleStore:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _row_to_payload(self, row: sqlite3.Row) -> Optional[Dict[str, Any]]:
+        """Adapt a SQLite row to the downstream Auto.dev-like JSON format."""
+        if not row:
+            return None
+
+        # raw_json contains the full Auto.dev payload
+        raw_json_str = row["raw_json"]
+        if not raw_json_str:
+            return None
+
+        try:
+            payload = json.loads(raw_json_str)
+        except json.JSONDecodeError:
+            return None
+
+        # Re-inject/override some fields from the schema for consistency
+        # Some are useful for direct access without parsing JSON every time
+        vehicle_data = payload.get("vehicle", {})
+        vehicle_data.update({
+            "vin": row["vin"],
+            "year": row["year"],
+            "make": row["make"],
+            "model": row["model"],
+            "trim": row["trim"],
+            "price": row["price"],
+            "mileage": row["mileage"],
+            "bodyStyle": row["body_style"],
+            "norm_body_type": row["norm_body_type"],
+            "norm_fuel_type": row["norm_fuel_type"],
+            "norm_is_used": row["norm_is_used"],
+        })
+
+        # Ensure retailListing fields are sync'd
+        retail_data = payload.get("retailListing", {})
+        retail_data.update({
+            "price": row["price"],
+            "miles": row["mileage"],
+        })
+
+        return payload
 
     # ------------------------------------------------------------------ #
     # Public interface

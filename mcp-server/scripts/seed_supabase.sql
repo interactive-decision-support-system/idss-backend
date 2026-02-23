@@ -17,10 +17,8 @@
 --   - 'imageurl' (no underscore) for product images
 -- =============================================================================
 
--- Enable UUID extension (Supabase has this; local PG may not)
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- Drop and recreate products table
 DROP TABLE IF EXISTS products CASCADE;
 
 CREATE TABLE products (

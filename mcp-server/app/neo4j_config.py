@@ -33,6 +33,13 @@ class Neo4jConnection:
         self.password = password or os.getenv("NEO4J_PASSWORD", "password")
         self.database = database
         
+        
+        # Suppress noisy neo4j internal connection warnings, as Neo4j is optional
+        import logging
+        logging.getLogger("neo4j").setLevel(logging.CRITICAL)
+        logging.getLogger("neo4j.pool").setLevel(logging.CRITICAL)
+        logging.getLogger("neo4j.io").setLevel(logging.CRITICAL)
+
         self.driver = GraphDatabase.driver(
             self.uri,
             auth=(self.username, self.password)
@@ -50,7 +57,7 @@ class Neo4jConnection:
                 result = session.run("RETURN 1 AS num")
                 return result.single()["num"] == 1
         except Exception as e:
-            print(f"Connection failed: {e}")
+            # Silently return False, as Neo4j is an optional component (see README.md)
             return False
     
     def execute_query(self, query: str, parameters: dict = None):

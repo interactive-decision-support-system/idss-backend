@@ -433,6 +433,25 @@ async def search_products(
     # Check if we have category filter (user intent was clear - e.g., "Show me laptops" → category=Electronics)
     has_category_filter = "category" in filters
     
+    is_vehicles = (detected_domain == Domain.VEHICLES) or (filters.get("category") == "vehicles")
+    if is_vehicles:
+        logger.info("routing_to_idss", "Routing vehicles search to IDSS backend", {"query": request.query})
+        from app.idss_adapter import search_products_universal, BackendType
+        from app.schemas import SearchProductsRequest
+        
+        enhanced_request = SearchProductsRequest(
+            query=cleaned_query or search_query,
+            filters=filters,
+            limit=request.limit,
+            cursor=request.cursor,
+            session_id=request.session_id
+        )
+        return await search_products_universal(
+            enhanced_request, 
+            backend=BackendType.IDSS, 
+            product_type="vehicle"
+        )
+
     # ALWAYS check query specificity, even with category filter
     # Generic queries like "computer" or "novel" should still ask follow-up questions
     # Category filter helps narrow results, but doesn't make generic queries specific
@@ -884,18 +903,18 @@ async def search_products(
         
         # Call IDSS chat endpoint for interview/questions
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                idss_request = {"message": idss_message}
-                if request.session_id:
-                    idss_request["session_id"] = request.session_id
-                
-                idss_response = await client.post(
-                    "http://localhost:8000/chat",
-                    json=idss_request
-                )
-                idss_response.raise_for_status()
-                idss_data = idss_response.json()
-                
+            from agent.chat_endpoint import process_chat, ChatRequest
+            idss_req = ChatRequest(message=idss_message, session_id=request.session_id)
+            
+            logger.info("calling_process_chat", "Calling process_chat directly for books/laptops interview", {
+                "message": idss_message[:100],
+                "session_id": request.session_id
+            })
+            
+            idss_resp = await process_chat(idss_req)
+            idss_data = idss_resp.model_dump()
+            
+            if idss_data:
                 # If IDSS returns a question, forward it (same interview system)
                 if idss_data.get("response_type") == "question":
                     timings["idss"] = (time.time() - start_time) * 1000

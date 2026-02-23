@@ -82,19 +82,9 @@ _preloaded = False
 def preload_idss_components():
     """
     Preload all IDSS components at server startup.
-
-    This loads:
-    - LocalVehicleStore (SQLite connection)
-    - FAISS index via IDSS's internal cache (dense_ranker.get_dense_embedding_store)
-    - SentenceTransformer model (warm up via encode call)
-
-    IMPORTANT: We prime the IDSS module's internal _DENSE_STORE_CACHE by calling
-    get_dense_embedding_store() from dense_ranker.py. This ensures the same
-    cached instance is used at query time, avoiding duplicate loads.
-
-    Call this from main.py at startup to reduce first-request latency.
+    This now initializes Supabase-backed stores.
     """
-    global _vehicle_store, _dense_embedding_store, _sentence_transformer, _preloaded
+    global _vehicle_store, _dense_embedding_store, _preloaded
 
     if _preloaded:
         logger.info("preload_skip", "IDSS components already preloaded")
@@ -102,36 +92,32 @@ def preload_idss_components():
 
     import time
     start_time = time.time()
+    logger.info("preload_start", "Preloading IDSS Supabase components...")
 
-    logger.info("preload_start", "Preloading IDSS components...")
-
-    # 1. Load vehicle store (SQLite)
+    # 1. Load Supabase Vehicle Store
     try:
-        from idss.data.vehicle_store import LocalVehicleStore
-        _vehicle_store = LocalVehicleStore()
-        logger.info("preload_vehicle_store", "LocalVehicleStore loaded")
+        from idss.data.vehicle_store import SupabaseVehicleStore
+        _vehicle_store = SupabaseVehicleStore()
+        logger.info("preload_vehicle_store", "SupabaseVehicleStore loaded")
     except Exception as e:
         logger.error("preload_vehicle_store_error", f"Failed to load vehicle store: {e}")
 
-    # 2. Prime the IDSS dense_ranker's internal cache
-    # This is the key - we call get_dense_embedding_store() from dense_ranker.py
-    # which populates IDSS's internal _DENSE_STORE_CACHE, so the same instance
-    # is reused at query time instead of creating a new one
+    # 2. Load Supabase Dense Embedding Store
     try:
         from idss.recommendation.dense_ranker import get_dense_embedding_store
-        _dense_embedding_store = get_dense_embedding_store()
-        logger.info("preload_dense_store", "DenseEmbeddingStore loaded (primed IDSS cache)")
-
-        # 3. Warm up the SentenceTransformer by encoding a test query
-        # This triggers lazy loading of the encoder inside DenseEmbeddingStore
-        # so it's ready for the first real query
-        _dense_embedding_store.encode_features(["warm up query", "test encoding"])
-        logger.info("preload_encoder_warmup", "SentenceTransformer encoder warmed up")
-
+        _dense_embedding_store = get_dense_embedding_store(use_supabase=True, preload_model=True)
+        logger.info("preload_dense_store", "DenseEmbeddingStore loaded with preloaded model")
     except Exception as e:
         logger.error("preload_dense_store_error", f"Failed to load dense embedding store: {e}")
-        import traceback
-        traceback.print_exc()
+        
+    # 3. Load Supabase Phrase Store
+    try:
+        from idss.recommendation.coverage_risk import get_phrase_store
+        global _phrase_embedding_store
+        _phrase_embedding_store = get_phrase_store(use_supabase=True, preload_model=True)
+        logger.info("preload_phrase_store", "PhraseStore loaded with preloaded model")
+    except Exception as e:
+        logger.error("preload_phrase_store_error", f"Failed to load phrase store: {e}")
 
     elapsed = time.time() - start_time
     _preloaded = True
@@ -143,9 +129,9 @@ def _get_vehicle_store():
     global _vehicle_store
     if _vehicle_store is None:
         try:
-            from idss.data.vehicle_store import LocalVehicleStore
-            _vehicle_store = LocalVehicleStore()
-            logger.info("vehicle_store_loaded", "LocalVehicleStore initialized (lazy)")
+            from idss.data.vehicle_store import SupabaseVehicleStore
+            _vehicle_store = SupabaseVehicleStore()
+            logger.info("vehicle_store_loaded", "SupabaseVehicleStore initialized (lazy)")
         except Exception as e:
             logger.error("vehicle_store_error", f"Failed to load vehicle store: {e}")
             raise
@@ -158,7 +144,7 @@ def _get_dense_embedding_store():
     if _dense_embedding_store is None:
         try:
             from idss.recommendation.dense_embedding_store import DenseEmbeddingStore
-            _dense_embedding_store = DenseEmbeddingStore()
+            _dense_embedding_store = DenseEmbeddingStore(use_supabase=True)
             logger.info("dense_store_loaded", "DenseEmbeddingStore initialized (lazy)")
         except Exception as e:
             logger.error("dense_store_error", f"Failed to load dense embedding store: {e}")

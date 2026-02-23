@@ -29,10 +29,14 @@ def generate_label(dimension: str, low: float, high: float) -> str:
     if dimension == 'price':
         if high >= 1_000_000:
             return f"${low/1000:.0f}K+"
+        if low == high:
+            return f"${low/1000:.0f}K"
         return f"${low/1000:.0f}K - ${high/1000:.0f}K"
     elif dimension == 'mileage':
         if high >= 500_000:
             return f"{low/1000:.0f}K+ miles"
+        if low == high:
+            return f"{low/1000:.0f}K miles"
         return f"{low/1000:.0f}K - {high/1000:.0f}K miles"
     elif dimension == 'year':
         if low == high:
@@ -116,12 +120,16 @@ def bucket_vehicles_numerical(
     bucket_ranges = []
     prev = min_val
     for boundary in boundaries:
-        bucket_ranges.append((prev, boundary))
+        if prev != boundary:
+            bucket_ranges.append((prev, boundary))
         prev = boundary
-    bucket_ranges.append((prev, max_val))
+    if not bucket_ranges or prev != max_val:
+        bucket_ranges.append((prev, max_val))
+        
+    actual_buckets = len(bucket_ranges)
 
     # Assign vehicles to buckets
-    buckets: List[List[Dict[str, Any]]] = [[] for _ in range(n_buckets)]
+    buckets: List[List[Dict[str, Any]]] = [[] for _ in range(actual_buckets)]
 
     for val, idx in values_with_idx:
         for bucket_idx, (low, high) in enumerate(bucket_ranges):

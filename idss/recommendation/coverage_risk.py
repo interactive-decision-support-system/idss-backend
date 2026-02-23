@@ -25,7 +25,9 @@ def get_phrase_store(
     reviews_db_path: Optional[Path] = None,
     vehicles_db_path: Optional[Path] = None,
     embeddings_dir: Optional[Path] = None,
-    model_name: str = "all-mpnet-base-v2"
+    model_name: str = "all-mpnet-base-v2",
+    use_supabase: bool = True,
+    preload_model: bool = False
 ) -> PhraseStore:
     """
     Get cached PhraseStore instance to avoid reloading model/embeddings.
@@ -51,7 +53,8 @@ def get_phrase_store(
             vehicles_db_path=vehicles_db_path,
             embeddings_dir=embeddings_dir,
             model_name=model_name,
-            preload=True
+            use_supabase=use_supabase,
+            preload_model=preload_model
         )
     else:
         logger.debug("Using cached PhraseStore (cache hit)")

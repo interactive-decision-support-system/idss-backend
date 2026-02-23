@@ -684,89 +684,58 @@ async def _search_vehicles_idss(
         # Call IDSS chat endpoint
         idss_start = time.time()
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                # Include session_id if provided (for continuing IDSS conversation)
-                idss_request = {"message": message}
-                if request.session_id:
-                    idss_request["session_id"] = request.session_id
-                    logger.info("idss_session_id_passed", f"Passing session_id to IDSS backend: {request.session_id}", {
-                        "session_id": request.session_id,
-                        "message": message[:100]
-                    })
-                else:
-                    logger.warning("idss_no_session_id", "No session_id provided to IDSS backend, will create new session", {
-                        "message": message[:100]
-                    })
+            from agent.chat_endpoint import process_chat, ChatRequest
+            logger.info("calling_process_chat", "Calling process_chat directly from idss_adapter", {
+                "message": message[:100],
+                "session_id": request.session_id
+            })
+            
+            idss_req = ChatRequest(message=message, session_id=request.session_id)
+            idss_resp = await process_chat(idss_req)
+            idss_data = idss_resp.model_dump()
+            
+            # If IDSS returns a question, we need to continue the conversation
+            # For now, return a helpful message explaining the IDSS interview process
+            if idss_data.get("response_type") == "question":
+                timings["idss"] = (time.time() - idss_start) * 1000
+                timings["total"] = (time.time() - start_time) * 1000
                 
-                logger.info("idss_request", f"Sending request to IDSS backend", {
-                    "url": f"{BACKEND_CONFIGS[BackendType.IDSS]['url']}/chat",
-                    "session_id": idss_request.get("session_id"),
-                    "message": message[:100]
-                })
+                question = idss_data.get("message", "I need more information")
+                quick_replies = idss_data.get("quick_replies", [])
                 
-                response = await client.post(
-                    f"{BACKEND_CONFIGS[BackendType.IDSS]['url']}/chat",
-                    json=idss_request
+                # Extract and return session_id from IDSS response
+                idss_session_id = idss_data.get("session_id")
+                
+                return SearchProductsResponse(
+                    status=ResponseStatus.INVALID,
+                    data=SearchResultsData(products=[], total_count=0, next_cursor=None),
+                    constraints=[
+                        ConstraintDetail(
+                            code="IDSS_QUESTION_REQUIRED",
+                            message=f"IDSS needs more information: {question}",
+                            details={
+                                "question": question,
+                                "quick_replies": quick_replies,
+                                "response_type": "question",
+                                "session_id": idss_session_id
+                            },
+                            allowed_fields=None,
+                            suggested_actions=quick_replies[:5] if quick_replies else [
+                                "Provide more details about what you're looking for",
+                                "Answer the question to get vehicle recommendations"
+                            ]
+                        )
+                    ],
+                    trace=create_trace(request_id, cache_hit, timings, sources, {"session_id": idss_session_id} if idss_session_id else None),
+                    version=create_version_info(ProductCategory.VEHICLE)
                 )
-                response.raise_for_status()
-                idss_data = response.json()
-                
-                # If IDSS returns a question, we need to continue the conversation
-                # For now, return a helpful message explaining the IDSS interview process
-                if idss_data.get("response_type") == "question":
-                    timings["idss"] = (time.time() - idss_start) * 1000
-                    timings["total"] = (time.time() - start_time) * 1000
-                    
-                    question = idss_data.get("message", "I need more information")
-                    quick_replies = idss_data.get("quick_replies", [])
-                    
-                    # Extract and return session_id from IDSS response
-                    idss_session_id = idss_data.get("session_id")
-                    
-                    return SearchProductsResponse(
-                        status=ResponseStatus.INVALID,
-                        data=SearchResultsData(products=[], total_count=0, next_cursor=None),
-                        constraints=[
-                            ConstraintDetail(
-                                code="IDSS_QUESTION_REQUIRED",
-                                message=f"IDSS needs more information: {question}",
-                                details={
-                                    "question": question,
-                                    "quick_replies": quick_replies,
-                                    "response_type": "question",
-                                    "session_id": idss_session_id
-                                },
-                                allowed_fields=None,
-                                suggested_actions=quick_replies[:5] if quick_replies else [
-                                    "Provide more details about what you're looking for",
-                                    "Answer the question to get vehicle recommendations"
-                                ]
-                            )
-                        ],
-                        trace=create_trace(request_id, cache_hit, timings, sources, {"session_id": idss_session_id} if idss_session_id else None),
-                        version=create_version_info(ProductCategory.VEHICLE)
-                    )
-        except httpx.HTTPStatusError as e:
+        except Exception as e:
             # IDSS backend returned an error status
             timings["idss"] = (time.time() - idss_start) * 1000
             timings["total"] = (time.time() - start_time) * 1000
             
             error_msg = "IDSS backend error"
-            error_detail = ""
-            if e.response.status_code == 500:
-                try:
-                    error_json = e.response.json()
-                    error_detail = error_json.get("detail", str(e))
-                    if "database not found" in error_detail.lower() or "Local vehicle database not found" in error_detail:
-                        error_msg = "Vehicle database not configured. IDSS backend requires vehicle database to be set up."
-                    elif "api_key" in error_detail.lower() or "OPENAI_API_KEY" in error_detail:
-                        error_msg = "IDSS backend requires OpenAI API key. Set OPENAI_API_KEY environment variable."
-                    elif "openai" in error_detail.lower():
-                        error_msg = "IDSS backend OpenAI configuration error. Check API key and settings."
-                except:
-                    error_detail = str(e)
-            else:
-                error_detail = str(e)
+            error_detail = str(e)
             
             return SearchProductsResponse(
                 status=ResponseStatus.INVALID,
@@ -774,36 +743,12 @@ async def _search_vehicles_idss(
                 constraints=[
                     ConstraintDetail(
                         code="BACKEND_CONNECTION_ERROR",
-                        message=f"Could not connect to IDSS backend: {error_msg}",
-                        details={"error": error_detail or str(e), "backend": "idss", "status_code": e.response.status_code},
+                        message=f"Could not process vehicle search via IDSS: {error_msg}",
+                        details={"error": error_detail or str(e), "backend": "idss"},
                         allowed_fields=None,
                         suggested_actions=[
-                            "Ensure IDSS backend is running on port 8000",
-                            "Check IDSS backend logs for errors",
-                            "Set up vehicle database for IDSS backend"
-                        ]
-                    )
-                ],
-                trace=create_trace(request_id, cache_hit, timings, sources),
-                version=create_version_info(ProductCategory.VEHICLE)
-            )
-        except httpx.RequestError as e:
-            # Network/timeout error
-            timings["idss"] = (time.time() - idss_start) * 1000
-            timings["total"] = (time.time() - start_time) * 1000
-            
-            return SearchProductsResponse(
-                status=ResponseStatus.INVALID,
-                data=SearchResultsData(products=[], total_count=0, next_cursor=None),
-                constraints=[
-                    ConstraintDetail(
-                        code="BACKEND_CONNECTION_ERROR",
-                        message=f"Could not connect to IDSS backend: Network error",
-                        details={"error": str(e), "backend": "idss"},
-                        allowed_fields=None,
-                        suggested_actions=[
-                            "Ensure IDSS backend is running on port 8000",
-                            "Check network connectivity"
+                            "Check server logs for errors",
+                            "Set up vehicle database for IDSS"
                         ]
                     )
                 ],
