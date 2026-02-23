@@ -63,7 +63,7 @@ def enrich_queries(row):
 
         try:
             response = client.chat.completions.create(
-                model="gpt-5.2",
+                model="gpt-5-nano",
                 messages=[{"role": "user", "content": prompt}],
                 response_format={ "type": "json_object" }
             )

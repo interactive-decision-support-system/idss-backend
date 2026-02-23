@@ -28,5 +28,8 @@ else
   FRONTEND_PID=
 fi
 
+echo "MCP backend PID: $MCP_PID (port 8001)"
+echo "Frontend PID:    $FRONTEND_PID (port 3000)"
+
 trap "kill $MCP_PID $FRONTEND_PID 2>/dev/null" EXIT
 wait

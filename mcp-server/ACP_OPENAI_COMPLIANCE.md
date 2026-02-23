@@ -284,7 +284,7 @@ tools = get_acp_tools()
 
 # Make request with tools
 response = client.chat.completions.create(
-    model="gpt-4o",
+    model="gpt-5-nano",
     messages=[{"role": "user", "content": "Find me a gaming laptop"}],
     tools=tools
 )

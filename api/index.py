@@ -45,7 +45,7 @@ def get_embedding(text: str) -> List[float]:
 def parse_user_input_simple(message: str, client: OpenAI) -> dict:
     """Simple LLM-based parsing without heavy dependencies."""
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    model="gpt-5-nano",
         messages=[
             {
                 "role": "system",
@@ -70,7 +70,7 @@ def generate_question_simple(session: dict, client: OpenAI) -> dict:
     filters = session.get("filters", {})
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    model="gpt-5-nano",
         messages=[
             {
                 "role": "system",
@@ -95,7 +95,7 @@ Focus on: budget, body style, must-have features, preferred brands, or primary u
 def generate_recommendations_intro(filters: dict, client: OpenAI) -> str:
     """Generate introduction message for recommendations."""
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    model="gpt-5-nano",
         messages=[
             {
                 "role": "system",

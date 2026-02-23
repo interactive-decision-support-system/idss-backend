@@ -42,11 +42,9 @@ logger = logging.getLogger("mcp.universal_agent")
 
 # Model configuration — single model for all LLM calls, set via environment
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "low")
-
-# reasoning_effort is passed whenever the env var is set.
-# Not all models support it — if the API rejects it the call will raise an error;
-# in that case, unset OPENAI_REASONING_EFFORT in your .env.
+# reasoning_effort is only supported by o1/o3 reasoning models, NOT gpt-4o-mini.
+# Default is "" (disabled). Set OPENAI_REASONING_EFFORT=low in .env only if using an o-series model.
+OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "")
 _REASONING_KWARGS = {"reasoning_effort": OPENAI_REASONING_EFFORT} if OPENAI_REASONING_EFFORT else {}
 
 # Interview configuration
@@ -213,23 +211,24 @@ class UniversalAgent:
         return search_filters
 
     def process_message(self, message: str) -> Dict[str, Any]:
-        """
-        Main entry point for processing a user message.
-        Returns a response dictionary (question, recommendations, etc.).
-        """
-        # 0. Update History
+        import time
+        timings = {}
+        t0 = time.perf_counter()
         self.history.append({"role": "user", "content": message})
 
         # 1. Intent/Domain Detection (if not locked)
         if not self.domain:
+            t1 = time.perf_counter()
             self.domain = self._detect_domain_from_message(message)
+            timings["domain_detection_ms"] = (time.perf_counter() - t1) * 1000
             if not self.domain or self.domain == "unknown":
                 # Still unknown, ask for clarification
                 response = {
                     "response_type": "question",
                     "message": "I can help with Cars, Laptops, Books, or Phones. What are you looking for today?",
                     "quick_replies": ["Cars", "Laptops", "Books", "Phones"],
-                    "session_id": self.session_id
+                    "session_id": self.session_id,
+                    "timings_ms": timings
                 }
                 self.history.append({"role": "assistant", "content": response["message"]})
                 # Reset domain so we try again next time
@@ -240,23 +239,31 @@ class UniversalAgent:
         schema = get_domain_schema(self.domain)
         if not schema:
             logger.error(f"No schema found for domain {self.domain}")
-            return self._unknown_error_response()
+            resp = self._unknown_error_response()
+            resp["timings_ms"] = timings
+            return resp
 
+        t2 = time.perf_counter()
         extraction_result = self._extract_criteria(message, schema)
+        timings["criteria_extraction_ms"] = (time.perf_counter() - t2) * 1000
 
         # 3. Check IDSS interview signals - should we skip to recommendations?
         if self._should_recommend(extraction_result, schema):
             logger.info(f"Skipping to recommendations (impatient={extraction_result.is_impatient if extraction_result else False}, "
                        f"wants_recs={extraction_result.wants_recommendations if extraction_result else False}, "
                        f"question_count={self.question_count}/{self.max_questions})")
-            return self._handoff_to_search(schema)
+            resp = self._handoff_to_search(schema)
+            resp["timings_ms"] = timings
+            return resp
 
         # 4. Check for Missing Information (Priority Check)
         missing_slot = self._get_next_missing_slot(schema)
 
         if missing_slot:
             # 5. Generate Question (LLM)
+            t3 = time.perf_counter()
             gen_q = self._generate_question(missing_slot, schema)
+            timings["question_generation_ms"] = (time.perf_counter() - t3) * 1000
 
             # Track question asked
             self.questions_asked.append(missing_slot.name)
@@ -269,14 +276,17 @@ class UniversalAgent:
                 "session_id": self.session_id,
                 "domain": self.domain,
                 "filters": self.filters,
-                "question_count": self.question_count
+                "question_count": self.question_count,
+                "topic": gen_q.topic,
+                "timings_ms": timings
             }
             self.history.append({"role": "assistant", "content": response["message"]})
             return response
 
-        else:
-            # 6. Ready for Search - all slots filled or no more to ask
-            return self._handoff_to_search(schema)
+        # If we get here, something went wrong
+        resp = self._unknown_error_response()
+        resp["timings_ms"] = timings
+        return resp
 
     def _detect_domain_from_message(self, message: str) -> Optional[str]:
         """
