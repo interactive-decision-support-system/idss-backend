@@ -156,8 +156,19 @@ class handler(BaseHTTPRequestHandler):
             self.handle_chat(data)
         elif path == "/session/reset":
             self.handle_reset(data)
+        elif path == "/log-latency":
+            self.handle_log_latency(data)
         else:
             self.send_error_response(404, "Not found")
+    def handle_log_latency(self, data: dict):
+        """Append latency log to backend_latency_logs.jsonl."""
+        try:
+            log_path = os.path.join(os.path.dirname(__file__), '..', 'backend_latency_logs.jsonl')
+            with open(log_path, 'a') as f:
+                f.write(json.dumps(data) + '\n')
+            self.send_json_response({"status": "logged"})
+        except Exception as e:
+            self.send_error_response(500, f"Log error: {str(e)}")
 
     def handle_chat(self, data: dict):
         """Handle chat request."""
