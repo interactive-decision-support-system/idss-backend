@@ -51,10 +51,14 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
     price = int(price_val or 0)
     
     
-    # Image handling with fallbacks and placeholders
     image_url = product.get("image_url") or product.get("primary_image_url")
     if not image_url and product.get("retailListing"):
         image_url = product["retailListing"].get("primaryImage")
+        
+    # Fast path: if the product is already a UnifiedProduct dict, grab the nested image
+    if not image_url and isinstance(product.get("image"), dict):
+        image_url = product["image"].get("primary")
+
         
     # Inject placeholders if still missing
     if not image_url:

@@ -19,6 +19,7 @@ from agent.interview.session_manager import (
 )
 from agent.universal_agent import UniversalAgent, AgentState
 from agent.domain_registry import get_domain_schema
+from agent.comparison_agent import detect_post_rec_intent, generate_comparison_narrative
 from app.structured_logger import StructuredLogger
 
 logger = StructuredLogger("chat_endpoint")
@@ -272,6 +273,76 @@ async def _handle_post_recommendation(
     msg_lower = request.message.strip().lower()
     active_domain = session.active_domain
 
+    # -----------------------------------------------------------------------
+    # Fast intent router: compare vs. refine vs. other
+    # -----------------------------------------------------------------------
+    intent = await detect_post_rec_intent(request.message)
+
+    if intent == "compare":
+        session_manager.add_message(session_id, "user", request.message)
+        # Use in-session product data first (no DB round-trip)
+        products = list(getattr(session, "last_recommendation_data", []))
+        if not products and getattr(session, "last_recommendation_ids", None):
+            # Fallback: re-fetch from DB if session data not yet populated
+            products = _fetch_products_by_ids(session.last_recommendation_ids[:6])
+        if products:
+            selected_ids = []
+            try:
+                import time as _time
+                t0 = _time.perf_counter()
+                narrative, selected_ids = await generate_comparison_narrative(
+                    products, request.message, active_domain or "laptops"
+                )
+                logger.info("comparison_generated", f"Comparison narrative in {(_time.perf_counter()-t0)*1000:.0f}ms", {})
+            except Exception as e:
+                logger.error("comparison_failed", str(e), {})
+                narrative = "Sorry, I had trouble generating a comparison. Try asking again."
+                
+            # Filter products to only those selected by the LLM (or fallback to top 3)
+            selected_products = []
+            if selected_ids:
+                str_selected_ids = [str(sid) for sid in selected_ids]
+                logger.info("comparison_ids", f"LLM returned selected_ids: {str_selected_ids}, Available products: {[str(p.get('id')) for p in products]}")
+                selected_products = [p for p in products if str(p.get("id")) in str_selected_ids]
+            if not selected_products:
+                logger.warning("comparison_fallback", "No products matched selected_ids, falling back to top 3")
+                selected_products = products[:3]
+
+            from app.formatters import format_product
+            fmt_domain = "books" if _domain_to_category(active_domain) == "Books" else (active_domain or "laptops")
+            formatted_products = [
+                format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True) 
+                for p in selected_products
+            ]
+                
+            return ChatResponse(
+                response_type="recommendations",
+                message=narrative,
+                session_id=session_id,
+                quick_replies=["Show me the best value", "See similar items", "Refine search", "Help with checkout"],
+                recommendations=[formatted_products] if formatted_products else [],
+                bucket_labels=["Compared Items"] if formatted_products else [],
+
+                filters=session.explicit_filters,
+                preferences={},
+                question_count=session.question_count,
+                domain=active_domain,
+            )
+        # No product data at all
+        return ChatResponse(
+            response_type="question",
+            message="I don't have any recommendations to compare yet. Let me search for some first! What are you looking for?",
+            session_id=session_id,
+            quick_replies=["Laptops", "Vehicles", "Books"],
+            filters={},
+            preferences={},
+            question_count=0,
+            domain=None,
+        )
+
+    # intent == 'refine' or None → fall through to the keyword handlers below,
+    # which will either catch a specific keyword or return None to let the
+    # UniversalAgent handle the message normally.
     if "see similar" in msg_lower or "similar items" in msg_lower:
         session_manager.add_message(session_id, "user", request.message)
         # Directly show diverse results (drop brand filter to fix brand overfitting)
@@ -476,130 +547,7 @@ async def _handle_post_recommendation(
             domain=active_domain,
         )
 
-    # Compare
-    if any(k in msg_lower for k in ["compare", "vs", "against", "versus"]):
-        session_manager.add_message(session_id, "user", request.message)
-        category = _domain_to_category(active_domain)
-        from app.research_compare import build_comparison_table, parse_compare_by
 
-        # Parse "compare by price and brand" → ["price", "brand"]
-        compare_by = parse_compare_by(request.message)
-
-        is_generic_compare = (
-            "compare these" in msg_lower
-            or "compare items" in msg_lower
-            or compare_by is not None
-            or ("compare" in msg_lower and "mac" not in msg_lower and "dell" not in msg_lower)
-        )
-        if is_generic_compare:
-            product_ids = list(dict.fromkeys(
-                list(session.favorite_product_ids or []) +
-                list(session.clicked_product_ids or [])
-            ))[:4]
-            if not product_ids and getattr(session, "last_recommendation_ids", None):
-                product_ids = session.last_recommendation_ids[:4]
-            if product_ids:
-                products = _fetch_products_by_ids(product_ids)
-                if products:
-                    # Always sort products when compare_by is specified
-                    if compare_by:
-                        sort_attr = compare_by[0]
-                        logger.info("compare_sort_start", f"Sorting {len(products)} products by {sort_attr}", {
-                            "before": [(p.get("name", "?")[:25], p.get("price"), p.get("rating")) for p in products]
-                        })
-                        if sort_attr == "price":
-                            products.sort(key=lambda p: float(p.get("price") or 0))
-                        elif sort_attr in ("review_rating", "rating"):
-                            products.sort(key=lambda p: float(p.get("rating") or 0), reverse=True)
-                        elif sort_attr == "brand":
-                            products.sort(key=lambda p: (p.get("brand") or "").lower())
-                        logger.info("compare_sort_done", f"Sorted products by {sort_attr}", {
-                            "after": [(p.get("name", "?")[:25], p.get("price"), p.get("rating")) for p in products]
-                        })
-                    comparison = build_comparison_table(products, compare_by=compare_by)
-                    fmt_domain = "books" if category == "Books" else "laptops"
-                    from app.formatters import format_product
-                    formatted = [format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True) for p in products]
-                    rec_rows = [formatted]
-                    labels = [p.get("name", "Product")[:20] for p in products]
-                    attr_desc = ", ".join(compare_by) if compare_by else "all attributes"
-                    return ChatResponse(
-                        response_type="compare",
-                        message=f"Side-by-side comparison by {attr_desc}:",
-                        session_id=session_id,
-                        comparison_data=comparison,
-                        recommendations=rec_rows,
-                        bucket_labels=labels,
-                        quick_replies=["Compare by price", "Compare by brand", "Compare by rating", "See similar items"],
-                        filters=session.explicit_filters,
-                        preferences={},
-                        question_count=session.question_count,
-                        domain=active_domain,
-                    )
-            return ChatResponse(
-                response_type="question",
-                message="To compare items, please click on 2-4 products from the recommendations first (or add them to favorites), then say \"Compare these\" or \"Compare by price\".",
-                session_id=session_id,
-                quick_replies=["Compare by price", "Compare by brand", "Compare by rating", "See similar items"],
-                filters=session.explicit_filters,
-                preferences={},
-                question_count=session.question_count,
-                domain=active_domain,
-            )
-        if "mac" in msg_lower and "dell" in msg_lower:
-            f_mac = dict(session.explicit_filters)
-            f_mac["brand"] = "Apple"
-            f_dell = dict(session.explicit_filters)
-            f_dell["brand"] = "Dell"
-            mac_recs, _ = await _search_ecommerce_products(f_mac, category, n_rows=1, n_per_row=2)
-            dell_recs, _ = await _search_ecommerce_products(f_dell, category, n_rows=1, n_per_row=2)
-            mac_row = mac_recs[0][:2] if mac_recs else []
-            dell_row = dell_recs[0][:2] if dell_recs else []
-            if mac_row or dell_row:
-                rec_rows = []
-                if mac_row:
-                    rec_rows.append(mac_row)
-                if dell_row:
-                    rec_rows.append(dell_row)
-                return ChatResponse(
-                    response_type="recommendations",
-                    message="Mac vs Dell comparison. Apple/Mac and Dell options:",
-                    session_id=session_id,
-                    recommendations=rec_rows,
-                    bucket_labels=(["Apple/Mac"] if mac_row else []) + (["Dell"] if dell_row else []),
-                    filters=session.explicit_filters,
-                    preferences={},
-                    question_count=session.question_count,
-                    domain=active_domain,
-                    quick_replies=["See similar items", "Anything else?", "Help with checkout"],
-                )
-        if "by price" in msg_lower or "top 2" in msg_lower:
-            recs, labels = await _search_ecommerce_products(
-                session.explicit_filters, category, n_rows=2, n_per_row=2,
-            )
-            if recs:
-                return ChatResponse(
-                    response_type="recommendations",
-                    message="Top options by price for comparison:",
-                    session_id=session_id,
-                    recommendations=recs,
-                    bucket_labels=labels or ["Budget", "Premium"],
-                    filters=session.explicit_filters,
-                    preferences={},
-                    question_count=session.question_count,
-                    domain=active_domain,
-                    quick_replies=["See similar items", "Anything else?", "Help with checkout"],
-                )
-        return ChatResponse(
-            response_type="question",
-            message="I can compare items! Try \"Compare Mac vs Dell\" or \"Compare by price\" for a side-by-side view.",
-            session_id=session_id,
-            quick_replies=["Compare Mac vs Dell", "Compare by price", "See similar items"],
-            filters=session.explicit_filters,
-            preferences={},
-            question_count=session.question_count,
-            domain=active_domain,
-        )
 
     if "checkout" in msg_lower or "pay" in msg_lower or "transaction" in msg_lower:
         session_manager.add_message(session_id, "user", request.message)
@@ -774,12 +722,29 @@ async def _search_and_respond_vehicles(
                 logger.error("rec_explanation_failed", f"Failed to generate explanation: {e}", {})
         from app.formatters import format_product
         formatted_recs = []
-        for bucket in result.recommendations:
-            formatted_bucket = [
-                format_product(v, "vehicles").model_dump(mode='json', exclude_none=True)
-                for v in bucket
-            ]
+        flat_data = []
+        for i, bucket in enumerate(result.recommendations):
+            bucket_label = result.bucket_labels[i] if result.bucket_labels and i < len(result.bucket_labels) else None
+            formatted_bucket = []
+            for v in bucket:
+                unified = format_product(v, "vehicles").model_dump(mode='json', exclude_none=True)
+                formatted_bucket.append(unified)
+                
+                # Extract flat data for the comparison agent
+                veh = unified.get("vehicle", {})
+                flat_item = {
+                    "id": unified.get("id"),
+                    "name": unified.get("name"),
+                    "price": unified.get("price"),
+                    **veh
+                }
+                if bucket_label:
+                    flat_item["bucket_label"] = bucket_label
+                flat_data.append(flat_item)
+                
             formatted_recs.append(formatted_bucket)
+            
+        session_manager.set_last_recommendation_data(session_id, flat_data)
         timings["vehicle_formatting_ms"] = (time.perf_counter() - t_format) * 1000
         return ChatResponse(
             response_type="recommendations",
@@ -855,14 +820,21 @@ async def _search_and_respond_ecommerce(
             question_count=question_count,
             timings_ms=timings
         )
-    # Store product IDs for Research/Compare
+    # Store product IDs and full data for Research/Compare
     all_ids = []
-    for row in recs:
+    flat_data = []
+    for i, row in enumerate(recs):
+        bucket_label = labels[i] if labels and i < len(labels) else None
         for item in row:
+            if bucket_label:
+                item["bucket_label"] = bucket_label
+            flat_data.append(item)
             pid = item.get("product_id") or item.get("id") or (item.get("_product") or {}).get("product_id")
             if pid and pid not in all_ids:
                 all_ids.append(pid)
     session_manager.set_last_recommendations(session_id, all_ids)
+    session_manager.set_last_recommendation_data(session_id, flat_data)
+
     product_label = "laptops" if domain == "laptops" else "books"
     # Generate conversational explanation
     message = f"Here are top {product_label} recommendations. What would you like to do next?"

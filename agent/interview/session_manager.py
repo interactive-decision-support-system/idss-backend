@@ -82,6 +82,7 @@ class InterviewSessionState:
     favorite_product_ids: List[str] = field(default_factory=list)  # Hearts/likes
     clicked_product_ids: List[str] = field(default_factory=list)  # View details clicks
     last_recommendation_ids: List[str] = field(default_factory=list)  # For Research/Compare (product IDs from last recs)
+    last_recommendation_data: List[Dict[str, Any]] = field(default_factory=list)  # Full product dicts for comparison (no DB re-fetch needed)
     # kg.txt: intent at 2 levels
     session_intent: Optional[str] = None  # Explore | Decide today | Execute purchase
     step_intent: Optional[str] = None  # Research | Compare | Negotiate | Schedule | Return
@@ -129,6 +130,7 @@ class InterviewSessionManager:
             "favorite_product_ids": getattr(state, "favorite_product_ids", []),
             "clicked_product_ids": getattr(state, "clicked_product_ids", []),
             "last_recommendation_ids": getattr(state, "last_recommendation_ids", []),
+            "last_recommendation_data": getattr(state, "last_recommendation_data", []),
             "session_intent": getattr(state, "session_intent", None),
             "step_intent": getattr(state, "step_intent", None),
             "agent_filters": getattr(state, "agent_filters", {}),
@@ -149,6 +151,7 @@ class InterviewSessionManager:
             favorite_product_ids=d.get("favorite_product_ids", []),
             clicked_product_ids=d.get("clicked_product_ids", []),
             last_recommendation_ids=d.get("last_recommendation_ids", []),
+            last_recommendation_data=d.get("last_recommendation_data", []),
             session_intent=d.get("session_intent"),
             step_intent=d.get("step_intent"),
             agent_filters=d.get("agent_filters", {}),
@@ -180,6 +183,27 @@ class InterviewSessionManager:
         """Store product IDs from last recommendations (for Research/Compare and exclude in 'Show more like these')."""
         session = self.get_session(session_id)
         session.last_recommendation_ids = list(product_ids)[:24]  # Up to 24 (accumulated across show-more rounds)
+        self._persist(session_id)
+
+    def set_last_recommendation_data(self, session_id: str, products: List[Dict[str, Any]]) -> None:
+        """Store full product dicts from last recommendations — avoids DB re-fetch for comparison."""
+        session = self.get_session(session_id)
+        # Keep only the fields useful for comparison narrative (trim large description blobs)
+        slim = []
+        keep_keys = {
+            "id", "product_id", "name", "brand", "price", "product_type",
+            "processor", "ram", "storage", "storage_type", "screen_size",
+            "gpu", "battery_life", "os", "weight", "rating", "rating_count",
+            "refresh_rate_hz", "resolution", "color",
+            "image_url", "primary_image_url", "image",  # For format_product UI rendering
+            # vehicles
+            "make", "model", "year", "mileage", "trim", "fuel_type", "drivetrain",
+            # books
+            "author", "genre", "pages",
+        }
+        for p in products[:12]:
+            slim.append({k: v for k, v in p.items() if k in keep_keys and v is not None})
+        session.last_recommendation_data = slim
         self._persist(session_id)
 
     def recall_session_memory(self, session_id: str) -> Optional[Dict[str, Any]]:
