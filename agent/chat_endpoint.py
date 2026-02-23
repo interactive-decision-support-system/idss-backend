@@ -71,22 +71,19 @@ class ChatResponse(BaseModel):
     # Domain info (MCP extension)
     domain: Optional[str] = Field(default=None, description="Active domain (vehicles, laptops, books)")
 
+    # Latency instrumentation — step-level timings in milliseconds
+    timings_ms: Optional[Dict[str, float]] = Field(default=None, description="Per-step latency breakdown (ms)")
+
 
 # ============================================================================
 # Chat Endpoint Logic
 # ============================================================================
 
 async def process_chat(request: ChatRequest) -> ChatResponse:
-    """
-    Process a chat message using UniversalAgent for all domains.
+    import time
+    timings = {}
+    t_start = time.perf_counter()
 
-    Flow:
-    1. Session init + user action processing
-    2. Post-recommendation handlers (if applicable)
-    3. Reset/greeting check
-    4. UniversalAgent.process_message() — domain detection, criteria extraction, question generation
-    5. If recommendations_ready → dispatch to search (vehicles: direct IDSS import, laptops/books: PostgreSQL)
-    """
     # Get or create session
     session_id = request.session_id or str(uuid.uuid4())
     session_manager = get_session_manager()
@@ -149,6 +146,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
         )
 
     # --- UniversalAgent processing ---
+    t_agent = time.perf_counter()
     # Restore agent from session or create new
     if session.active_domain and session.agent_history:
         agent = UniversalAgent.restore_from_session(session_id, session)
@@ -161,6 +159,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
 
     previous_domain = session.active_domain
     agent_response = agent.process_message(msg)
+    timings["agent_total_ms"] = (time.perf_counter() - t_agent) * 1000
 
     # Detect domain switch: if domain changed, reset old filters
     new_domain = agent.domain
@@ -201,6 +200,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             preferences={},
             question_count=agent_response.get("question_count", session.question_count),
             domain=agent_response.get("domain"),
+            timings_ms={**agent_response.get("timings_ms", {}), **timings, "total_backend_ms": (time.perf_counter() - t_start) * 1000}
         )
 
     # --- Error response ---
@@ -738,10 +738,11 @@ async def _search_and_respond_vehicles(
     question_count: int = 0,
     agent: Optional["UniversalAgent"] = None,
 ) -> ChatResponse:
-    """Search vehicles using direct IDSS import and return response."""
+    import time
+    timings = {}
+    t_search = time.perf_counter()
     try:
         from app.tools.vehicle_search import search_vehicles, VehicleSearchRequest
-
         result = search_vehicles(VehicleSearchRequest(
             filters=search_filters,
             preferences=search_filters.pop("_soft_preferences", {}),
@@ -749,9 +750,9 @@ async def _search_and_respond_vehicles(
             n_rows=n_rows,
             n_per_row=n_per_row,
         ))
-
+        timings["vehicle_search_ms"] = (time.perf_counter() - t_search) * 1000
+        t_format = time.perf_counter()
         session_manager.set_stage(session_id, STAGE_RECOMMENDATIONS)
-
         if not result.recommendations:
             return ChatResponse(
                 response_type="question",
@@ -762,8 +763,8 @@ async def _search_and_respond_vehicles(
                 preferences={},
                 question_count=question_count,
                 domain="vehicles",
+                timings_ms=timings
             )
-
         # Generate conversational explanation
         message = "Here are top vehicle recommendations. What would you like to do next?"
         if agent:
@@ -771,7 +772,6 @@ async def _search_and_respond_vehicles(
                 message = agent.generate_recommendation_explanation(result.recommendations, "vehicles")
             except Exception as e:
                 logger.error("rec_explanation_failed", f"Failed to generate explanation: {e}", {})
-
         from app.formatters import format_product
         formatted_recs = []
         for bucket in result.recommendations:
@@ -780,7 +780,7 @@ async def _search_and_respond_vehicles(
                 for v in bucket
             ]
             formatted_recs.append(formatted_bucket)
-
+        timings["vehicle_formatting_ms"] = (time.perf_counter() - t_format) * 1000
         return ChatResponse(
             response_type="recommendations",
             message=message,
@@ -793,6 +793,7 @@ async def _search_and_respond_vehicles(
             preferences={},
             question_count=question_count,
             quick_replies=["See similar items", "Research", "Compare items", "Rate recommendations", "Help with checkout"],
+            timings_ms=timings
         )
     except Exception as e:
         logger.error("vehicle_search_failed", f"Vehicle search failed: {e}", {"error": str(e)})
@@ -802,8 +803,8 @@ async def _search_and_respond_vehicles(
             session_id=session_id,
             quick_replies=["Try again"],
             domain="vehicles",
+            timings_ms=timings
         )
-
 
 async def _search_and_respond_ecommerce(
     search_filters: Dict[str, Any],
@@ -817,14 +818,16 @@ async def _search_and_respond_ecommerce(
     question_count: int = 0,
     agent: Optional["UniversalAgent"] = None,
 ) -> ChatResponse:
-    """Search e-commerce products (laptops/books) and return response."""
+    import time
+    timings = {}
+    t_search = time.perf_counter()
     session_manager.add_message(session_id, "user", "")
     recs, labels = await _search_ecommerce_products(
         search_filters, category, n_rows=n_rows, n_per_row=n_per_row,
     )
-
+    timings["ecommerce_search_ms"] = (time.perf_counter() - t_search) * 1000
+    t_format = time.perf_counter()
     session_manager.set_stage(session_id, STAGE_RECOMMENDATIONS)
-
     if not recs:
         filter_desc = []
         if search_filters.get("brand") and str(search_filters["brand"]).lower() not in ("no preference", "specific brand"):
@@ -834,7 +837,6 @@ async def _search_and_respond_ecommerce(
             filter_desc.append(f"under ${price_max_dollars:.0f}")
         if search_filters.get("subcategory"):
             filter_desc.append(f"{search_filters['subcategory'].lower()}")
-
         filter_text = " with " + ", ".join(filter_desc) if filter_desc else ""
         message = f"I couldn't find any {domain}{filter_text}. Try adjusting your filters or budget."
         no_results_replies = (
@@ -851,8 +853,8 @@ async def _search_and_respond_ecommerce(
             filters=search_filters,
             preferences=search_filters.get("_soft_preferences", {}),
             question_count=question_count,
+            timings_ms=timings
         )
-
     # Store product IDs for Research/Compare
     all_ids = []
     for row in recs:
@@ -861,9 +863,7 @@ async def _search_and_respond_ecommerce(
             if pid and pid not in all_ids:
                 all_ids.append(pid)
     session_manager.set_last_recommendations(session_id, all_ids)
-
     product_label = "laptops" if domain == "laptops" else "books"
-
     # Generate conversational explanation
     message = f"Here are top {product_label} recommendations. What would you like to do next?"
     if agent:
@@ -871,7 +871,7 @@ async def _search_and_respond_ecommerce(
             message = agent.generate_recommendation_explanation(recs, domain)
         except Exception as e:
             logger.error("rec_explanation_failed", f"Failed to generate explanation: {e}", {})
-
+    timings["ecommerce_formatting_ms"] = (time.perf_counter() - t_format) * 1000
     return ChatResponse(
         response_type="recommendations",
         message=message,
@@ -889,570 +889,5 @@ async def _search_and_respond_ecommerce(
             "Rate recommendations",
             "Help with checkout",
         ],
+        timings_ms=timings
     )
-
-
-# ============================================================================
-# Session Management
-# ============================================================================
-
-class SessionResponse(BaseModel):
-    """Response model for session state endpoint."""
-    session_id: str
-    filters: Dict[str, Any]
-    preferences: Dict[str, Any]
-    question_count: int
-    conversation_history: List[Dict[str, str]]
-    domain: Optional[str] = None
-
-
-class ResetRequest(BaseModel):
-    """Request model for session reset."""
-    session_id: Optional[str] = None
-
-
-class ResetResponse(BaseModel):
-    """Response model for session reset."""
-    session_id: str
-    status: str
-
-
-def get_session_state(session_id: str) -> SessionResponse:
-    """Get current session state."""
-    session_manager = get_session_manager()
-    session = session_manager.get_session(session_id)
-
-    return SessionResponse(
-        session_id=session_id,
-        filters=session.explicit_filters,
-        preferences={},
-        question_count=session.question_count,
-        conversation_history=session.conversation_history,
-        domain=session.active_domain,
-    )
-
-
-def reset_session(session_id: Optional[str] = None) -> ResetResponse:
-    """Reset session or create new one."""
-    import uuid
-
-    session_manager = get_session_manager()
-
-    if session_id:
-        session_manager.reset_session(session_id)
-        new_session_id = session_id
-    else:
-        new_session_id = str(uuid.uuid4())
-
-    session_manager.get_session(new_session_id)
-    logger.info("session_reset", f"Session reset/created: {new_session_id}", {})
-
-    return ResetResponse(
-        session_id=new_session_id,
-        status="reset"
-    )
-
-
-def delete_session(session_id: str) -> Dict[str, str]:
-    """Delete a session."""
-    session_manager = get_session_manager()
-    session_manager.reset_session(session_id)
-    return {"status": "deleted", "session_id": session_id}
-
-
-def list_sessions() -> Dict[str, Any]:
-    """List all active sessions."""
-    session_manager = get_session_manager()
-    return {
-        "active_sessions": len(session_manager.sessions),
-        "session_ids": list(session_manager.sessions.keys())
-    }
-
-
-# ============================================================================
-# Product Search Helper
-# ============================================================================
-
-def _domain_to_category(active_domain: Optional[str]) -> str:
-    """Map domain to database category for e-commerce search.
-    Uses lowercase to match Supabase convention (most products are lowercase).
-    """
-    if not active_domain:
-        return "electronics"
-    m = {
-        "laptops": "electronics",
-        "books": "Books",
-    }
-    return m.get(active_domain, "electronics")
-
-
-def _format_product_as_vehicle(product_dict: Dict[str, Any], category: str) -> Dict[str, Any]:
-    """
-    Format an e-commerce product using the unified product schema.
-
-    New unified format includes:
-    - productType: "laptop" | "book" | "vehicle"
-    - Common fields: id, name, brand, price, image
-    - Type-specific details: laptop{}, book{}, or vehicle{}
-    - Legacy compatibility: vehicle{} and retailListing{} for backwards compat
-    """
-    product_id = product_dict.get("product_id", "")
-    name = product_dict.get("name", "")
-    description = product_dict.get("description", "")
-    brand = product_dict.get("brand", "")
-    price = product_dict.get("price", 0)
-    image_url = product_dict.get("image_url")
-
-    if category.lower() == "electronics":
-        product_type = "laptop"
-        body_style = "Electronics"
-    elif category.lower() == "books":
-        product_type = "book"
-        body_style = "Books"
-    else:
-        product_type = "generic"
-        body_style = category
-
-    result = {
-        "id": product_id,
-        "productType": product_type,
-        "name": name,
-        "brand": brand,
-        "price": int(price),
-        "currency": "USD",
-        "description": description,
-        "image": {
-            "primary": image_url or "",
-            "count": 1 if image_url else 0,
-            "gallery": []
-        },
-        "url": "",
-        "available": True,
-        "@id": product_id,
-        "vin": product_id,
-        "online": True,
-        "vehicle": {
-            "vin": product_id,
-            "year": 2024,
-            "make": brand,
-            "model": name,
-            "trim": "",
-            "price": int(price),
-            "mileage": 0,
-            "bodyStyle": body_style,
-            "drivetrain": product_type.capitalize(),
-            "engine": "",
-            "fuel": "",
-            "transmission": "",
-            "doors": 0,
-            "seats": 0,
-            "exteriorColor": "",
-            "interiorColor": "",
-            "build_city_mpg": 0,
-            "build_highway_mpg": 0,
-            "norm_body_type": body_style,
-            "norm_fuel_type": "",
-            "norm_is_used": 0,
-            "description": description,
-            "category": category,
-        },
-        "retailListing": {
-            "price": int(price),
-            "miles": 0,
-            "dealer": brand,
-            "city": "",
-            "state": "",
-            "zip": "",
-            "vdp": "",
-            "carfaxUrl": "",
-            "primaryImage": image_url or "",
-            "photoCount": 1 if image_url else 0,
-            "used": False,
-            "cpo": False,
-        },
-        "_product": product_dict,
-    }
-
-    if product_type == "laptop":
-        result["laptop"] = {
-            "productType": product_dict.get("product_type", "laptop"),
-            "specs": {
-                "processor": "",
-                "ram": "",
-                "storage": "",
-                "display": "",
-                "graphics": product_dict.get("gpu_model", "")
-            },
-            "gpuVendor": product_dict.get("gpu_vendor", ""),
-            "gpuModel": product_dict.get("gpu_model", ""),
-            "color": product_dict.get("color", ""),
-            "tags": product_dict.get("tags", []) or []
-        }
-    elif product_type == "book":
-        result["book"] = {
-            "author": "",
-            "genre": product_dict.get("subcategory", ""),
-            "format": "",
-            "pages": None,
-            "isbn": "",
-            "publisher": "",
-            "language": "English"
-        }
-
-    return result
-
-
-def _fetch_products_by_ids(product_ids: List[str]) -> List[Dict[str, Any]]:
-    """Fetch product dicts by IDs (same format as _search_ecommerce_products)."""
-    if not product_ids:
-        return []
-    from app.database import SessionLocal
-    from app.models import Product
-    db = SessionLocal()
-    try:
-        products = db.query(Product).filter(Product.product_id.in_(product_ids)).all()
-        id_order = {pid: i for i, pid in enumerate(product_ids)}
-        products = sorted(products, key=lambda p: id_order.get(str(p.product_id), 999))
-        result = []
-        for product in products:
-            price_dollars = float(product.price_value) if product.price_value else 0
-            p_dict = {
-                "id": str(product.product_id),
-                "product_id": str(product.product_id),
-                "name": product.name,
-                "description": product.description,
-                "category": product.category,
-                "subcategory": getattr(product, "subcategory", None),
-                "brand": product.brand,
-                "price": round(price_dollars, 2),
-                "price_cents": int(price_dollars * 100),
-                "image_url": getattr(product, "image_url", None),
-                "product_type": product.product_type,
-                "gpu_vendor": getattr(product, "gpu_vendor", None),
-                "gpu_model": getattr(product, "gpu_model", None),
-                "color": getattr(product, "color", None),
-                "tags": getattr(product, "tags", None),
-                "reviews": getattr(product, "reviews", None),
-                "available_qty": product.inventory or 0,
-                "rating": float(product.rating) if product.rating else None,
-                "rating_count": product.rating_count,
-            }
-            result.append(p_dict)
-        return result
-    finally:
-        db.close()
-
-
-def _build_kg_search_query(filters: Dict[str, Any], category: str) -> str:
-    """Build a search query string for KG from filters."""
-    parts = []
-    if filters.get("subcategory"):
-        parts.append(str(filters["subcategory"]))
-    if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
-        parts.append(str(filters["brand"]))
-    if category.lower() == "electronics":
-        parts.append("laptop")
-    elif category.lower() == "books":
-        parts.append("book")
-    return " ".join(parts) if parts else ""
-
-
-def _diversify_by_brand(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Interleave products by brand to avoid showing all results from one brand."""
-    if len(products) <= 2:
-        return products
-    from collections import OrderedDict
-    brand_buckets: OrderedDict[str, list] = OrderedDict()
-    for p in products:
-        brand = (p.get("brand") or "Unknown").lower()
-        brand_buckets.setdefault(brand, []).append(p)
-    if len(brand_buckets) <= 1:
-        return products
-    result = []
-    while any(brand_buckets.values()):
-        for brand in list(brand_buckets.keys()):
-            if brand_buckets[brand]:
-                result.append(brand_buckets[brand].pop(0))
-            else:
-                del brand_buckets[brand]
-    return result
-
-
-async def _search_ecommerce_products(
-    filters: Dict[str, Any],
-    category: str,
-    n_rows: int = 3,
-    n_per_row: int = 3,
-    idss_preferences: Optional[Dict[str, Any]] = None,
-    exclude_ids: Optional[List[str]] = None,
-) -> tuple[List[List[Dict[str, Any]]], List[str]]:
-    """
-    Search e-commerce products from PostgreSQL database.
-    Uses Neo4j knowledge graph when available to prioritize KG-ranked candidates.
-
-    Returns products formatted to match IDSS vehicle structure for frontend compatibility.
-    """
-    from app.database import SessionLocal
-    from app.models import Product
-    from app.formatters import format_product
-
-    # Safety: ensure product_type is set for Electronics to avoid mixing laptops/watches/speakers
-    if category.lower() == "electronics" and not filters.get("product_type"):
-        filters["product_type"] = "laptop"
-    elif category.lower() == "books" and not filters.get("product_type"):
-        filters["product_type"] = "book"
-
-    # Convert price_cents filters to dollars for Supabase (price column is in dollars)
-    price_min_dollars = filters.get("price_min_cents", 0) / 100 if filters.get("price_min_cents") else None
-    price_max_dollars = filters.get("price_max_cents", 0) / 100 if filters.get("price_max_cents") else None
-
-    logger.info("search_ecommerce_start", "Searching products", {
-        "category": category,
-        "filters": filters,
-        "n_rows": n_rows,
-        "n_per_row": n_per_row,
-        "price_min_dollars": price_min_dollars,
-        "price_max_dollars": price_max_dollars,
-    })
-
-    # Knowledge graph: get candidate IDs when available
-    kg_candidate_ids: List[str] = []
-    try:
-        from app.kg_service import get_kg_service
-        kg = get_kg_service()
-        if kg.is_available():
-            kg_filters = {**filters, "category": category}
-            search_query = _build_kg_search_query(filters, category)
-            kg_candidate_ids, _ = kg.search_candidates(
-                query=search_query,
-                filters=kg_filters,
-                limit=n_rows * n_per_row * 3,
-            )
-            if kg_candidate_ids:
-                if exclude_ids:
-                    exclude_set = set(exclude_ids)
-                    kg_candidate_ids = [pid for pid in kg_candidate_ids if pid not in exclude_set]
-                if kg_candidate_ids:
-                    logger.info("kg_candidates_used", f"KG returned {len(kg_candidate_ids)} candidates", {"count": len(kg_candidate_ids)})
-    except Exception as e:
-        logger.warning("kg_search_skipped", f"KG search skipped: {e}", {"error": str(e)})
-
-    def _apply_common_filters(q, *, include_brand=True, include_product_type=True):
-        """Apply common filters to a query (brand, product_type)."""
-        if include_brand and filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
-            q = q.filter(Product.brand == filters["brand"])
-        if include_product_type and filters.get("product_type"):
-            q = q.filter(Product.product_type == filters["product_type"])
-        if exclude_ids:
-            q = q.filter(~Product.product_id.in_(exclude_ids))
-        return q
-
-    def _apply_price_filters(q, *, include_min=True, include_max=True):
-        """Apply price filters using Product.price_value (dollars, not cents)."""
-        if include_min and price_min_dollars:
-            q = q.filter(Product.price_value >= price_min_dollars)
-        if include_max and price_max_dollars:
-            q = q.filter(Product.price_value <= price_max_dollars)
-        q = q.order_by(Product.price_value.asc())
-        return q
-
-    def _apply_spec_filters(q):
-        """Apply hardware spec filters from attributes JSONB column."""
-        from sqlalchemy import Float
-        if filters.get("min_ram_gb"):
-            q = q.filter(
-                Product.attributes["ram_gb"].astext.cast(Float) >= float(filters["min_ram_gb"])
-            )
-        if filters.get("min_storage_gb"):
-            q = q.filter(
-                Product.attributes["storage_gb"].astext.cast(Float) >= float(filters["min_storage_gb"])
-            )
-        if filters.get("min_battery_hours"):
-            q = q.filter(
-                Product.attributes["battery_hours"].astext.cast(Float) >= float(filters["min_battery_hours"])
-            )
-        if filters.get("min_screen_inches"):
-            q = q.filter(
-                Product.attributes["screen_size"].astext.cast(Float) >= float(filters["min_screen_inches"])
-            )
-        return q
-
-    # Minimum price sanity for laptops — exclude obviously mispriced listings
-    if category.lower() == "electronics" and not price_min_dollars:
-        price_min_dollars = 50  # $50 minimum for laptops to filter junk listings
-
-    db = SessionLocal()
-    try:
-        category_count = db.query(Product).filter(Product.category == category).count()
-        logger.info("search_category_count", f"Products in category {category}: {category_count}", {})
-
-        limit = n_rows * n_per_row * 2
-
-        # First try: full filters (brand + product_type + price range + specs)
-        query = db.query(Product).filter(Product.category == category)
-        query = _apply_common_filters(query)
-        query = _apply_spec_filters(query)
-        query = _apply_price_filters(query)
-        products = query.limit(limit).all()
-
-        # Fallback: relax spec filters (keep brand + price)
-        if not products and any(filters.get(k) for k in ("min_ram_gb", "min_storage_gb", "min_battery_hours", "min_screen_inches")):
-            query = db.query(Product).filter(Product.category == category)
-            query = _apply_common_filters(query)
-            query = _apply_price_filters(query)
-            products = query.limit(limit).all()
-
-        # Fallback: relax price_min ONLY when a price range is set (both min AND max)
-        # Never relax price_min for "Over $X" queries (only price_min, no price_max)
-        if not products and price_min_dollars and price_max_dollars:
-            query = db.query(Product).filter(Product.category == category)
-            query = _apply_common_filters(query)
-            query = _apply_price_filters(query, include_min=False)
-            products = query.limit(limit).all()
-
-        # Fallback: relax brand (keep product_type + price)
-        if not products and filters.get("brand"):
-            query = db.query(Product).filter(Product.category == category)
-            query = _apply_common_filters(query, include_brand=False)
-            query = _apply_price_filters(query)
-            products = query.limit(limit).all()
-
-        # Fallback: relax both brand AND price_min (keep product_type, price_max)
-        # Only relax price_min when a price range was set (both min AND max)
-        if not products and filters.get("brand") and price_min_dollars and price_max_dollars:
-            query = db.query(Product).filter(Product.category == category)
-            query = _apply_common_filters(query, include_brand=False)
-            query = _apply_price_filters(query, include_min=False)
-            products = query.limit(limit).all()
-
-        # Fallback: relax brand only (keep price constraints intact)
-        if not products and filters.get("brand") and price_min_dollars and not price_max_dollars:
-            query = db.query(Product).filter(Product.category == category)
-            query = _apply_common_filters(query, include_brand=False)
-            query = _apply_price_filters(query)
-            products = query.limit(limit).all()
-
-        logger.info("search_query_result", f"Query returned {len(products)} products", {
-            "brand_filter": filters.get("brand"),
-            "price_min": filters.get("price_min_cents"),
-            "price_max": filters.get("price_max_cents"),
-        })
-
-        if not products:
-            return [], []
-
-        # Convert to product dicts
-        product_dicts = []
-        for product in products:
-            price_dollars = float(product.price_value) if product.price_value else 0
-            price_cents = int(price_dollars * 100)
-            reviews_text = getattr(product, "reviews", None)
-
-            format_value = None
-            tags = getattr(product, "tags", None)
-            if product.product_type == "book" and tags:
-                for tag in tags:
-                    tag_lower = tag.lower()
-                    if "hardcover" in tag_lower or "hardback" in tag_lower:
-                        format_value = "Hardcover"
-                        break
-                    elif "paperback" in tag_lower or "softcover" in tag_lower:
-                        format_value = "Paperback"
-                        break
-                    elif "ebook" in tag_lower or "e-book" in tag_lower:
-                        format_value = "E-book"
-                        break
-                    elif "audiobook" in tag_lower:
-                        format_value = "Audiobook"
-                        break
-
-            product_dict = {
-                "product_id": str(product.product_id),
-                "name": product.name,
-                "description": getattr(product, "description", None),
-                "category": product.category,
-                "subcategory": getattr(product, "subcategory", None),
-                "brand": product.brand,
-                "price": round(price_dollars, 2),
-                "price_cents": price_cents,
-                "image_url": getattr(product, 'image_url', None),
-                "product_type": product.product_type,
-                "gpu_vendor": getattr(product, "gpu_vendor", None),
-                "gpu_model": getattr(product, "gpu_model", None),
-                "color": getattr(product, "color", None),
-                "tags": tags,
-                "reviews": reviews_text,
-                "available_qty": product.inventory or 0,
-                "format": format_value,
-                "author": product.brand if product.product_type == "book" else None,
-                "genre": getattr(product, "subcategory", None) if product.product_type == "book" else None,
-                "rating": float(product.rating) if product.rating else None,
-                "rating_count": product.rating_count,
-            }
-            product_dicts.append(product_dict)
-
-        if len(product_dicts) == 0:
-            return [], []
-
-        # Reorder: KG candidates first, then by price
-        if kg_candidate_ids:
-            kg_id_to_idx = {pid: i for i, pid in enumerate(kg_candidate_ids)}
-            def sort_key(p):
-                pid = p.get("product_id")
-                if pid in kg_id_to_idx:
-                    return (0, kg_id_to_idx[pid])
-                return (1, float(p.get("price_cents", 0) or 0))
-            product_dicts.sort(key=sort_key)
-        else:
-            product_dicts.sort(key=lambda x: float(x.get("price_cents", 0) or 0))
-
-        # Brand diversification: interleave brands so results aren't all from one brand
-        product_dicts = _diversify_by_brand(product_dicts)
-
-        # Generate recommendation reasons based on ranking context
-        from app.research_compare import generate_recommendation_reasons
-        generate_recommendation_reasons(product_dicts, filters=filters, kg_candidate_ids=kg_candidate_ids)
-
-        # Create buckets
-        total = len(product_dicts)
-        bucket_size = max(1, total // n_rows)
-
-        buckets = []
-        bucket_labels = []
-
-        for i in range(n_rows):
-            start = i * bucket_size
-            end = start + n_per_row
-            if i == n_rows - 1:
-                end = min(start + n_per_row, total)
-
-            bucket_products = product_dicts[start:end]
-            if bucket_products:
-                fmt_domain = (
-                    "laptops" if category.lower() == "electronics"
-                    else "books" if category.lower() == "books"
-                    else "laptops"
-                )
-
-                formatted_bucket = [
-                    format_product(p, fmt_domain).model_dump(mode='json', exclude_none=True)
-                    for p in bucket_products
-                ]
-                buckets.append(formatted_bucket)
-
-                min_price = min(float(p.get("price", 0) or 0) for p in bucket_products)
-                max_price = max(float(p.get("price", 0) or 0) for p in bucket_products)
-                if i == 0:
-                    bucket_labels.append(f"Budget-Friendly (${min_price:.0f}-${max_price:.0f})")
-                elif i == n_rows - 1:
-                    bucket_labels.append(f"Premium (${min_price:.0f}-${max_price:.0f})")
-                else:
-                    bucket_labels.append(f"Mid-Range (${min_price:.0f}-${max_price:.0f})")
-
-        return buckets, bucket_labels
-
-    except Exception as e:
-        logger.error("chat_search_error", f"Error searching products: {e}", {})
-        return [], []
-    finally:
-        db.close()

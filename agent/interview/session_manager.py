@@ -1,3 +1,9 @@
+# Export for FastAPI endpoints
+__all__ = [
+    "SessionResponse", "ResetRequest", "ResetResponse",
+    "get_session_state", "reset_session", "delete_session", "list_sessions",
+    "get_session_manager", "InterviewSessionManager", "InterviewSessionState"
+]
 """
 Session state management for laptop/electronics/book interviews.
 
@@ -9,16 +15,38 @@ Tracks conversation history, filters, questions asked.
 Persists to Redis (mcp:session:{session_id}) per bigerrorjan29.txt.
 Stores active_domain (vehicles|laptops|books|none), stage (INTERVIEW|RECOMMENDATIONS), question_index.
 """
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-import json
+from pydantic import BaseModel, Field
 
+class SessionResponse(BaseModel):
+    session_id: str = Field(..., description="Session ID")
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    questions_asked: List[str] = Field(default_factory=list)
+    question_count: int = 0
+    question_index: int = 0
+    product_type: Optional[str] = None
+    active_domain: Optional[str] = None
+    stage: str = "INTERVIEW"
+    session_intent: Optional[str] = None
+    step_intent: Optional[str] = None
+    conversation_length: int = 0
+
+class ResetRequest(BaseModel):
+    session_id: str = Field(..., description="Session ID to reset")
+
+class ResetResponse(BaseModel):
+    session_id: str = Field(..., description="Session ID that was reset")
+    status: str = Field(..., description="Reset status")
+
+
+import logging
 logger = None
 try:
     from app.utils.logger import get_logger
     logger = get_logger("interview.session_manager")
 except ImportError:
-    import logging
     logger = logging.getLogger("interview.session_manager")
 
 # Stage enum for session state
@@ -373,9 +401,42 @@ class InterviewSessionManager:
 
 
 # Global session manager instance
+# Global session manager instance
 _session_manager = InterviewSessionManager()
 
 
 def get_session_manager() -> InterviewSessionManager:
     """Get the global session manager instance."""
     return _session_manager
+
+# API-facing functions for FastAPI endpoints
+def get_session_state(session_id: str) -> SessionResponse:
+    mgr = get_session_manager()
+    session = mgr.get_session(session_id)
+    return SessionResponse(
+        session_id=session_id,
+        filters=session.explicit_filters,
+        questions_asked=session.questions_asked,
+        question_count=session.question_count,
+        question_index=session.question_index,
+        product_type=session.product_type,
+        active_domain=session.active_domain,
+        stage=session.stage,
+        session_intent=getattr(session, "session_intent", None),
+        step_intent=getattr(session, "step_intent", None),
+        conversation_length=len(session.conversation_history),
+    )
+
+def reset_session(session_id: str) -> ResetResponse:
+    mgr = get_session_manager()
+    mgr.reset_session(session_id)
+    return ResetResponse(session_id=session_id, status="reset")
+
+def delete_session(session_id: str) -> dict:
+    mgr = get_session_manager()
+    mgr.reset_session(session_id)
+    return {"session_id": session_id, "status": "deleted"}
+
+def list_sessions() -> dict:
+    mgr = get_session_manager()
+    return {"sessions": list(mgr.sessions.keys())}

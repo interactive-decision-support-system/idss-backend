@@ -63,11 +63,9 @@ from app.ucp_endpoints import (
 )
 from app.ucp_event_logger import log_ucp_event
 from app.supplier_api import router as supplier_router
-from agent import (
-    ChatRequest, ChatResponse, process_chat,
-    SessionResponse, ResetRequest, ResetResponse,
-    get_session_state, reset_session, delete_session, list_sessions,
-)
+from agent import ChatRequest, ChatResponse, process_chat
+from agent.interview.session_manager import SessionResponse, ResetRequest, ResetResponse
+from agent.interview.session_manager import get_session_state, reset_session, delete_session, list_sessions
 
 
 @asynccontextmanager
