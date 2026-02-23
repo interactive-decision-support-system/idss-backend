@@ -324,6 +324,25 @@ class SupabaseVehicleStore:
             "_original": payload,
         }
 
+
+def get_vehicle_store(require_photos: bool = True):
+    """
+    Return a vehicle store: Supabase if configured, else LocalVehicleStore (data/).
+    Use this so the app can run without data/ when SUPABASE_URL is set.
+    """
+    import os
+    if os.environ.get("SUPABASE_URL") and (
+        os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    ):
+        return SupabaseVehicleStore(require_photos=require_photos)
+    try:
+        return LocalVehicleStore(require_photos=require_photos)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            f"{e}. Either set up the data directory or set SUPABASE_URL (and key) to use Supabase."
+        ) from e
+
+
 @dataclass
 class LocalVehicleStore:
     """

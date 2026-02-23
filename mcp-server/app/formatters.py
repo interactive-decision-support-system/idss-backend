@@ -145,18 +145,50 @@ def _extract_vehicle_details(p: Dict[str, Any]) -> VehicleDetails:
     )
 
 def _extract_laptop_details(p: Dict[str, Any]) -> LaptopDetails:
+    attrs = p.get("attributes") or {}
+    def v(k: str, ak: Optional[str] = None) -> Optional[str]:
+        val = p.get(k)
+        if val is not None and val != "":
+            return str(val) if not isinstance(val, str) else val
+        val = attrs.get(ak or k)
+        if val is not None and val != "":
+            return str(val) if not isinstance(val, str) else val
+        return None
+    def v_num(k: str, ak: Optional[str] = None) -> Optional[int]:
+        val = p.get(k) or attrs.get(ak or k)
+        if val is not None:
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                pass
+        return None
+    ram = v("ram") or (f"{int(attrs['ram_gb'])} GB" if attrs.get("ram_gb") is not None else None)
+    storage = v("storage") or (f"{int(attrs['storage_gb'])} GB" if attrs.get("storage_gb") is not None else None)
+    battery = v("battery_life") or (f"{int(attrs['battery_life_hours'])} hrs" if attrs.get("battery_life_hours") is not None else None)
+    screen = v("screen_size") or (str(attrs["screen_size"]) if attrs.get("screen_size") is not None else None)
+    display = v("display") or screen or v("resolution")
+    if screen and display and screen not in str(display):
+        display = f"{screen}\" {display}".strip()
     return LaptopDetails(
         specs=LaptopSpecs(
-            processor=p.get("processor") or _extract_spec(p, "processor"),
-            ram=p.get("ram") or _extract_spec(p, "ram"),
-            storage=p.get("storage") or _extract_spec(p, "storage"),
-            display=p.get("display") or _extract_spec(p, "display"),
-            graphics=p.get("gpu_model") or p.get("graphics")
+            processor=v("processor") or v("cpu") or attrs.get("cpu"),
+            ram=ram,
+            storage=storage,
+            storage_type=v("storage_type") or attrs.get("storage_type"),
+            display=display,
+            screen_size=screen,
+            resolution=v("resolution") or attrs.get("resolution"),
+            graphics=p.get("gpu") or p.get("gpu_model") or v("graphics") or attrs.get("gpu") or attrs.get("gpu_model"),
+            battery_life=battery,
+            os=v("os") or attrs.get("os") or attrs.get("operating_system"),
+            weight=v("weight") or (str(attrs["weight"]) if attrs.get("weight") is not None else None),
+            refresh_rate_hz=v_num("refresh_rate_hz") or (attrs.get("refresh_rate_hz") if isinstance(attrs.get("refresh_rate_hz"), int) else None),
         ),
-        gpuVendor=p.get("gpu_vendor"),
-        gpuModel=p.get("gpu_model"),
-        color=p.get("color"),
-        tags=p.get("tags") or []
+        gpuVendor=p.get("gpu_vendor") or attrs.get("gpu_vendor"),
+        gpuModel=p.get("gpu_model") or attrs.get("gpu_model"),
+        color=p.get("color") or attrs.get("color"),
+        tags=p.get("tags") or [],
+        attributes=attrs if attrs else None,
     )
 
 def _extract_book_details(p: Dict[str, Any]) -> BookDetails:

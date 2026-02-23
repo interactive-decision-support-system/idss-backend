@@ -49,8 +49,8 @@ from app.metrics import metrics_collector
 from app.tool_schemas import get_all_tools_for_provider, ALL_TOOLS
 from app.merchant_feed import export_feed
 from app.idss_adapter import (
-    search_products_idss, get_product_idss,
-    search_products_universal, get_product_universal
+    search_products_idss, get_product_universal,
+    search_products_universal
 )
 from app.ucp_schemas import (
     UCPSearchRequest, UCPSearchResponse,
@@ -215,8 +215,8 @@ async def chat(request: ChatRequest):
     Main conversation endpoint - compatible with IDSS /chat API.
 
     Provides multi-domain support:
-    - Vehicles: Routes to IDSS backend (port 8000)
-    - Laptops/Books: Uses MCP interview system
+    - Vehicles: MCP vehicle_search tool (Supabase)
+    - Laptops/Books: MCP interview system
 
     Request format matches IDSS /chat for frontend compatibility.
 
@@ -504,26 +504,11 @@ def api_checkout(
 @app.post("/api/idss/search-products", response_model=SearchProductsResponse)
 async def api_search_products_idss(request: SearchProductsRequest):
     """
-    Search for vehicles using IDSS backend.
-    
-    This endpoint bridges the MCP product format to IDSS vehicle recommendations.
-    Uses the IDSS recommendation engine instead of PostgreSQL product catalog.
+    Search for vehicles using MCP vehicle_search (Supabase).
     
     Returns: List of vehicles formatted as products
     """
     return await search_products_idss(request)
-
-
-@app.post("/api/idss/get-product", response_model=GetProductResponse)
-async def api_get_product_idss(request: GetProductRequest):
-    """
-    Get detailed information about a single vehicle from IDSS.
-    
-    IDs-only: Accepts vehicle_id as product_id.
-    
-    Returns: Full vehicle details formatted as product
-    """
-    return await get_product_idss(request)
 
 
 # 

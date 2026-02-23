@@ -47,9 +47,8 @@ def preload_all(
     if preload_database:
         start = time.time()
         try:
-            from idss.data.vehicle_store import LocalVehicleStore
-            store = LocalVehicleStore(require_photos=True)
-            # Do a simple query to warm up the connection
+            from idss.data.vehicle_store import get_vehicle_store
+            store = get_vehicle_store(require_photos=True)
             store.search_listings({"year": "2024"}, limit=1)
             timings["database"] = time.time() - start
             logger.info(f"[OK] Database connection ({timings['database']:.2f}s)")

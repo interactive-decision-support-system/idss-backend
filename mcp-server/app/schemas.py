@@ -400,8 +400,15 @@ class LaptopSpecs(BaseModel):
     processor: Optional[str] = None
     ram: Optional[str] = None
     storage: Optional[str] = None
+    storage_type: Optional[str] = None
     display: Optional[str] = None
+    screen_size: Optional[str] = None
+    resolution: Optional[str] = None
     graphics: Optional[str] = None
+    battery_life: Optional[str] = None
+    os: Optional[str] = None
+    weight: Optional[str] = None
+    refresh_rate_hz: Optional[int] = None
 
 class LaptopDetails(BaseModel):
     productType: str = "laptop"
@@ -410,6 +417,8 @@ class LaptopDetails(BaseModel):
     gpuModel: Optional[str] = None
     color: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
+    """Full attributes blob from DB (e.g. Supabase attributes JSONB) for frontend to display all fields."""
+    attributes: Optional[Dict[str, Any]] = None
 
 class BookDetails(BaseModel):
     author: Optional[str] = None

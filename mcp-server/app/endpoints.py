@@ -33,6 +33,23 @@ from app.kg_service import get_kg_service
 
 logger = StructuredLogger("endpoints", log_level="INFO")
 
+_supabase_vehicle_store = None
+
+def get_supabase_vehicle_store():
+    """Return SupabaseVehicleStore if Supabase is configured, else None."""
+    global _supabase_vehicle_store
+    if _supabase_vehicle_store is not None:
+        return _supabase_vehicle_store
+    try:
+        if not os.environ.get("SUPABASE_URL") or not (os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")):
+            return None
+        from idss.data.vehicle_store import SupabaseVehicleStore
+        _supabase_vehicle_store = SupabaseVehicleStore(require_photos=False)
+        return _supabase_vehicle_store
+    except Exception as e:
+        logger.warning("supabase_vehicle_store_unavailable", f"Supabase vehicle store not available: {e}", {"error": str(e)})
+        return None
+
 # In-memory cart store (Supabase schema has no Cart/CartItem tables)
 _CARTS: Dict[str, Dict] = {}  # cart_id -> {"status": str, "items": {product_id_str: {"qty": int, "name": str, "price_cents": int}}}
 
@@ -166,9 +183,8 @@ async def search_products(
     3. Query parsing (extract filters from natural language)
     4. Domain detection (vehicles, laptops, books, electronics)
     5. Route to appropriate backend:
-       - Vehicles: IDSS backend (port 8000) for interview + ranking
-       - Laptops/Books: IDSS backend for interview, then PostgreSQL + IDSS ranking
-       - Electronics: PostgreSQL + Neo4j KG + Vector search
+       - Vehicles: MCP vehicle_search tool (Supabase) — no IDSS server (8000)
+       - Laptops/Books/Electronics: Supabase products table when configured, else PostgreSQL + optional IDSS interview
     6. Data sources queried (in order):
        - Neo4j KG (compatibility, relationships, use cases)
        - PostgreSQL (authoritative product data)
@@ -340,10 +356,10 @@ async def search_products(
         "route_reason": route_reason,
         "active_domain_before": active_domain_before,
         "routing": {
-            "vehicles": "IDSS backend (port 8000) - interview + ranking",
-            "laptops": "IDSS backend (interview) -> PostgreSQL + IDSS ranking",
-            "books": "IDSS backend (interview) -> PostgreSQL + IDSS ranking",
-            "electronics": "PostgreSQL + Neo4j KG + Vector search"
+            "vehicles": "MCP vehicle_search (Supabase)",
+            "laptops": "Supabase products when configured else PostgreSQL + optional interview",
+            "books": "Supabase products when configured else PostgreSQL + optional interview",
+            "electronics": "Supabase products when configured else PostgreSQL + Neo4j KG + Vector"
         }
     })
 
@@ -435,22 +451,99 @@ async def search_products(
     
     is_vehicles = (detected_domain == Domain.VEHICLES) or (filters.get("category") == "vehicles")
     if is_vehicles:
-        logger.info("routing_to_idss", "Routing vehicles search to IDSS backend", {"query": request.query})
-        from app.idss_adapter import search_products_universal, BackendType
-        from app.schemas import SearchProductsRequest
-        
-        enhanced_request = SearchProductsRequest(
-            query=cleaned_query or search_query,
-            filters=filters,
-            limit=request.limit,
-            cursor=request.cursor,
-            session_id=request.session_id
+        logger.info("routing_vehicles_mcp", "Routing vehicles search to MCP vehicle_search tool (Supabase)", {"query": request.query})
+        from app.tools.vehicle_search import search_vehicles, VehicleSearchRequest
+        from app.idss_adapter import vehicle_to_product_summary
+
+        # Map MCP/agent filters to vehicle_search format
+        vehicle_filters = {k: v for k, v in filters.items() if k != "_soft_preferences"}
+        if filters.get("price_max_cents") or filters.get("price_min_cents"):
+            pmin = (filters.get("price_min_cents") or 0) // 100
+            pmax = (filters.get("price_max_cents") or 999999) // 100
+            vehicle_filters["price"] = f"{pmin}-{pmax}"
+        n = max(1, min(request.limit or 9, 50))
+        n_rows = 3
+        n_per_row = max(1, (n + n_rows - 1) // n_rows)
+
+        result = search_vehicles(VehicleSearchRequest(
+            filters=vehicle_filters,
+            preferences=filters.get("_soft_preferences") or {},
+            method="embedding_similarity",
+            n_rows=n_rows,
+            n_per_row=n_per_row,
+            limit=n * 3,
+        ))
+        # Flatten 2D grid to product list and convert to ProductSummary
+        products = []
+        for row in result.recommendations:
+            for v in row:
+                try:
+                    products.append(vehicle_to_product_summary(v))
+                except Exception as e:
+                    logger.warning("vehicle_to_summary_skip", f"Skip vehicle: {e}", {"error": str(e)})
+        timings = {"total": (time.time() - start_time) * 1000}
+        return SearchProductsResponse(
+            status=ResponseStatus.OK,
+            data=SearchResultsData(products=products, total_count=len(products), next_cursor=None),
+            constraints=[],
+            trace=create_trace(request_id, False, timings, ["supabase"]),
+            version=create_version_info(),
         )
-        return await search_products_universal(
-            enhanced_request, 
-            backend=BackendType.IDSS, 
-            product_type="vehicle"
-        )
+
+    # Electronics/Books: use Supabase products table (same workflow as chat → agent → UCP → MCP)
+    is_electronics_or_books = (
+        (detected_domain in (Domain.LAPTOPS, Domain.BOOKS))
+        or (filters.get("category") in ("Electronics", "Books"))
+    )
+    if is_electronics_or_books and os.environ.get("SUPABASE_URL"):
+        logger.info("routing_electronics_supabase", "Routing electronics/books search to Supabase products", {"query": request.query})
+        try:
+            from app.tools.supabase_product_store import get_product_store
+            store = get_product_store()
+            search_filters = dict(filters)
+            if "category" not in search_filters:
+                search_filters["category"] = "Electronics" if detected_domain == Domain.LAPTOPS else "Books"
+            if search_filters.get("category") == "Electronics" and "product_type" not in search_filters:
+                search_filters["product_type"] = filters.get("product_type") or "laptop"
+            elif search_filters.get("category") == "Books" and "product_type" not in search_filters:
+                search_filters["product_type"] = "book"
+            product_dicts = store.search_products(search_filters, limit=request.limit or 20)
+            from app.schemas import ShippingInfo as _SI
+            product_summaries = []
+            for p in product_dicts:
+                price_raw = p.get("price") or 0
+                try:
+                    price_dollars = float(price_raw)
+                except (TypeError, ValueError):
+                    price_dollars = 0.0
+                price_cents = int(round(price_dollars * 100))
+                product_summaries.append(ProductSummary(
+                    product_id=str(p.get("product_id") or p.get("id", "")),
+                    name=p.get("name") or p.get("title") or "Unknown",
+                    price_cents=price_cents,
+                    currency="USD",
+                    category=p.get("category"),
+                    brand=p.get("brand"),
+                    available_qty=int(p.get("inventory") or p.get("available_qty") or 0),
+                    source=p.get("source"),
+                    color=p.get("color"),
+                    scraped_from_url=None,
+                    product_type=p.get("product_type"),
+                    shipping=_SI(shipping_method="standard", estimated_delivery_days=5, shipping_cost_cents=None, shipping_region=None),
+                    return_policy="Standard return policy applies.",
+                    warranty="Standard manufacturer warranty applies.",
+                    promotion_info=None,
+                ))
+            timings_e = {"total": (time.time() - start_time) * 1000}
+            return SearchProductsResponse(
+                status=ResponseStatus.OK,
+                data=SearchResultsData(products=product_summaries, total_count=len(product_summaries), next_cursor=None),
+                constraints=[],
+                trace=create_trace(request_id, False, timings_e, ["supabase"]),
+                version=create_version_info(),
+            )
+        except Exception as e:
+            logger.warning("electronics_supabase_search_failed", f"Supabase electronics search failed, falling through: {e}", {"error": str(e)})
 
     # ALWAYS check query specificity, even with category filter
     # Generic queries like "computer" or "novel" should still ask follow-up questions
@@ -2312,7 +2405,168 @@ def get_product(
 
         return response
 
-    # STEP 2: Cache miss - query PostgreSQL (authoritative source)
+    # STEP 2 (vehicles): If product_id is a vehicle (VIN-), use cache then Supabase (no local DB)
+    if request.product_id.startswith("VIN-"):
+        vin = request.product_id.replace("VIN-", "").strip()
+        if vin:
+            store = get_supabase_vehicle_store()
+            if store:
+                db_start = time.time()
+                vehicle = store.get_by_vin(vin)
+                timings["db"] = (time.time() - db_start) * 1000
+                if vehicle:
+                    from app.idss_adapter import vehicle_to_product_detail
+                    product_detail = vehicle_to_product_detail(vehicle)
+                    # Optionally set provenance to supabase
+                    if hasattr(product_detail, "provenance") and product_detail.provenance:
+                        product_detail.provenance.source = "supabase"
+                    # Populate cache for next time
+                    now = datetime.now(timezone.utc)
+                    cache_client.set_product_summary(
+                        request.product_id,
+                        {
+                            "product_id": product_detail.product_id,
+                            "name": product_detail.name,
+                            "description": product_detail.description,
+                            "category": product_detail.category,
+                            "brand": product_detail.brand,
+                            "source": "supabase",
+                            "color": getattr(product_detail, "color", None),
+                            "scraped_from_url": None,
+                            "reviews": product_detail.reviews,
+                            "created_at": now.isoformat(),
+                            "updated_at": now.isoformat(),
+                        },
+                        adaptive=True,
+                    )
+                    cache_client.set_price(
+                        request.product_id,
+                        {"price_cents": product_detail.price_cents, "currency": product_detail.currency or "USD"},
+                        adaptive=True,
+                    )
+                    cache_client.set_inventory(
+                        request.product_id,
+                        {"available_qty": product_detail.available_qty},
+                        adaptive=True,
+                    )
+                    cache_client.record_access(request.product_id)
+                    if request.fields:
+                        product_detail = apply_field_projection(product_detail, request.fields)
+                    timings["total"] = (time.time() - start_time) * 1000
+                    record_request_metrics("get_product", timings["total"], cache_hit, is_error=False)
+                    log_response("get_product", request_id, "OK", timings["total"], cache_hit=cache_hit)
+                    response = GetProductResponse(
+                        status=ResponseStatus.OK,
+                        data=product_detail,
+                        constraints=[],
+                        trace=create_trace(request_id, cache_hit, timings, ["supabase"]),
+                        version=create_version_info(),
+                    )
+                    log_mcp_event(db, request_id, "get_product", "/api/get-product", request, response)
+                    return response
+                # Vehicle not found in Supabase
+                timings["total"] = (time.time() - start_time) * 1000
+                record_request_metrics("get_product", timings["total"], cache_hit, is_error=False)
+                log_response("get_product", request_id, "NOT_FOUND", timings["total"], cache_hit=cache_hit)
+                response = GetProductResponse(
+                    status=ResponseStatus.NOT_FOUND,
+                    data=None,
+                    constraints=[
+                        ConstraintDetail(
+                            code="VEHICLE_NOT_FOUND",
+                            message=f"Vehicle with ID '{request.product_id}' does not exist",
+                            details={"product_id": request.product_id, "vin": vin},
+                            allowed_fields=None,
+                            suggested_actions=["SearchProducts to find available vehicles"],
+                        )
+                    ],
+                    trace=create_trace(request_id, cache_hit, timings, ["supabase"]),
+                    version=create_version_info(),
+                )
+                log_mcp_event(db, request_id, "get_product", "/api/get-product", request, response)
+                return response
+        # VIN- but empty vin or Supabase not configured: fall through to NOT_FOUND below
+
+    # STEP 2 (e-commerce): If product_id is UUID and Supabase is configured, try Supabase after cache miss
+    if os.environ.get("SUPABASE_URL") and (os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")):
+        try:
+            uuid.UUID(str(request.product_id))
+        except (ValueError, TypeError):
+            pass
+        else:
+            from app.tools.supabase_product_store import get_product_store
+            store = get_product_store()
+            db_start = time.time()
+            row = store.get_by_id(str(request.product_id))
+            timings["db"] = (time.time() - db_start) * 1000
+            if row:
+                from app.schemas import ShippingInfo as _SI
+                price_raw = row.get("price") or 0
+                try:
+                    price_dollars = float(price_raw)
+                except (TypeError, ValueError):
+                    price_dollars = 0.0
+                product_detail = ProductDetail(
+                    product_id=str(row.get("product_id") or row.get("id", "")),
+                    name=row.get("name") or row.get("title") or "Unknown",
+                    description=row.get("description"),
+                    category=row.get("category"),
+                    brand=row.get("brand"),
+                    price_cents=int(round(price_dollars * 100)),
+                    currency="USD",
+                    available_qty=int(row.get("inventory") or row.get("available_qty") or 0),
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                    product_type=row.get("product_type"),
+                    metadata=row.get("attributes"),
+                    shipping=_SI(shipping_method="standard", estimated_delivery_days=5, shipping_cost_cents=None, shipping_region=None),
+                    return_policy="Standard return policy applies.",
+                    warranty="Standard manufacturer warranty applies.",
+                    promotion_info=None,
+                )
+                if request.fields:
+                    product_detail = apply_field_projection(product_detail, request.fields)
+                now = datetime.now(timezone.utc)
+                cache_client.set_product_summary(
+                    request.product_id,
+                    {
+                        "product_id": product_detail.product_id,
+                        "name": product_detail.name,
+                        "description": product_detail.description,
+                        "category": product_detail.category,
+                        "brand": product_detail.brand,
+                        "source": "supabase",
+                        "created_at": now.isoformat(),
+                        "updated_at": now.isoformat(),
+                    },
+                    adaptive=True,
+                )
+                cache_client.set_price(
+                    request.product_id,
+                    {"price_cents": product_detail.price_cents, "currency": product_detail.currency or "USD"},
+                    adaptive=True,
+                )
+                cache_client.set_inventory(
+                    request.product_id,
+                    {"available_qty": product_detail.available_qty},
+                    adaptive=True,
+                )
+                cache_client.record_access(request.product_id)
+                timings["total"] = (time.time() - start_time) * 1000
+                record_request_metrics("get_product", timings["total"], cache_hit, is_error=False)
+                log_response("get_product", request_id, "OK", timings["total"], cache_hit=cache_hit)
+                response = GetProductResponse(
+                    status=ResponseStatus.OK,
+                    data=product_detail,
+                    constraints=[],
+                    trace=create_trace(request_id, cache_hit, timings, ["supabase"]),
+                    version=create_version_info(),
+                )
+                log_mcp_event(db, request_id, "get_product", "/api/get-product", request, response)
+                return response
+    # Fall through to PostgreSQL if Supabase not set or product not found in Supabase
+
+    # STEP 2: Cache miss - query PostgreSQL (e-commerce products)
     logger.info("processing_step", "Step 1 Result: Cache MISS - querying PostgreSQL", {
         "request_id": request_id,
         "step": "cache_lookup",
