@@ -148,7 +148,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
     # --- UniversalAgent processing ---
     t_agent = time.perf_counter()
     # Restore agent from session or create new
-    if session.active_domain and session.agent_history:
+    if session.active_domain:
         agent = UniversalAgent.restore_from_session(session_id, session)
     else:
         agent = UniversalAgent(session_id=session_id, max_questions=request.k if request.k is not None else 3)
@@ -993,167 +993,67 @@ async def _search_ecommerce_products(
     exclude_ids: Optional[List[str]] = None,
 ) -> tuple:
     """
-    Search e-commerce products from PostgreSQL database.
+    Search e-commerce products via Supabase REST API.
     Returns (buckets, bucket_labels) where buckets is a 2D list of formatted product dicts.
     """
-    from app.database import SessionLocal
-    from app.models import Product
     from app.formatters import format_product
+    from app.tools.supabase_product_store import get_product_store
 
+    # Normalise category / product_type defaults
     if category.lower() == "electronics" and not filters.get("product_type"):
-        filters["product_type"] = "laptop"
+        filters = {**filters, "product_type": "laptop"}
     elif category.lower() == "books" and not filters.get("product_type"):
-        filters["product_type"] = "book"
+        filters = {**filters, "product_type": "book"}
 
-    price_min_dollars = filters.get("price_min_cents", 0) / 100 if filters.get("price_min_cents") else None
-    price_max_dollars = filters.get("price_max_cents", 0) / 100 if filters.get("price_max_cents") else None
+    # Always set category on the filters so the store can filter correctly
+    search_filters = {**filters, "category": category}
 
-    logger.info("search_ecommerce_start", "Searching products", {
-        "category": category, "filters": filters,
+    logger.info("search_ecommerce_start", "Searching products via Supabase", {
+        "category": category, "filters": search_filters,
         "n_rows": n_rows, "n_per_row": n_per_row,
     })
 
-    # Knowledge graph: get candidate IDs when available
-    kg_candidate_ids: List[str] = []
     try:
-        from app.kg_service import get_kg_service
-        kg = get_kg_service()
-        if kg.is_available():
-            kg_filters = {**filters, "category": category}
-            search_query = _build_kg_search_query(filters, category)
-            kg_candidate_ids, _ = kg.search_candidates(
-                query=search_query, filters=kg_filters, limit=n_rows * n_per_row * 3,
-            )
-            if kg_candidate_ids and exclude_ids:
-                exclude_set = set(exclude_ids)
-                kg_candidate_ids = [pid for pid in kg_candidate_ids if pid not in exclude_set]
-    except Exception as e:
-        logger.warning("kg_search_skipped", f"KG search skipped: {e}", {"error": str(e)})
+        limit = n_rows * n_per_row * 3   # fetch a larger pool for bucketing
+        store = get_product_store()
+        product_dicts = store.search_products(
+            search_filters,
+            limit=limit,
+            exclude_ids=exclude_ids,
+        )
 
-    def _apply_common_filters(q, *, include_brand=True, include_product_type=True):
-        if include_brand and filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
-            q = q.filter(Product.brand == filters["brand"])
-        if include_product_type and filters.get("product_type"):
-            q = q.filter(Product.product_type == filters["product_type"])
-        if exclude_ids:
-            q = q.filter(~Product.product_id.in_(exclude_ids))
-        return q
-
-    def _apply_price_filters(q, *, include_min=True, include_max=True):
-        if include_min and price_min_dollars:
-            q = q.filter(Product.price_value >= price_min_dollars)
-        if include_max and price_max_dollars:
-            q = q.filter(Product.price_value <= price_max_dollars)
-        q = q.order_by(Product.price_value.asc())
-        return q
-
-    def _apply_spec_filters(q):
-        from sqlalchemy import Float
-        if filters.get("min_ram_gb"):
-            q = q.filter(Product.attributes["ram_gb"].astext.cast(Float) >= float(filters["min_ram_gb"]))
-        if filters.get("min_storage_gb"):
-            q = q.filter(Product.attributes["storage_gb"].astext.cast(Float) >= float(filters["min_storage_gb"]))
-        if filters.get("min_battery_hours"):
-            q = q.filter(Product.attributes["battery_hours"].astext.cast(Float) >= float(filters["min_battery_hours"]))
-        if filters.get("min_screen_inches"):
-            q = q.filter(Product.attributes["screen_size"].astext.cast(Float) >= float(filters["min_screen_inches"]))
-        return q
-
-    if category.lower() == "electronics" and not price_min_dollars:
-        price_min_dollars = 50
-
-    db = SessionLocal()
-    try:
-        limit = n_rows * n_per_row * 2
-
-        query = db.query(Product).filter(Product.category == category)
-        query = _apply_common_filters(query)
-        query = _apply_spec_filters(query)
-        query = _apply_price_filters(query)
-        products = query.limit(limit).all()
-
-        if not products and any(filters.get(k) for k in ("min_ram_gb", "min_storage_gb", "min_battery_hours", "min_screen_inches")):
-            query = db.query(Product).filter(Product.category == category)
-            query = _apply_common_filters(query)
-            query = _apply_price_filters(query)
-            products = query.limit(limit).all()
-
-        if not products and price_min_dollars and price_max_dollars:
-            query = db.query(Product).filter(Product.category == category)
-            query = _apply_common_filters(query)
-            query = _apply_price_filters(query, include_min=False)
-            products = query.limit(limit).all()
-
-        if not products and filters.get("brand"):
-            query = db.query(Product).filter(Product.category == category)
-            query = _apply_common_filters(query, include_brand=False)
-            query = _apply_price_filters(query)
-            products = query.limit(limit).all()
-
-        if not products and filters.get("brand") and price_min_dollars and price_max_dollars:
-            query = db.query(Product).filter(Product.category == category)
-            query = _apply_common_filters(query, include_brand=False)
-            query = _apply_price_filters(query, include_min=False)
-            products = query.limit(limit).all()
-
-        if not products:
+        if not product_dicts:
+            logger.warning("search_ecommerce_empty", "No products returned from Supabase", {
+                "category": category, "filters": search_filters,
+            })
             return [], []
 
-        product_dicts = []
-        for product in products:
-            price_dollars = float(product.price_value) if product.price_value else 0
-            price_cents = int(price_dollars * 100)
-            reviews_text = getattr(product, "reviews", None)
-            format_value = None
-            tags = getattr(product, "tags", None)
-            if product.product_type == "book" and tags:
-                for tag in tags:
-                    tag_lower = tag.lower()
-                    if "hardcover" in tag_lower or "hardback" in tag_lower:
-                        format_value = "Hardcover"
-                        break
-                    elif "paperback" in tag_lower or "softcover" in tag_lower:
-                        format_value = "Paperback"
-                        break
-                    elif "ebook" in tag_lower or "e-book" in tag_lower:
-                        format_value = "E-book"
-                        break
-                    elif "audiobook" in tag_lower:
-                        format_value = "Audiobook"
-                        break
+        # KG re-ranking (best-effort, non-blocking)
+        kg_candidate_ids: List[str] = []
+        try:
+            from app.kg_service import get_kg_service
+            kg = get_kg_service()
+            if kg.is_available():
+                kg_filters = {**search_filters}
+                search_query = _build_kg_search_query(filters, category)
+                kg_candidate_ids, _ = kg.search_candidates(
+                    query=search_query, filters=kg_filters, limit=limit,
+                )
+                if kg_candidate_ids and exclude_ids:
+                    exclude_set = set(exclude_ids)
+                    kg_candidate_ids = [p for p in kg_candidate_ids if p not in exclude_set]
+        except Exception as e:
+            logger.warning("kg_search_skipped", f"KG search skipped: {e}", {"error": str(e)})
 
-            product_dicts.append({
-                "product_id": str(product.product_id),
-                "name": product.name,
-                "description": getattr(product, "description", None),
-                "category": product.category,
-                "subcategory": getattr(product, "subcategory", None),
-                "brand": product.brand,
-                "price": round(price_dollars, 2),
-                "price_cents": price_cents,
-                "image_url": getattr(product, "image_url", None),
-                "product_type": product.product_type,
-                "gpu_vendor": getattr(product, "gpu_vendor", None),
-                "gpu_model": getattr(product, "gpu_model", None),
-                "color": getattr(product, "color", None),
-                "tags": tags,
-                "reviews": reviews_text,
-                "available_qty": product.inventory or 0,
-                "format": format_value,
-                "author": product.brand if product.product_type == "book" else None,
-                "genre": getattr(product, "subcategory", None) if product.product_type == "book" else None,
-                "rating": float(product.rating) if product.rating else None,
-                "rating_count": product.rating_count,
-            })
-
+        # Sort: KG-ranked first, then by price
         if kg_candidate_ids:
             kg_id_to_idx = {pid: i for i, pid in enumerate(kg_candidate_ids)}
             product_dicts.sort(key=lambda p: (
-                (0, kg_id_to_idx[p["product_id"]]) if p["product_id"] in kg_id_to_idx
-                else (1, float(p.get("price_cents", 0) or 0))
+                (0, kg_id_to_idx[p["id"]]) if p["id"] in kg_id_to_idx
+                else (1, float(p.get("price", 0) or 0))
             ))
         else:
-            product_dicts.sort(key=lambda x: float(x.get("price_cents", 0) or 0))
+            product_dicts.sort(key=lambda x: float(x.get("price", 0) or 0))
 
         product_dicts = _diversify_by_brand(product_dicts)
 
@@ -1163,16 +1063,18 @@ async def _search_ecommerce_products(
         except Exception:
             pass
 
+        # Bucket into rows
         total = len(product_dicts)
         bucket_size = max(1, total // n_rows)
         buckets = []
         bucket_labels = []
+        fmt_domain = "books" if category.lower() == "books" else "laptops"
+
         for i in range(n_rows):
             start = i * bucket_size
             end = start + n_per_row if i < n_rows - 1 else min(start + n_per_row, total)
             bucket_products = product_dicts[start:end]
             if bucket_products:
-                fmt_domain = "books" if category.lower() == "books" else "laptops"
                 formatted_bucket = [
                     format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True)
                     for p in bucket_products
@@ -1192,5 +1094,4 @@ async def _search_ecommerce_products(
     except Exception as e:
         logger.error("chat_search_error", f"Error searching products: {e}", {})
         return [], []
-    finally:
-        db.close()
+

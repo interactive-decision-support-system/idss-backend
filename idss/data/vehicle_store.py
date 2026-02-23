@@ -202,6 +202,9 @@ class SupabaseVehicleStore:
             
             payloads: List[Dict[str, Any]] = []
 
+            # Always exclude $0 placeholder/test listings
+            add_param("price", "gte.1")
+
             if price_filter:
                 lower, upper = _parse_numeric_range(str(price_filter))
                 min_p = int(max(1, lower)) if lower is not None else 1
@@ -234,14 +237,21 @@ class SupabaseVehicleStore:
                 payloads = payloads[:effective_limit]
                 
             else:
-                url_params["limit"] = str(effective_limit)
+                # No price filter — fetch a larger pool ordered by VIN (alphanumeric,
+                # price-uncorrelated) so the sample isn't biased toward cheapest cars.
+                pool_size = min(effective_limit * 3, 300)
+                url_params["limit"] = str(pool_size)
+                url_params["order"] = "vin.asc"  # VINs are not price-sorted
                 response = self.client.client.get("/rest/v1/cars", params=url_params)
                 if response.status_code == 500:
                     logger.warning("Supabase 500 error, retrying without photo filter")
                     url_params.pop("primary_image_url", None)
                     response = self.client.client.get("/rest/v1/cars", params=url_params)
                 response.raise_for_status()
-                for row in response.json():
+                import random
+                rows = response.json()
+                random.shuffle(rows)
+                for row in rows[:effective_limit]:
                     payloads.append(self._row_to_payload(row))
 
             return payloads

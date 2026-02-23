@@ -131,64 +131,87 @@ VEHICLE_SCHEMA = DomainSchema(
     ]
 )
 
-# 2. Electronics Schema (laptops, monitors, GPUs, desktops, and 24k+ products)
+# 2. Electronics Schema (laptops only — real Supabase attribute keys confirmed)
+# DB attributes keys: ram_gb (int), screen_size (inches int), storage_gb (int),
+# storage_type ('SSD'/'HDD'), battery_life_hours (int), cpu (str),
+# refresh_rate_hz (int), good_for_ml/gaming/creative/web_dev (bool)
 LAPTOP_SCHEMA = DomainSchema(
     domain="laptops",
-    description="Electronics including laptops, monitors, GPUs, desktops, TVs, keyboards, and more.",
+    description="Laptops and notebooks for all use cases.",
     slots=[
         PreferenceSlot(
-            name="product_type",
-            display_name="Product Type",
+            name="use_case",
+            display_name="Primary Use",
             priority=SlotPriority.HIGH,
-            description="The specific type of electronics product the user wants.",
-            example_question="What type of electronics product are you looking for?",
-            example_replies=["Laptop", "Monitor", "Desktop", "GPU"],
-            filter_key="product_type",
-            allowed_values=[
-                "laptop", "desktop", "monitor", "tv", "gpu", "cpu",
-                "keyboard", "mouse", "headset", "headphones", "speakers", "microphone",
-                "camera", "webcam", "printer", "tablet", "ipad",
-                "smartphone", "phone", "smartwatch",
-                "ram", "storage", "external_storage", "motherboard", "psu", "cooling", "case",
-                "router", "vr_headset",
-            ]
+            description=(
+                "What the user will primarily use the laptop for.  "
+                "Map to one of: 'gaming', 'machine_learning', 'creative', 'web_dev', 'school', 'business', 'general'. "
+                "This is used for soft ranking via good_for_* boolean attributes."
+            ),
+            example_question="What will you mainly use the laptop for?",
+            example_replies=["Gaming", "Machine learning / AI", "Creative work (design/video)", "Work / Business", "School / Student"]
         ),
         PreferenceSlot(
             name="budget",
             display_name="Budget",
             priority=SlotPriority.HIGH,
-            description="Price range for the product.",
+            description="Price range for the laptop. Extract as a max price (e.g. '$1500') or a range ('$1000-$2000').",
             example_question="What is your budget?",
-            example_replies=["Under $500", "$500-$1000", "$1000-$2000", "Over $2000"],
+            example_replies=["Under $800", "$800-$1500", "$1500-$2500", "Over $2500"],
             filter_key="price_max_cents"
+        ),
+        PreferenceSlot(
+            name="min_ram_gb",
+            display_name="Minimum RAM",
+            priority=SlotPriority.MEDIUM,
+            description=(
+                "Minimum RAM in GB the user requires. Extract as an integer (e.g. 16, 32). "
+                "Common values in DB: 8, 16, 32, 64. Maps to attributes->ram_gb in Supabase."
+            ),
+            example_question="How much RAM do you need at minimum?",
+            example_replies=["8 GB", "16 GB", "32 GB", "No preference"],
+            filter_key="min_ram_gb"
+        ),
+        PreferenceSlot(
+            name="screen_size",
+            display_name="Screen Size",
+            priority=SlotPriority.MEDIUM,
+            description=(
+                "Screen size preference in inches. Extract the FULL user intent as a string, e.g.: "
+                "'at least 15' (minimum), 'under 14' or 'small/compact' (maximum), "
+                "'exactly 15.6' (exact match ±0.5\"), '14 to 16' or '14-16' (range). "
+                "Common DB values: 13, 14, 15, 16. DB column: attributes->screen_size."
+            ),
+            example_question="Do you have a screen size preference?",
+            example_replies=["13\" (compact)", "14\"", "15.6\"", "16\" (large)", "No preference"],
+            filter_key="screen_size"
         ),
         PreferenceSlot(
             name="brand",
             display_name="Brand",
             priority=SlotPriority.MEDIUM,
-            description="Preferred manufacturer.",
+            description="Preferred laptop manufacturer.",
             example_question="Do you have a preferred brand?",
-            example_replies=["No preference", "Samsung", "ASUS", "Apple"],
+            example_replies=["No preference", "Apple", "Dell", "Lenovo", "ASUS", "HP"],
             filter_key="brand",
             allowed_values=[
-                "Samsung", "Intel", "ASUS", "AMD", "HP", "Apple", "Lenovo", "LG",
-                "Sony", "MSI", "Canon", "Dell", "Logitech", "Google", "Gigabyte",
-                "Corsair", "ASRock", "Acer", "Thermaltake", "TP-Link", "TCL",
-                "Nikon", "Brother", "Roku", "Oculus", "Epson", "Microsoft",
-                "NVIDIA", "Cooler Master", "Redragon", "Crucial", "Seagate",
-                "HTC", "Razer", "Kingston", "SteelSeries", "Western Digital",
+                "Apple", "Dell", "Lenovo", "HP", "ASUS", "MSI", "Razer",
+                "Acer", "Microsoft", "Samsung", "LG", "Gigabyte",
             ]
         ),
         PreferenceSlot(
-            name="use_case",
-            display_name="Primary Use",
-            priority=SlotPriority.MEDIUM,
-            description="What the user will primarily use the product for (gaming, work, school, creative, streaming, etc.). This is a soft preference used for ranking, not a direct database filter.",
-            example_question="What will you primarily use it for?",
-            example_replies=["Gaming", "Work/Business", "School/Student", "Creative Work"]
+            name="storage_type",
+            display_name="Storage Type",
+            priority=SlotPriority.LOW,
+            description="Preferred storage type. DB values: 'SSD' or 'HDD'. Maps to attributes->storage_type.",
+            example_question="Do you prefer SSD or HDD storage?",
+            example_replies=["SSD (fast)", "HDD (large capacity)", "No preference"],
+            filter_key="storage_type",
+            allowed_values=["SSD", "HDD"]
         ),
     ]
 )
+
 
 # 3. Phones Schema (real scraped: Fairphone, BigCommerce, etc.)
 PHONES_SCHEMA = DomainSchema(

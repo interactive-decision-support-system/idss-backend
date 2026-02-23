@@ -161,6 +161,11 @@ class UniversalAgent:
                         search_filters["price"] = f"0-{under_match.group(1)}"
                     elif over_match:
                         search_filters["price"] = f"{over_match.group(1)}-999999"
+                    else:
+                        # Plain number (e.g. '35000') → treat as max price
+                        plain = re.search(r'(\d+)', budget_str)
+                        if plain:
+                            search_filters["price"] = f"0-{plain.group(1)}"
                 else:
                     # E-commerce: use price_cents
                     if range_match:
@@ -170,6 +175,11 @@ class UniversalAgent:
                         search_filters["price_max_cents"] = int(under_match.group(1)) * 100
                     elif over_match:
                         search_filters["price_min_cents"] = int(over_match.group(1)) * 100
+                    else:
+                        # Plain number (e.g. '2000' from '$2000') → treat as max price
+                        plain = re.search(r'(\d+)', budget_str)
+                        if plain:
+                            search_filters["price_max_cents"] = int(plain.group(1)) * 100
 
             elif slot_name == "brand":
                 if domain == "vehicles":
@@ -183,8 +193,51 @@ class UniversalAgent:
                 elif domain == "books":
                     search_filters["subcategory"] = value
                 else:
-                    # For electronics: use_case is a soft preference, not a DB column
+                    # For electronics/laptops: map to good_for_* boolean attribute
+                    use_lower = str(value).lower()
+                    if any(k in use_lower for k in ("gaming", "game")):
+                        search_filters["good_for_gaming"] = True
+                    elif any(k in use_lower for k in ("ml", "machine learning", "ai", "deep learning", "pytorch")):
+                        search_filters["good_for_ml"] = True
+                    elif any(k in use_lower for k in ("creative", "design", "video", "photo", "art")):
+                        search_filters["good_for_creative"] = True
+                    elif any(k in use_lower for k in ("web", "dev", "develop")):
+                        search_filters["good_for_web_dev"] = True
+                    # Always keep as soft preference for ranking
                     search_filters.setdefault("_soft_preferences", {})["use_case"] = value
+
+            elif slot_name == "min_ram_gb":
+                # LLM may return '16 GB', '16', '16gb', etc. — extract the number
+                m = re.search(r'(\d+)', str(value))
+                if m:
+                    search_filters["min_ram_gb"] = int(m.group(1))
+
+            elif slot_name in ("screen_size", "min_screen_size"):
+                raw = str(value).lower().strip()
+                # Extract all numbers present (handles "14-16", "14 to 16", "15.6", etc.)
+                nums = [float(n) for n in re.findall(r'\d+\.?\d*', raw)]
+
+                if not nums:
+                    pass  # couldn't parse — skip
+                elif any(w in raw for w in ("under", "less", "small", "compact", "below", "max", "up to", "at most")):
+                    # User wants a small/compact screen — apply as maximum
+                    search_filters["max_screen_size"] = nums[0]
+                elif any(w in raw for w in ("at least", "minimum", "min", "or larger", "larger", "bigger", "over", "above")):
+                    # User wants a minimum screen size
+                    search_filters["min_screen_size"] = nums[0]
+                elif len(nums) == 2:
+                    # Explicit range: "14 to 16" or "14-16"
+                    search_filters["min_screen_size"] = min(nums)
+                    search_filters["max_screen_size"] = max(nums)
+                else:
+                    # Exact value: apply ±0.5" tolerance
+                    search_filters["min_screen_size"] = nums[0] - 0.5
+                    search_filters["max_screen_size"] = nums[0] + 0.5
+
+            elif slot_name == "storage_type":
+                val_str = str(value).upper().strip().split()[0]  # 'SSD (fast)' → 'SSD'
+                if val_str in ("SSD", "HDD"):
+                    search_filters["storage_type"] = val_str
 
             elif slot_name == "body_style":
                 search_filters["body_style"] = value
@@ -216,10 +269,16 @@ class UniversalAgent:
         t0 = time.perf_counter()
         self.history.append({"role": "user", "content": message})
 
-        # 1. Intent/Domain Detection (if not locked)
+        # 1. Domain Detection — only if not already known.
+        # If domain is unknown but we have conversation history, detect from history
+        # (avoids 'I don't care' resetting domain on mid-conversation messages).
         if not self.domain:
             t1 = time.perf_counter()
-            self.domain = self._detect_domain_from_message(message)
+            if self.history and len(self.history) > 1:
+                # Recover domain from prior conversation context
+                self.domain = self._detect_domain_from_message(history=self.history)
+            else:
+                self.domain = self._detect_domain_from_message(message=message)
             timings["domain_detection_ms"] = (time.perf_counter() - t1) * 1000
             if not self.domain or self.domain == "unknown":
                 # Still unknown, ask for clarification
@@ -283,8 +342,10 @@ class UniversalAgent:
             self.history.append({"role": "assistant", "content": response["message"]})
             return response
 
-        # If we get here, something went wrong
-        resp = self._unknown_error_response()
+        # All HIGH+MEDIUM slots are filled — no more questions to ask
+        # Proceed to search even if we haven't hit the question limit
+        logger.info("All slots filled — handing off to search")
+        resp = self._handoff_to_search(schema)
         resp["timings_ms"] = timings
         return resp
 
@@ -336,6 +397,35 @@ class UniversalAgent:
         except Exception as e:
             logger.error(f"Intent detection failed: {e}")
             return None
+
+    def _detect_domain_from_history(self) -> Optional[str]:
+        """
+        Recover domain from conversation history WITHOUT making a new LLM call.
+        This is a safety net — in normal flows the domain is always restored from
+        the session object and this method should never be reached.
+        Scans the prior history text for known domain keywords.
+        """
+        history_text = " ".join(
+            m.get("content", "") for m in self.history if m.get("role") == "user"
+        ).lower()
+
+        vehicle_hits = sum(history_text.count(k) for k in ("car", "truck", "suv", "vehicle", "auto", "driving", "mpg", "vin"))
+        laptop_hits  = sum(history_text.count(k) for k in ("laptop", "computer", "gpu", "ram", "pytorch", "coding", "phone", "tablet"))
+        book_hits    = sum(history_text.count(k) for k in ("book", "novel", "read", "author", "fiction", "genre"))
+
+        best = max(vehicle_hits, laptop_hits, book_hits)
+        if best == 0:
+            return None
+        if vehicle_hits == best:
+            logger.info("Domain recovered from history keywords: vehicles")
+            return "vehicles"
+        if laptop_hits == best:
+            logger.info("Domain recovered from history keywords: laptops")
+            return "laptops"
+        logger.info("Domain recovered from history keywords: books")
+        return "books"
+
+
 
     def _extract_criteria(self, message: str, schema: DomainSchema) -> Optional[ExtractedCriteria]:
         """
