@@ -12,11 +12,14 @@ independently of agent control-flow logic.
 DOMAIN_DETECTION_PROMPT = (
     "You are a routing agent. Classify the user's intent into one of these "
     "domains: 'vehicles', 'laptops', 'books'. "
-    "The 'laptops' domain covers ALL electronics: laptops, monitors, TVs, GPUs, desktops, "
-    "keyboards, mice, headphones, speakers, cameras, printers, tablets, smartphones, "
+    "Keyword mappings: 'cars'/'car'/'vehicle'/'vehicles'/'autos'/'truck' → 'vehicles'. "
+    "'phones'/'phone'/'smartphone'/'mobile'/'electronics'/'laptop'/'laptops'/'desktop'/'computer' → 'laptops'. "
+    "'books'/'book'/'reading' → 'books'. "
+    "The 'laptops' domain covers ALL electronics: laptops, phones, smartphones, monitors, TVs, GPUs, desktops, "
+    "keyboards, mice, headphones, speakers, cameras, printers, tablets, "
     "smartwatches, PC components (RAM, CPU, motherboard, PSU, storage, cooling, cases), "
-    "routers, and VR headsets. If the user mentions any electronics product, classify as 'laptops'. "
-    "If unclear, return 'unknown'."
+    "routers, and VR headsets. If the user mentions any electronics or phone, classify as 'laptops'. "
+    "If truly unclear (no product category mentioned), return 'unknown'."
 )
 
 # ============================================================================

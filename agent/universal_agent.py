@@ -288,10 +288,29 @@ class UniversalAgent:
         resp["timings_ms"] = timings
         return resp
 
+    # Fast lookup for UI quick-reply buttons — avoids an LLM call for obvious one-word inputs
+    _FAST_DOMAIN_MAP = {
+        "cars": "vehicles", "car": "vehicles", "vehicle": "vehicles", "vehicles": "vehicles",
+        "autos": "vehicles", "auto": "vehicles", "truck": "vehicles", "trucks": "vehicles",
+        "laptops": "laptops", "laptop": "laptops", "electronics": "laptops",
+        "computers": "laptops", "computer": "laptops", "desktop": "laptops", "desktops": "laptops",
+        # phones map to "laptops" domain (same electronics category in DB)
+        "phones": "laptops", "phone": "laptops", "smartphone": "laptops", "smartphones": "laptops",
+        "mobile": "laptops", "mobiles": "laptops",
+        "books": "books", "book": "books", "reading": "books",
+    }
+
     def _detect_domain_from_message(self, message: str) -> Optional[str]:
         """
         Uses LLM (Basic Model) to classify intent.
+        Quick-reply one-word hits are resolved via _FAST_DOMAIN_MAP without an LLM call.
         """
+        # Fast path: exact match on known quick-reply keywords (no LLM needed)
+        fast = self._FAST_DOMAIN_MAP.get(message.strip().lower())
+        if fast:
+            logger.info(f"Fast domain match: '{message.strip()}' → {fast}")
+            return fast
+
         try:
             logger.info(f"Detecting domain for message: {message[:50]}...")
 
