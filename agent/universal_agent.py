@@ -44,9 +44,10 @@ logger = logging.getLogger("mcp.universal_agent")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "low")
 
-# reasoning_effort is only valid for o-series reasoning models (o1, o3, etc.)
-_IS_REASONING_MODEL = OPENAI_MODEL.startswith("o1") or OPENAI_MODEL.startswith("o3")
-_REASONING_KWARGS = {"reasoning_effort": OPENAI_REASONING_EFFORT} if _IS_REASONING_MODEL else {}
+# reasoning_effort is passed whenever the env var is set.
+# Not all models support it — if the API rejects it the call will raise an error;
+# in that case, unset OPENAI_REASONING_EFFORT in your .env.
+_REASONING_KWARGS = {"reasoning_effort": OPENAI_REASONING_EFFORT} if OPENAI_REASONING_EFFORT else {}
 
 # Interview configuration
 DEFAULT_MAX_QUESTIONS = 3  # Maximum questions before showing recommendations

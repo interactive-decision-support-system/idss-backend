@@ -151,7 +151,7 @@ def generate_question(
     try:
         response = client.beta.chat.completions.parse(
             model=model,
-            **({"reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")} if model.startswith(("o1", "o3")) else {}),
+            **({"reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT")} if os.getenv("OPENAI_REASONING_EFFORT") else {}),
             messages=messages,
             response_format=QuestionResponse,
             temperature=0.7  # Slightly higher for variety
