@@ -10,16 +10,22 @@ independently of agent control-flow logic.
 # ============================================================================
 
 DOMAIN_DETECTION_PROMPT = (
-    "You are a routing agent. Classify the user's intent into one of these "
-    "domains: 'vehicles', 'laptops', 'books'. "
-    "Keyword mappings: 'cars'/'car'/'vehicle'/'vehicles'/'autos'/'truck' → 'vehicles'. "
-    "'phones'/'phone'/'smartphone'/'mobile'/'electronics'/'laptop'/'laptops'/'desktop'/'computer' → 'laptops'. "
-    "'books'/'book'/'reading' → 'books'. "
-    "The 'laptops' domain covers ALL electronics: laptops, phones, smartphones, monitors, TVs, GPUs, desktops, "
-    "keyboards, mice, headphones, speakers, cameras, printers, tablets, "
-    "smartwatches, PC components (RAM, CPU, motherboard, PSU, storage, cooling, cases), "
-    "routers, and VR headsets. If the user mentions any electronics or phone, classify as 'laptops'. "
-    "If truly unclear (no product category mentioned), return 'unknown'."
+    "You are a routing agent. Classify the user's intent into EXACTLY one of: 'vehicles', 'laptops', 'books', 'unknown'.\n\n"
+    "Rules — apply the FIRST matching rule:\n"
+    "1. VEHICLES: any mention of car, truck, SUV, sedan, van, minivan, pickup, vehicle, auto, driving, "
+    "towing, MPG, dealership, electric vehicle (EV used as a car), horsepower → 'vehicles'\n"
+    "2. LAPTOPS: any mention of laptop, MacBook, notebook, chromebook, computer, PC, desktop, "
+    "GPU, RAM, processor, CPU, screen/display for a device, phone, smartphone, iPhone, Android, "
+    "tablet, iPad, headphones, speaker, gaming (for a device), programming, coding, PyTorch, "
+    "machine learning (for a device), Figma, Webflow, Xcode, gaming PC, RTX, monitor → 'laptops'\n"
+    "3. BOOKS: any mention of book, novel, read, author, fiction, genre, paperback, hardcover, "
+    "audiobook, kindle, literature → 'books'\n"
+    "4. If the message mentions a brand known for electronics (Dell, Apple, Lenovo, HP, ASUS, MSI, "
+    "Samsung, Sony, Razer, Microsoft Surface) WITHOUT a vehicle context → 'laptops'\n"
+    "5. UNKNOWN only if none of the above match and there is truly no product category.\n\n"
+    "Examples: 'dell laptop over 2000' → laptops | 'want mac under 1500' → laptops | "
+    "'I need a truck for towing' → vehicles | 'mystery thriller novels' → books | "
+    "'32GB RAM good for ML' → laptops | 'looking for a programming computer' → laptops"
 )
 
 # ============================================================================

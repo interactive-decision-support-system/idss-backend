@@ -36,7 +36,13 @@ _store_cache: Optional["SupabaseProductStore"] = None
 def get_product_store() -> "SupabaseProductStore":
     global _store_cache
     if _store_cache is None:
-        _store_cache = SupabaseProductStore()
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_KEY", "")
+        if url and key:
+            _store_cache = SupabaseProductStore()
+        else:
+            logger.info("SUPABASE_KEY not set — using SQLAlchemy fallback via DATABASE_URL")
+            _store_cache = _SQLAlchemyProductStore()
     return _store_cache
 
 
@@ -370,6 +376,170 @@ def _fmt_hours(val: Any) -> Optional[str]:
         return f"{int(val)} hrs"
     except (TypeError, ValueError):
         return str(val)
+
+
+# ---------------------------------------------------------------------------
+# SQLAlchemy fallback (used when SUPABASE_KEY is not set)
+# Queries the same `products` table via DATABASE_URL with proper numeric
+# JSONB casting — avoids PostgREST string-comparison bugs on attributes.
+# ---------------------------------------------------------------------------
+
+class _SQLAlchemyProductStore:
+    """
+    Fallback product store using SQLAlchemy + DATABASE_URL.
+    Same public interface as SupabaseProductStore.
+    JSONB spec filters (ram_gb, screen_size, etc.) are applied in Python
+    after a price/category/brand fetch, which gives correct numeric comparison.
+    """
+
+    def search_products(
+        self,
+        filters: Dict[str, Any],
+        limit: int = 100,
+        exclude_ids: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        import json as _json
+        try:
+            from sqlalchemy import create_engine, text as sa_text
+        except ImportError:
+            logger.error("sqlalchemy not installed — cannot fallback to DATABASE_URL")
+            return []
+
+        db_url = os.environ.get("DATABASE_URL", "")
+        if not db_url:
+            logger.error("DATABASE_URL not set — no product store available")
+            return []
+
+        try:
+            engine = create_engine(db_url, pool_pre_ping=True, connect_args={"connect_timeout": 15})
+        except Exception as e:
+            logger.error(f"SQLAlchemy engine creation failed: {e}")
+            return []
+
+        # Parse prices
+        price_min = _parse_price(filters.get("price_min_cents"), filters.get("price_min"))
+        price_max = _parse_price(filters.get("price_max_cents"), filters.get("price_max"))
+        if price_max is None and filters.get("budget"):
+            price_max = _parse_price(None, filters["budget"])
+        if price_max is not None and (price_min is None or price_min < price_max * 0.5):
+            price_min = price_max * 0.5
+        category = filters.get("category", "")
+        if category.lower() == "electronics" and (price_min is None or price_min < 50.0):
+            price_min = 50.0
+
+        conditions = ["price > 0.01"]
+        params: Dict[str, Any] = {}
+
+        if category:
+            conditions.append("LOWER(category) = LOWER(:category)")
+            params["category"] = category
+
+        product_type = filters.get("product_type")
+        if product_type:
+            conditions.append("product_type = :product_type")
+            params["product_type"] = product_type
+
+        brand = filters.get("brand")
+        if brand and str(brand).lower() not in ("no preference", "any", ""):
+            conditions.append("brand ILIKE :brand")
+            params["brand"] = f"%{brand}%"
+
+        genre = filters.get("genre") or filters.get("subcategory")
+        if genre and str(genre).lower() not in ("no preference", "any", ""):
+            conditions.append("attributes->>'genre' ILIKE :genre")
+            params["genre"] = f"%{genre}%"
+
+        if price_min is not None:
+            conditions.append("price >= :price_min")
+            params["price_min"] = price_min
+        if price_max is not None:
+            conditions.append("price <= :price_max")
+            params["price_max"] = price_max
+
+        if exclude_ids:
+            conditions.append("id != ALL(:exclude_ids)")
+            params["exclude_ids"] = list(exclude_ids)
+
+        where = " AND ".join(conditions)
+        # Fetch a larger pool so Python-side spec filtering has enough to work with
+        fetch_limit = min(limit * 8, 800)
+        sql = sa_text(f"SELECT * FROM products WHERE {where} ORDER BY RANDOM() LIMIT :fetch_limit")
+        params["fetch_limit"] = fetch_limit
+
+        try:
+            with engine.connect() as conn:
+                result = conn.execute(sql, params)
+                rows = [dict(r._mapping) for r in result]
+        except Exception as e:
+            logger.error(f"SQLAlchemy products query failed: {e}")
+            return []
+
+        # Python-side JSONB spec filtering (correct numeric comparison)
+        min_ram = filters.get("min_ram_gb")
+        min_storage = filters.get("min_storage_gb")
+        min_screen = filters.get("min_screen_size") or filters.get("min_screen_inches")
+        max_screen = filters.get("max_screen_size")
+        min_battery = filters.get("min_battery_hours")
+        storage_type = filters.get("storage_type")
+        good_for_flags = {k: filters.get(k) for k in (
+            "good_for_ml", "good_for_gaming", "good_for_creative", "good_for_web_dev"
+        ) if filters.get(k)}
+
+        def _num(val, default=0):
+            """Safely coerce a JSONB value (may arrive as str or int) to float."""
+            if val is None:
+                return default
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return default
+
+        filtered = []
+        for row in rows:
+            attrs = row.get("attributes") or {}
+            if isinstance(attrs, str):
+                try:
+                    attrs = _json.loads(attrs)
+                except Exception:
+                    attrs = {}
+
+            if min_ram and _num(attrs.get("ram_gb")) < int(min_ram):
+                continue
+            if min_storage and _num(attrs.get("storage_gb")) < int(min_storage):
+                continue
+            if min_screen and _num(attrs.get("screen_size")) < float(min_screen):
+                continue
+            if max_screen and _num(attrs.get("screen_size"), 999) > float(max_screen):
+                continue
+            if min_battery and _num(attrs.get("battery_life_hours")) < float(min_battery):
+                continue
+            if storage_type and str(attrs.get("storage_type", "")).upper() != storage_type.upper():
+                continue
+            if good_for_flags:
+                if not all(attrs.get(flag) for flag in good_for_flags):
+                    continue
+            filtered.append(SupabaseProductStore._row_to_dict(row))
+
+        # If spec filtering wiped everything, fall back to unfiltered (relaxation)
+        if not filtered and rows:
+            logger.info("SQLAlchemy spec filters returned 0 — returning unfiltered pool")
+            filtered = [SupabaseProductStore._row_to_dict(r) for r in rows]
+
+        random.shuffle(filtered)
+        return filtered[:limit]
+
+    def get_by_id(self, product_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            from sqlalchemy import create_engine, text as sa_text
+            db_url = os.environ.get("DATABASE_URL", "")
+            engine = create_engine(db_url, pool_pre_ping=True)
+            with engine.connect() as conn:
+                result = conn.execute(sa_text("SELECT * FROM products WHERE id = :id LIMIT 1"), {"id": product_id})
+                row = result.fetchone()
+                return SupabaseProductStore._row_to_dict(dict(row._mapping)) if row else None
+        except Exception as e:
+            logger.error(f"get_by_id (SQLAlchemy) failed: {e}")
+            return None
 
 
 # ---------------------------------------------------------------------------
