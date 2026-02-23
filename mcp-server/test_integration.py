@@ -21,11 +21,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from app.idss_adapter import (
     search_products_idss,
-    get_product_idss,
     vehicle_to_product_summary,
     vehicle_to_product_detail,
 )
 from app.schemas import SearchProductsRequest, GetProductRequest
+from app.endpoints import get_product
+from app.database import SessionLocal
 
 
 # ============================================================================
@@ -233,9 +234,13 @@ async def test_get_vehicle_detail():
         product_id = search_response.data.products[0].product_id
         print(f"Getting details for: {product_id}")
         
-        # Get detail
+        # Get detail via main get_product (cache + Supabase; no local vehicle DB)
         request = GetProductRequest(product_id=product_id)
-        response = await get_product_idss(request)
+        db = SessionLocal()
+        try:
+            response = get_product(request, db)
+        finally:
+            db.close()
         
         # Verify response
         assert response.status == "OK", f"Status should be OK, got: {response.status}"

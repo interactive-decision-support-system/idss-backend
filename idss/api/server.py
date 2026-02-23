@@ -38,7 +38,7 @@ from idss.api.models import (
 )
 from idss.core.controller import IDSSController, SessionState
 from idss.core.config import get_config, IDSSConfig
-from idss.data.vehicle_store import LocalVehicleStore
+from idss.data.vehicle_store import get_vehicle_store
 from idss.diversification.entropy import select_diversification_dimension
 from idss.diversification.bucketing import diversify_with_entropy_bucketing
 from idss.recommendation.embedding_similarity import rank_with_embedding_similarity
@@ -345,7 +345,7 @@ async def recommend(request: RecommendRequest):
         method = request.method or config.recommendation_method
 
         # Get vehicle store
-        store = LocalVehicleStore(require_photos=True)
+        store = get_vehicle_store(require_photos=True)
 
         # Build filters for SQL query
         db_filters = dict(request.filters) if request.filters else {}
@@ -432,7 +432,7 @@ async def compare_methods(request: RecommendRequest):
     """
     try:
         config = get_config()
-        store = LocalVehicleStore(require_photos=True)
+        store = get_vehicle_store(require_photos=True)
 
         # Build filters
         db_filters = dict(request.filters) if request.filters else {'year': '2018-2025'}

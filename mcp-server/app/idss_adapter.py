@@ -630,7 +630,7 @@ async def search_products_universal(
     # Route based on product_type if specified, otherwise use backend
     if product_type:
         if product_type.lower() == "vehicle":
-            return await _search_vehicles_idss(request, request_id, start_time, timings, sources, cache_hit)
+            return await _search_vehicles_mcp(request, request_id, start_time, timings, sources, cache_hit)
         elif product_type.lower() == "real_estate":
             return await _search_real_estate(request, request_id, start_time, timings, sources, cache_hit)
         elif product_type.lower() == "travel":
@@ -638,7 +638,7 @@ async def search_products_universal(
     
     # Route based on backend
     if backend == BackendType.IDSS:
-        return await _search_vehicles_idss(request, request_id, start_time, timings, sources, cache_hit)
+        return await _search_vehicles_mcp(request, request_id, start_time, timings, sources, cache_hit)
     elif backend == BackendType.POSTGRES:
         # Future: Implement e-commerce search from database
         pass
@@ -646,7 +646,7 @@ async def search_products_universal(
         raise ValueError(f"Unsupported backend: {backend}")
 
 
-async def _search_vehicles_idss(
+async def _search_vehicles_mcp(
     request: SearchProductsRequest,
     request_id: str,
     start_time: float,
@@ -655,226 +655,57 @@ async def _search_vehicles_idss(
     cache_hit: bool
 ) -> SearchProductsResponse:
     """
-    Search for vehicles using IDSS backend.
-    
-    IDSS returns a 2D grid [rows][vehicles] which we flatten.
+    Search for vehicles using MCP vehicle_search tool (Supabase). No IDSS server (8000).
     """
-    sources.append("idss_sqlite")  # Provenance tracking
+    sources.append("supabase")
     try:
-        # Build IDSS request
-        message = request.query or "Show me vehicles"
-        
-        # Add filters to message if provided
-        if request.filters:
-            filter_parts = []
-            if "price_max" in request.filters:
-                filter_parts.append(f"under ${int(request.filters['price_max'])}")
-            if "price_min" in request.filters:
-                filter_parts.append(f"over ${int(request.filters['price_min'])}")
-            if "category" in request.filters:
-                # Category maps to body_style for vehicles
-                filter_parts.append(f"{request.filters['category']}")
-            if "brand" in request.filters:
-                # Brand maps to make for vehicles
-                filter_parts.append(f"{request.filters['brand']}")
-            
-            if filter_parts:
-                message = f"{message} {' '.join(filter_parts)}"
-        
-        # Call IDSS chat endpoint
-        idss_start = time.time()
-        try:
-            from agent.chat_endpoint import process_chat, ChatRequest
-            logger.info("calling_process_chat", "Calling process_chat directly from idss_adapter", {
-                "message": message[:100],
-                "session_id": request.session_id
-            })
-            
-            idss_req = ChatRequest(message=message, session_id=request.session_id)
-            idss_resp = await process_chat(idss_req)
-            idss_data = idss_resp.model_dump()
-            
-            # If IDSS returns a question, we need to continue the conversation
-            # For now, return a helpful message explaining the IDSS interview process
-            if idss_data.get("response_type") == "question":
-                timings["idss"] = (time.time() - idss_start) * 1000
-                timings["total"] = (time.time() - start_time) * 1000
-                
-                question = idss_data.get("message", "I need more information")
-                quick_replies = idss_data.get("quick_replies", [])
-                
-                # Extract and return session_id from IDSS response
-                idss_session_id = idss_data.get("session_id")
-                
-                return SearchProductsResponse(
-                    status=ResponseStatus.INVALID,
-                    data=SearchResultsData(products=[], total_count=0, next_cursor=None),
-                    constraints=[
-                        ConstraintDetail(
-                            code="IDSS_QUESTION_REQUIRED",
-                            message=f"IDSS needs more information: {question}",
-                            details={
-                                "question": question,
-                                "quick_replies": quick_replies,
-                                "response_type": "question",
-                                "session_id": idss_session_id
-                            },
-                            allowed_fields=None,
-                            suggested_actions=quick_replies[:5] if quick_replies else [
-                                "Provide more details about what you're looking for",
-                                "Answer the question to get vehicle recommendations"
-                            ]
-                        )
-                    ],
-                    trace=create_trace(request_id, cache_hit, timings, sources, {"session_id": idss_session_id} if idss_session_id else None),
-                    version=create_version_info(ProductCategory.VEHICLE)
-                )
-        except Exception as e:
-            # IDSS backend returned an error status
-            timings["idss"] = (time.time() - idss_start) * 1000
-            timings["total"] = (time.time() - start_time) * 1000
-            
-            error_msg = "IDSS backend error"
-            error_detail = str(e)
-            
-            return SearchProductsResponse(
-                status=ResponseStatus.INVALID,
-                data=SearchResultsData(products=[], total_count=0, next_cursor=None),
-                constraints=[
-                    ConstraintDetail(
-                        code="BACKEND_CONNECTION_ERROR",
-                        message=f"Could not process vehicle search via IDSS: {error_msg}",
-                        details={"error": error_detail or str(e), "backend": "idss"},
-                        allowed_fields=None,
-                        suggested_actions=[
-                            "Check server logs for errors",
-                            "Set up vehicle database for IDSS"
-                        ]
-                    )
-                ],
-                trace=create_trace(request_id, cache_hit, timings, sources),
-                version=create_version_info(ProductCategory.VEHICLE)
-            )
-        
-        timings["idss"] = (time.time() - idss_start) * 1000
-        
-        # Extract vehicles from IDSS response
-        # IMPORTANT: IDSS returns 2D grid [[v1, v2], [v3, v4], ...]
-        vehicles = []
-        if idss_data.get("response_type") == "recommendations":
-            vehicle_grid = idss_data.get("recommendations", [])
-            
-            # Flatten the 2D grid
-            for row in vehicle_grid:
-                if isinstance(row, list):
-                    vehicles.extend(row)
-                else:
-                    # Shouldn't happen, but handle gracefully
-                    vehicles.append(row)
-        
-        # Handle empty recommendations (no vehicles found matching criteria)
-        if idss_data.get("response_type") == "recommendations" and len(vehicles) == 0:
-            timings["total"] = (time.time() - start_time) * 1000
-            idss_session_id = idss_data.get("session_id")
-            idss_message = idss_data.get("message", "No vehicles found matching your criteria")
-            
-            return SearchProductsResponse(
-                status=ResponseStatus.INVALID,
-                data=SearchResultsData(products=[], total_count=0, next_cursor=None),
-                constraints=[
-                    ConstraintDetail(
-                        code="NO_VEHICLES_FOUND",
-                        message=idss_message,
-                        details={
-                            "filters": idss_data.get("filters", {}),
-                            "message": idss_message,
-                            "response_type": "recommendations",
-                            "session_id": idss_session_id
-                        },
-                        allowed_fields=None,
-                        suggested_actions=[
-                            "Try broadening your search criteria",
-                            "Remove some filters",
-                            "Try a different vehicle type"
-                        ]
-                    )
-                ],
-                trace=create_trace(request_id, cache_hit, timings, sources, {"session_id": idss_session_id} if idss_session_id else None),
-                version=create_version_info(ProductCategory.VEHICLE)
-            )
-        
-        # Apply pagination
-        offset = int(request.cursor) if request.cursor else 0
-        total_count = len(vehicles)
-        paginated_vehicles = vehicles[offset:offset + request.limit]
-        
-        # Convert vehicles to product summaries
-        product_summaries = [
-            vehicle_to_product_summary(v) 
-            for v in paginated_vehicles
-        ]
-        
-        # Calculate next cursor
-        next_cursor = None
-        if offset + request.limit < total_count:
-            next_cursor = str(offset + request.limit)
-        
+        from app.tools.vehicle_search import search_vehicles, VehicleSearchRequest
+
+        filters = request.filters or {}
+        vehicle_filters = {k: v for k, v in filters.items() if k != "_soft_preferences"}
+        if filters.get("price_max_cents") or filters.get("price_min_cents"):
+            pmin = (filters.get("price_min_cents") or 0) // 100
+            pmax = (filters.get("price_max_cents") or 999999) // 100
+            vehicle_filters["price"] = f"{pmin}-{pmax}"
+        n = max(1, min(request.limit or 9, 50))
+        n_rows = 3
+        n_per_row = max(1, (n + n_rows - 1) // n_rows)
+
+        result = search_vehicles(VehicleSearchRequest(
+            filters=vehicle_filters,
+            preferences=filters.get("_soft_preferences") or {},
+            method="embedding_similarity",
+            n_rows=n_rows,
+            n_per_row=n_per_row,
+            limit=n * 3,
+        ))
+        products = []
+        for row in result.recommendations:
+            for v in row:
+                try:
+                    products.append(vehicle_to_product_summary(v))
+                except Exception:
+                    pass
         timings["total"] = (time.time() - start_time) * 1000
-        
-        # Extract session_id from IDSS response if available
-        idss_session_id = idss_data.get("session_id")
-        
-        # Store session_id in trace metadata for frontend to extract
-        trace_metadata = {}
-        if idss_session_id:
-            trace_metadata['session_id'] = idss_session_id
-        
         return SearchProductsResponse(
             status=ResponseStatus.OK,
-            data=SearchResultsData(
-                products=product_summaries,
-                total_count=total_count,
-                next_cursor=next_cursor
-            ),
+            data=SearchResultsData(products=products, total_count=len(products), next_cursor=None),
             constraints=[],
-            trace=create_trace(request_id, cache_hit, timings, sources, trace_metadata if trace_metadata else None),
+            trace=create_trace(request_id, cache_hit, timings, sources),
             version=create_version_info(ProductCategory.VEHICLE)
         )
-        
-    except httpx.HTTPError as e:
+    except Exception as e:
         timings["total"] = (time.time() - start_time) * 1000
-        
         return SearchProductsResponse(
             status=ResponseStatus.INVALID,
             data=SearchResultsData(products=[], total_count=0, next_cursor=None),
             constraints=[
                 ConstraintDetail(
                     code="BACKEND_CONNECTION_ERROR",
-                    message=f"Could not connect to IDSS backend: {str(e)}",
-                    details={"error": str(e), "backend": "idss"},
+                    message=f"Vehicle search failed: {str(e)}",
+                    details={"error": str(e), "backend": "supabase"},
                     allowed_fields=None,
-                    suggested_actions=[
-                        "Ensure IDSS backend is running on port 8000",
-                        "Check IDSS backend logs for errors"
-                    ]
-                )
-            ],
-            trace=create_trace(request_id, cache_hit, timings, sources),
-            version=create_version_info(ProductCategory.VEHICLE)
-        )
-    except Exception as e:
-        timings["total"] = (time.time() - start_time) * 1000
-        
-        return SearchProductsResponse(
-            status=ResponseStatus.INVALID,
-            data=SearchResultsData(products=[], total_count=0, next_cursor=None),
-            constraints=[
-                ConstraintDetail(
-                    code="ADAPTER_ERROR",
-                    message=f"Error processing vehicle data: {str(e)}",
-                    details={"error": str(e)},
-                    allowed_fields=None,
-                    suggested_actions=["Check adapter logs for details"]
+                    suggested_actions=["Check Supabase configuration", "Retry search"],
                 )
             ],
             trace=create_trace(request_id, cache_hit, timings, sources),
@@ -1050,114 +881,39 @@ async def get_product_universal(
     backend: BackendType = DEFAULT_BACKEND
 ) -> GetProductResponse:
     """
-    Universal product detail retrieval.
+    Universal product detail retrieval for non-vehicle backends.
     
     Routes to appropriate backend based on product_id prefix:
-    - VIN-*: Vehicle from IDSS
-    - PROD-*: E-commerce product from Postgres
+    - PROP-*: Real estate
+    - BOOK-*: Travel
+    - VIN-* and other IDs: NOT_FOUND (vehicles are served by main get_product via cache + Supabase).
     """
     request_id = str(uuid.uuid4())
     start_time = time.time()
-    
     timings = {}
     cache_hit = False
-    
-    # Detect product type from ID
-    if request.product_id.startswith("VIN-"):
-        return await _get_vehicle_detail(request, request_id, start_time, timings, cache_hit)
-    elif request.product_id.startswith("PROD-"):
-        # Future: Get e-commerce product from database
-        pass
-    elif request.product_id.startswith("PROP-"):
+
+    if request.product_id.startswith("PROP-"):
         return await _get_property_detail(request, request_id, start_time, timings, cache_hit)
     elif request.product_id.startswith("BOOK-"):
         return await _get_travel_detail(request, request_id, start_time, timings, cache_hit)
     else:
-        # Try IDSS as default
-        return await _get_vehicle_detail(request, request_id, start_time, timings, cache_hit)
-
-
-async def _get_vehicle_detail(
-    request: GetProductRequest,
-    request_id: str,
-    start_time: float,
-    timings: dict,
-    cache_hit: bool
-) -> GetProductResponse:
-    """
-    Get vehicle details from IDSS database.
-    """
-    sources = ["idss_sqlite"]  # Provenance tracking
-    
-    try:
-        from idss.data.vehicle_store import LocalVehicleStore
-        
-        # Extract VIN from product_id
-        vin = request.product_id.replace("VIN-", "")
-        
-        db_start = time.time()
-        store = LocalVehicleStore(require_photos=False)
-        
-        # Query vehicle by VIN
-        query = f"SELECT * FROM vehicles WHERE vin = '{vin}' LIMIT 1"
-        vehicles = store.execute_query(query)
-        
-        timings["db"] = (time.time() - db_start) * 1000
-        
-        if not vehicles:
-            timings["total"] = (time.time() - start_time) * 1000
-            
-            return GetProductResponse(
-                status=ResponseStatus.NOT_FOUND,
-                data=None,
-                constraints=[
-                    ConstraintDetail(
-                        code="VEHICLE_NOT_FOUND",
-                        message=f"Vehicle with ID '{request.product_id}' does not exist",
-                        details={"product_id": request.product_id, "vin": vin},
-                        allowed_fields=None,
-                        suggested_actions=["SearchProducts to find available vehicles"]
-                    )
-                ],
-                trace=create_trace(request_id, cache_hit, timings, sources),
-                version=create_version_info(ProductCategory.VEHICLE)
-            )
-        
-        # Convert vehicle to product detail
-        vehicle = vehicles[0]
-        product_detail = vehicle_to_product_detail(vehicle)
-        
-        # Apply field projection if requested
-        if request.fields:
-            product_detail = apply_field_projection(product_detail, request.fields)
-        
+        # VIN- and e-commerce: handled by main get_product (cache + Supabase or Postgres)
         timings["total"] = (time.time() - start_time) * 1000
-        
         return GetProductResponse(
-            status=ResponseStatus.OK,
-            data=product_detail,
-            constraints=[],
-            trace=create_trace(request_id, cache_hit, timings, sources),
-            version=create_version_info(ProductCategory.VEHICLE)
-        )
-        
-    except Exception as e:
-        timings["total"] = (time.time() - start_time) * 1000
-        
-        return GetProductResponse(
-            status=ResponseStatus.INVALID,
+            status=ResponseStatus.NOT_FOUND,
             data=None,
             constraints=[
                 ConstraintDetail(
-                    code="DATABASE_ERROR",
-                    message=f"Error retrieving vehicle: {str(e)}",
-                    details={"error": str(e), "product_id": request.product_id},
+                    code="PRODUCT_NOT_FOUND",
+                    message=f"Product '{request.product_id}' not found. Use /api/get-product or UCP get-product for vehicles and e-commerce.",
+                    details={"product_id": request.product_id},
                     allowed_fields=None,
-                    suggested_actions=["Check database connection", "Verify data directory exists"]
+                    suggested_actions=["Use /api/get-product or /ucp/get-product for this product type"],
                 )
             ],
-            trace=create_trace(request_id, cache_hit, timings, sources),
-            version=create_version_info(ProductCategory.VEHICLE)
+            trace=create_trace(request_id, cache_hit, timings, []),
+            version=create_version_info(),
         )
 
 

@@ -27,7 +27,7 @@ def convert_numpy_types(obj: Any) -> Any:
         return bool(obj)
     return obj
 from idss.core.config import IDSSConfig, get_config
-from idss.data.vehicle_store import LocalVehicleStore
+from idss.data.vehicle_store import get_vehicle_store
 from idss.parsing.semantic_parser import (
     parse_user_input,
     merge_filters,
@@ -102,7 +102,7 @@ class IDSSController:
         """
         self.config = config or get_config()
         self.state = SessionState()
-        self.store = LocalVehicleStore(require_photos=True)
+        self.store = get_vehicle_store(require_photos=True)
 
         logger.info(f"IDSS Controller initialized: k={self.config.k}, method={self.config.recommendation_method}")
 
