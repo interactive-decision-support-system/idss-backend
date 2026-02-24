@@ -83,7 +83,7 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
         price=price,
         image=image_info,
         url=product.get("url") or product.get("vdp") or src.get("vdp"),
-        
+
         # Additional fields for frontend display
         description=product.get("description"),
         category=product.get("category") or src.get("bodyStyle") or src.get("body_style"),
@@ -94,6 +94,8 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
         reviews=product.get("reviews"),  # Pass through for frontend to display
         available_qty=product.get("available_qty"),
         available=(product.get("available_qty") or 1) > 0,
+        # Scrape origin — e.g. "System76", "Framework", "Lenovo"
+        source=product.get("source"),
     )
     
     # 3. Add Type-Specific Details

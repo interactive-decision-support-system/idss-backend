@@ -467,6 +467,7 @@ class UnifiedProduct(BaseModel):
     reviews_count: Optional[int] = Field(None, description="Number of reviews")
     reviews: Optional[str] = Field(None, description="Raw reviews JSON or text for display")
     available_qty: Optional[int] = Field(None, description="Quantity in stock")
+    source: Optional[str] = Field(None, description="Scrape origin label, e.g. 'System76', 'Framework', 'Lenovo'")
     
     # Domain specific details (only one set should be populated)
     vehicle: Optional[VehicleDetails] = None

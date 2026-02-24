@@ -314,6 +314,7 @@ class SupabaseProductStore:
         attrs = row.get("attributes") or {}
         price_raw = row.get("price")
         price_dollars = float(price_raw) if price_raw else 0.0
+        link = row.get("link") or row.get("merchant_product_url")
 
         return {
             # Identity
@@ -347,7 +348,9 @@ class SupabaseProductStore:
             "rating": float(row["rating"]) if row.get("rating") else None,
             "rating_count": row.get("rating_count"),
             # Listing metadata
-            "url": row.get("link") or row.get("merchant_product_url"),
+            "url": link,
+            # Scrape origin — derived from product URL domain so the frontend can show "From: System76"
+            "source": _extract_source(link) or row.get("brand"),
             "inventory": row.get("inventory"),
             # Full attributes blob for anything else
             "attributes": attrs,
@@ -376,6 +379,33 @@ def _fmt_hours(val: Any) -> Optional[str]:
         return f"{int(val)} hrs"
     except (TypeError, ValueError):
         return str(val)
+
+
+def _extract_source(url: Optional[str]) -> Optional[str]:
+    """
+    Derive a human-readable source label from a product URL.
+    Examples:
+      "https://system76.com/laptops/oryx" → "System76"
+      "https://frame.work/products/..."   → "Framework"
+      "https://www.lenovo.com/..."        → "Lenovo"
+    Falls back to None if URL is missing or unparseable.
+    """
+    if not url:
+        return None
+    try:
+        from urllib.parse import urlparse
+        hostname = (urlparse(url).hostname or "").lower().removeprefix("www.")
+        if not hostname:
+            return None
+        parts = hostname.split(".")
+        # Standard TLDs → use second-to-last part
+        if len(parts) >= 2 and parts[-1] in ("com", "net", "org", "io", "co", "store", "us", "uk"):
+            name = parts[-2]
+        else:
+            name = parts[0]
+        return name.capitalize()
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
