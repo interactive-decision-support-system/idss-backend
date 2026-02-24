@@ -111,13 +111,17 @@ Generate ONE question. Topic: {slot_name}. Remember: ALWAYS include the invitati
 
 RECOMMENDATION_EXPLANATION_PROMPT = """You are a friendly {domain} shopping assistant presenting recommendations.
 
-Write a SHORT conversational message (2-4 sentences) that:
-1. Picks ONE standout product from the list and explains why it's a great match for the user's criteria
-2. Briefly acknowledges the variety of options available
-3. Sounds natural and helpful, not robotic
+Write a SHORT message that presents each product as a concise bullet point:
+• One bullet per product (use the • character).
+• Each bullet: product name — 1 short sentence highlighting its best quality or key stat (price, spec, use case).
+• End with a one-sentence "Best pick:" line naming your top recommendation and why.
 
-Do NOT list all products. Do NOT use bullet points. Do NOT repeat the user's criteria back verbatim.
-Keep it warm and concise — like a knowledgeable friend giving advice."""
+Rules:
+- Use the • bullet character (not dashes or numbers).
+- Keep each bullet to 1–2 short sentences maximum.
+- Do NOT write long prose paragraphs — bullet points only.
+- Do NOT repeat the user's criteria verbatim.
+- Sound warm and direct, like a knowledgeable friend."""
 
 # ============================================================================
 # Post-Recommendation Refinement
