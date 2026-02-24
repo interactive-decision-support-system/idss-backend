@@ -2,8 +2,10 @@
 UCP (Universal Commerce Protocol) Endpoints.
 
 Thin adapter layer that wraps MCP tools with UCP-compatible request/response format.
+When cart_id is a user_id (UUID), uses Supabase cart; otherwise uses in-memory MCP cart.
 """
 
+import re
 from typing import Any
 from sqlalchemy.orm import Session
 
@@ -12,18 +14,35 @@ from app.ucp_schemas import (
     UCPGetProductRequest, UCPGetProductResponse, UCPProductDetail,
     UCPAddToCartRequest, UCPAddToCartResponse,
     UCPCheckoutRequest, UCPCheckoutResponse,
+    UCPGetCartRequest, UCPGetCartResponse, UCPCartItemOut,
+    UCPRemoveFromCartRequest, UCPRemoveFromCartResponse,
+    UCPUpdateCartRequest, UCPUpdateCartResponse,
     mcp_status_to_ucp
 )
 from app.schemas import (
     SearchProductsRequest, GetProductRequest,
     AddToCartRequest, CheckoutRequest
 )
-from app.endpoints import search_products, get_product, add_to_cart, checkout
+from app.endpoints import (
+    search_products, get_product, add_to_cart, checkout,
+    get_cart_items, remove_from_cart_item, update_cart_quantity,
+)
+from app.supabase_cart import get_supabase_cart_client
 
 
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+)
+
+
+def _is_user_cart_id(cart_id: str | None) -> bool:
+    """True if cart_id looks like a user_id UUID (signed-in cart in Supabase)."""
+    return bool(cart_id and _UUID_RE.match(cart_id.strip()))
+
 
 def mcp_product_to_ucp_summary(mcp_product: Any, base_url: str = "https://example.com") -> UCPProductSummary:
     """
@@ -234,46 +253,63 @@ async def ucp_add_to_cart(
 ) -> UCPAddToCartResponse:
     """
     UCP-compatible add to cart endpoint.
-    
-    Maps UCP add_to_cart request to MCP add_to_cart tool.
+    When cart_id is a user_id (UUID), uses Supabase; else MCP in-memory cart.
     """
-    # Generate cart_id if not provided (UCP allows None, MCP requires a value)
-    import uuid
-    cart_id = request.parameters.cart_id or f"CART-{uuid.uuid4().hex[:8]}"
-    
-    # Convert UCP request to MCP format
+    cart_id = request.parameters.cart_id or ""
+    if not cart_id:
+        import uuid
+        cart_id = f"CART-{uuid.uuid4().hex[:8]}"
+
+    client = get_supabase_cart_client()
+    if _is_user_cart_id(cart_id) and client:
+        ok, err = client.add_to_cart(
+            cart_id,
+            request.parameters.product_id,
+            request.parameters.product_snapshot or {},
+            request.parameters.quantity,
+        )
+        if ok:
+            rows = client.get_cart(cart_id)
+            return UCPAddToCartResponse(
+                status="success",
+                cart_id=cart_id,
+                item_count=len(rows),
+                total_price_cents=None,
+            )
+        return UCPAddToCartResponse(
+            status="error",
+            cart_id=cart_id,
+            item_count=None,
+            total_price_cents=None,
+            error=err or "Add to cart failed",
+            details={},
+        )
+
     mcp_request = AddToCartRequest(
         product_id=request.parameters.product_id,
         qty=request.parameters.quantity,
-        cart_id=cart_id
+        cart_id=cart_id,
     )
-    
-    # Call MCP add_to_cart
     mcp_response = add_to_cart(mcp_request, db)
-    
-    # Convert MCP response to UCP format
     ucp_status = mcp_status_to_ucp(mcp_response.status)
-    
+
     if ucp_status == "success" and mcp_response.data:
         return UCPAddToCartResponse(
             status="success",
             cart_id=mcp_response.data.cart_id,
             item_count=len(mcp_response.data.items),
-            total_price_cents=sum(item.price_cents * item.quantity for item in mcp_response.data.items)
+            total_price_cents=sum(item.price_cents * item.quantity for item in mcp_response.data.items),
         )
-    else:
-        # Error response
-        error_msg = mcp_response.constraints[0].message if mcp_response.constraints else "Add to cart failed"
-        error_details = mcp_response.constraints[0].details if mcp_response.constraints else {}
-        
-        return UCPAddToCartResponse(
-            status="error",
-            cart_id=None,
-            item_count=None,
-            total_price_cents=None,
-            error=error_msg,
-            details=error_details
-        )
+    error_msg = mcp_response.constraints[0].message if mcp_response.constraints else "Add to cart failed"
+    error_details = mcp_response.constraints[0].details if mcp_response.constraints else {}
+    return UCPAddToCartResponse(
+        status="error",
+        cart_id=None,
+        item_count=None,
+        total_price_cents=None,
+        error=error_msg,
+        details=error_details,
+    )
 
 
 async def ucp_checkout(
@@ -282,40 +318,115 @@ async def ucp_checkout(
 ) -> UCPCheckoutResponse:
     """
     UCP-compatible checkout endpoint.
-    
-    Maps UCP checkout request to MCP checkout tool.
-    
-    Note: This is a minimal happy-path implementation.
-    Production would require payment processing, fraud detection, etc.
+    When cart_id is a user_id (UUID), uses Supabase; else MCP in-memory checkout.
     """
-    # Convert UCP request to MCP format
-    mcp_request = CheckoutRequest(
-        cart_id=request.parameters.cart_id,
-        payment_method_id=request.parameters.payment_method or "default",
-        address_id=request.parameters.shipping_address or "default"
-    )
-    
-    # Call MCP checkout
-    mcp_response = checkout(mcp_request, db)
-    
-    # Convert MCP response to UCP format
-    ucp_status = mcp_status_to_ucp(mcp_response.status)
-    
-    if ucp_status == "success" and mcp_response.data:
-        return UCPCheckoutResponse(
-            status="success",
-            order_id=mcp_response.data.order_id,
-            total_price_cents=mcp_response.data.total_cents
-        )
-    else:
-        # Error response
-        error_msg = mcp_response.constraints[0].message if mcp_response.constraints else "Checkout failed"
-        error_details = mcp_response.constraints[0].details if mcp_response.constraints else {}
-        
+    cart_id = request.parameters.cart_id
+    client = get_supabase_cart_client()
+    if _is_user_cart_id(cart_id) and client:
+        ok, order_id, err, sold_out_ids = client.checkout(cart_id)
+        if ok:
+            return UCPCheckoutResponse(
+                status="success",
+                order_id=order_id,
+                total_price_cents=None,
+            )
         return UCPCheckoutResponse(
             status="error",
             order_id=None,
             total_price_cents=None,
-            error=error_msg,
-            details=error_details
+            error=err or "Checkout failed",
+            details={"sold_out_ids": sold_out_ids} if sold_out_ids else None,
         )
+
+    mcp_request = CheckoutRequest(
+        cart_id=cart_id,
+        payment_method_id=request.parameters.payment_method or "default",
+        address_id=request.parameters.shipping_address or "default",
+    )
+    mcp_response = checkout(mcp_request, db)
+    ucp_status = mcp_status_to_ucp(mcp_response.status)
+
+    if ucp_status == "success" and mcp_response.data:
+        return UCPCheckoutResponse(
+            status="success",
+            order_id=mcp_response.data.order_id,
+            total_price_cents=mcp_response.data.total_cents,
+        )
+    error_msg = mcp_response.constraints[0].message if mcp_response.constraints else "Checkout failed"
+    error_details = mcp_response.constraints[0].details if mcp_response.constraints else {}
+    return UCPCheckoutResponse(
+        status="error",
+        order_id=None,
+        total_price_cents=None,
+        error=error_msg,
+        details=error_details,
+    )
+
+
+async def ucp_get_cart(request: UCPGetCartRequest, db: Session) -> UCPGetCartResponse:
+    """UCP get_cart. When cart_id is user_id (UUID), uses Supabase; else in-memory."""
+    cart_id = request.parameters.cart_id
+    client = get_supabase_cart_client()
+    if _is_user_cart_id(cart_id) and client:
+        rows = client.get_cart(cart_id)
+        items = [
+            UCPCartItemOut(
+                id=str(row.get("id", row.get("product_id", ""))),
+                product_id=str(row.get("product_id", "")),
+                product_snapshot=row.get("product_snapshot") or {},
+                quantity=int(row.get("quantity") or 1),
+            )
+            for row in rows
+        ]
+        return UCPGetCartResponse(
+            status="success",
+            cart_id=cart_id,
+            items=items,
+            item_count=len(items),
+        )
+    raw_items = get_cart_items(cart_id)
+    items = [
+        UCPCartItemOut(id=x["id"], product_id=x["product_id"], product_snapshot=x["product_snapshot"], quantity=x["quantity"])
+        for x in raw_items
+    ]
+    return UCPGetCartResponse(
+        status="success",
+        cart_id=cart_id,
+        items=items,
+        item_count=len(items),
+    )
+
+
+async def ucp_remove_from_cart(
+    request: UCPRemoveFromCartRequest,
+    db: Session,
+) -> UCPRemoveFromCartResponse:
+    """UCP remove_from_cart. When cart_id is user_id (UUID), uses Supabase; else in-memory."""
+    cart_id = request.parameters.cart_id
+    product_id = request.parameters.product_id
+    client = get_supabase_cart_client()
+    if _is_user_cart_id(cart_id) and client:
+        ok, err = client.remove_from_cart(cart_id, product_id)
+        if ok:
+            return UCPRemoveFromCartResponse(status="success")
+        return UCPRemoveFromCartResponse(status="error", error=err or "Remove failed", details={})
+    remove_from_cart_item(cart_id, product_id)
+    return UCPRemoveFromCartResponse(status="success")
+
+
+async def ucp_update_cart(
+    request: UCPUpdateCartRequest,
+    db: Session,
+) -> UCPUpdateCartResponse:
+    """UCP update_cart (set quantity; 0 = remove). When cart_id is user_id (UUID), uses Supabase; else in-memory."""
+    cart_id = request.parameters.get_cart_id()
+    product_id = request.parameters.product_id
+    quantity = request.parameters.quantity
+    client = get_supabase_cart_client()
+    if _is_user_cart_id(cart_id) and client:
+        ok, err = client.update_quantity(cart_id, product_id, quantity)
+        if ok:
+            return UCPUpdateCartResponse(status="success")
+        return UCPUpdateCartResponse(status="error", error=err or "Update failed", details={})
+    update_cart_quantity(cart_id, product_id, quantity)
+    return UCPUpdateCartResponse(status="success")

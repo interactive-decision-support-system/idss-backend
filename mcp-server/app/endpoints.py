@@ -3100,3 +3100,46 @@ def checkout(
     )
     log_mcp_event(db, request_id, "checkout", "/api/checkout", request, response)
     return response
+
+
+def get_cart_items(cart_id: str) -> list:
+    """
+    Return cart items for a cart_id from in-memory store (for UCP get_cart when not using Supabase).
+    Each item: {"id": str, "product_id": str, "product_snapshot": dict, "quantity": int}.
+    """
+    cart = _CARTS.get(str(cart_id))
+    if not cart or not cart.get("items"):
+        return []
+    return [
+        {
+            "id": pid,
+            "product_id": pid,
+            "product_snapshot": {},
+            "quantity": data["qty"],
+        }
+        for pid, data in cart["items"].items()
+    ]
+
+
+def remove_from_cart_item(cart_id: str, product_id: str) -> bool:
+    """Remove a product from in-memory cart. Returns True if removed or not present."""
+    cart = _CARTS.get(str(cart_id))
+    if not cart or not cart.get("items"):
+        return True
+    cart["items"].pop(str(product_id), None)
+    return True
+
+
+def update_cart_quantity(cart_id: str, product_id: str, quantity: int) -> bool:
+    """Set quantity for a cart item in-memory; 0 removes. Returns True on success."""
+    cart = _CARTS.get(str(cart_id))
+    if not cart or not cart.get("items"):
+        return quantity == 0
+    pid = str(product_id)
+    if quantity <= 0:
+        cart["items"].pop(pid, None)
+        return True
+    if pid in cart["items"]:
+        cart["items"][pid]["qty"] = quantity
+        return True
+    return False
