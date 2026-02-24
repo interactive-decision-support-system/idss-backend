@@ -36,13 +36,23 @@ _store_cache: Optional["SupabaseProductStore"] = None
 def get_product_store() -> "SupabaseProductStore":
     global _store_cache
     if _store_cache is None:
-        url = os.environ.get("SUPABASE_URL", "")
-        key = os.environ.get("SUPABASE_KEY", "")
-        if url and key:
-            _store_cache = SupabaseProductStore()
-        else:
-            logger.info("SUPABASE_KEY not set — using SQLAlchemy fallback via DATABASE_URL")
+        # Prefer DATABASE_URL (direct Postgres connection — bypasses RLS, correct numeric
+        # JSONB comparison).  The REST API path (SupabaseProductStore) is only used when
+        # DATABASE_URL is absent, because the anon key is blocked by RLS on the products
+        # table even when SUPABASE_URL/SUPABASE_KEY are set.
+        db_url = os.environ.get("DATABASE_URL", "")
+        if db_url:
+            logger.info("Using SQLAlchemy product store via DATABASE_URL")
             _store_cache = _SQLAlchemyProductStore()
+        else:
+            url = os.environ.get("SUPABASE_URL", "")
+            key = os.environ.get("SUPABASE_KEY", "")
+            if url and key:
+                logger.info("DATABASE_URL absent — using Supabase REST API product store")
+                _store_cache = SupabaseProductStore()
+            else:
+                logger.error("No product store available: set DATABASE_URL or SUPABASE_URL+SUPABASE_KEY")
+                _store_cache = _SQLAlchemyProductStore()  # will error gracefully on queries
     return _store_cache
 
 
@@ -327,8 +337,8 @@ class SupabaseProductStore:
             "price": int(price_dollars),
             # Images — Supabase uses 'imageurl' (no underscore)
             "image_url": row.get("imageurl") or row.get("image_url"),
-            # Taxonomy
-            "category": row.get("category"),
+            # Taxonomy — normalise to title case ("electronics" → "Electronics")
+            "category": (row.get("category") or "").title() or None,
             "product_type": row.get("product_type"),
             "brand": row.get("brand"),
             # ---- Laptop specs (confirmed DB attribute keys) ----
@@ -349,6 +359,7 @@ class SupabaseProductStore:
             "rating_count": row.get("rating_count"),
             # Listing metadata
             "url": link,
+            "listing_url": link,
             # Scrape origin — derived from product URL domain so the frontend can show "From: System76"
             "source": _extract_source(link) or row.get("brand"),
             "inventory": row.get("inventory"),
@@ -392,14 +403,20 @@ def _extract_source(url: Optional[str]) -> Optional[str]:
     """
     if not url:
         return None
+    # Explicit overrides for domains that produce misleading names via generic parsing
+    _DOMAIN_OVERRIDES: Dict[str, str] = {
+        "frame.work": "Framework",
+    }
     try:
         from urllib.parse import urlparse
         hostname = (urlparse(url).hostname or "").lower().removeprefix("www.")
         if not hostname:
             return None
+        if hostname in _DOMAIN_OVERRIDES:
+            return _DOMAIN_OVERRIDES[hostname]
         parts = hostname.split(".")
         # Standard TLDs → use second-to-last part
-        if len(parts) >= 2 and parts[-1] in ("com", "net", "org", "io", "co", "store", "us", "uk"):
+        if len(parts) >= 2 and parts[-1] in ("com", "net", "org", "io", "co", "store", "us", "uk", "work"):
             name = parts[-2]
         else:
             name = parts[0]
@@ -422,6 +439,33 @@ class _SQLAlchemyProductStore:
     after a price/category/brand fetch, which gives correct numeric comparison.
     """
 
+    def __init__(self) -> None:
+        try:
+            from sqlalchemy import create_engine
+        except ImportError:
+            logger.error("sqlalchemy not installed — cannot use DATABASE_URL product store")
+            self._engine = None
+            return
+
+        db_url = os.environ.get("DATABASE_URL", "")
+        if not db_url:
+            logger.error("DATABASE_URL not set — no product store available")
+            self._engine = None
+            return
+
+        try:
+            # pool_size=3 + max_overflow=2 keeps us within Supabase session-mode limits
+            self._engine = create_engine(
+                db_url,
+                pool_pre_ping=True,
+                pool_size=3,
+                max_overflow=2,
+                connect_args={"connect_timeout": 15},
+            )
+        except Exception as e:
+            logger.error(f"SQLAlchemy engine creation failed: {e}")
+            self._engine = None
+
     def search_products(
         self,
         filters: Dict[str, Any],
@@ -430,20 +474,13 @@ class _SQLAlchemyProductStore:
     ) -> List[Dict[str, Any]]:
         import json as _json
         try:
-            from sqlalchemy import create_engine, text as sa_text
+            from sqlalchemy import text as sa_text
         except ImportError:
             logger.error("sqlalchemy not installed — cannot fallback to DATABASE_URL")
             return []
 
-        db_url = os.environ.get("DATABASE_URL", "")
-        if not db_url:
-            logger.error("DATABASE_URL not set — no product store available")
-            return []
-
-        try:
-            engine = create_engine(db_url, pool_pre_ping=True, connect_args={"connect_timeout": 15})
-        except Exception as e:
-            logger.error(f"SQLAlchemy engine creation failed: {e}")
+        if self._engine is None:
+            logger.error("SQLAlchemy engine not available")
             return []
 
         # Parse prices
@@ -497,7 +534,7 @@ class _SQLAlchemyProductStore:
         params["fetch_limit"] = fetch_limit
 
         try:
-            with engine.connect() as conn:
+            with self._engine.connect() as conn:
                 result = conn.execute(sql, params)
                 rows = [dict(r._mapping) for r in result]
         except Exception as e:
@@ -559,11 +596,11 @@ class _SQLAlchemyProductStore:
         return filtered[:limit]
 
     def get_by_id(self, product_id: str) -> Optional[Dict[str, Any]]:
+        if self._engine is None:
+            return None
         try:
-            from sqlalchemy import create_engine, text as sa_text
-            db_url = os.environ.get("DATABASE_URL", "")
-            engine = create_engine(db_url, pool_pre_ping=True)
-            with engine.connect() as conn:
+            from sqlalchemy import text as sa_text
+            with self._engine.connect() as conn:
                 result = conn.execute(sa_text("SELECT * FROM products WHERE id = :id LIMIT 1"), {"id": product_id})
                 row = result.fetchone()
                 return SupabaseProductStore._row_to_dict(dict(row._mapping)) if row else None

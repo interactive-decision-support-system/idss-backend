@@ -507,7 +507,9 @@ async def search_products(
                 search_filters["product_type"] = filters.get("product_type") or "laptop"
             elif search_filters.get("category") == "Books" and "product_type" not in search_filters:
                 search_filters["product_type"] = "book"
+            db_start = time.time()
             product_dicts = store.search_products(search_filters, limit=request.limit or 20)
+            db_elapsed = (time.time() - db_start) * 1000
             from app.schemas import ShippingInfo as _SI
             product_summaries = []
             for p in product_dicts:
@@ -534,7 +536,7 @@ async def search_products(
                     warranty="Standard manufacturer warranty applies.",
                     promotion_info=None,
                 ))
-            timings_e = {"total": (time.time() - start_time) * 1000}
+            timings_e = {"db": db_elapsed, "total": (time.time() - start_time) * 1000}
             return SearchProductsResponse(
                 status=ResponseStatus.OK,
                 data=SearchResultsData(products=product_summaries, total_count=len(product_summaries), next_cursor=None),

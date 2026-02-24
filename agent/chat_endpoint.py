@@ -114,7 +114,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             response_type="question",
             message=f"Thank you for your {stars}-star rating! Your feedback helps us improve. Is there anything else I can help you with?",
             session_id=session_id,
-            quick_replies=["See similar items", "Compare items", "Help with checkout", "Different category"],
+            quick_replies=["See similar items", "Compare items", "Different category"],
             filters=session.explicit_filters,
             preferences={},
             question_count=session.question_count,
@@ -276,7 +276,19 @@ async def _handle_post_recommendation(
     # -----------------------------------------------------------------------
     # Fast intent router: compare vs. refine vs. other
     # -----------------------------------------------------------------------
-    intent = await detect_post_rec_intent(request.message)
+    # Keyword fast-path skips the LLM call for obvious fixed-button messages
+    _FAST_COMPARE_KWS = (
+        "best value", "get best", "pros and cons", "compare my",
+        "compare these", "which is better", "which should i buy",
+        "tell me more about these", "research",
+    )
+    _FAST_REFINE_KWS = ("refine my search", "refine search", "change my criteria")
+    if any(kw in msg_lower for kw in _FAST_COMPARE_KWS):
+        intent = "compare"
+    elif any(kw in msg_lower for kw in _FAST_REFINE_KWS):
+        intent = "refine"
+    else:
+        intent = await detect_post_rec_intent(request.message)
 
     if intent == "compare":
         session_manager.add_message(session_id, "user", request.message)
@@ -319,7 +331,7 @@ async def _handle_post_recommendation(
                 response_type="recommendations",
                 message=narrative,
                 session_id=session_id,
-                quick_replies=["Show me the best value", "See similar items", "Refine search", "Help with checkout"],
+                quick_replies=["Show me the best value", "See similar items", "Refine search"],
                 recommendations=[formatted_products] if formatted_products else [],
                 bucket_labels=["Compared Items"] if formatted_products else [],
 
@@ -375,7 +387,7 @@ async def _handle_post_recommendation(
                     preferences={},
                     question_count=session.question_count,
                     domain=active_domain,
-                    quick_replies=["See similar items", "Compare items", "Broaden search", "Help with checkout"],
+                    quick_replies=["See similar items", "Compare items", "Broaden search"],
                 )
         return ChatResponse(
             response_type="question",
@@ -410,7 +422,7 @@ async def _handle_post_recommendation(
                     preferences={},
                     question_count=session.question_count,
                     domain=active_domain,
-                    quick_replies=["See similar items", "Anything else?", "Compare items", "Help with checkout"],
+                    quick_replies=["See similar items", "Anything else?", "Compare items"],
                 )
         return ChatResponse(
             response_type="question",
@@ -471,7 +483,7 @@ async def _handle_post_recommendation(
                 preferences={},
                 question_count=session.question_count,
                 domain=active_domain,
-                quick_replies=["See similar items", "Anything else?", "Compare items", "Help with checkout"],
+                quick_replies=["See similar items", "Anything else?", "Compare items"],
             )
         return ChatResponse(
             response_type="question",
@@ -488,9 +500,9 @@ async def _handle_post_recommendation(
         session_manager.add_message(session_id, "user", request.message)
         return ChatResponse(
             response_type="question",
-            message="I'm here to help! You can: see similar items, compare products, rate these recommendations, or get help with checkout. What would you like to do?",
+            message="I'm here to help! You can: see similar items, compare products, or rate these recommendations. What would you like to do?",
             session_id=session_id,
-            quick_replies=["See similar items", "Compare items", "Rate recommendations", "Help with checkout"],
+            quick_replies=["See similar items", "Compare items", "Rate recommendations"],
             filters=session.explicit_filters,
             preferences={},
             question_count=session.question_count,
@@ -540,7 +552,7 @@ async def _handle_post_recommendation(
             message="\n\n".join(str(p) for p in msg_parts if p),
             session_id=session_id,
             research_data=research,
-            quick_replies=["Compare items", "See similar items", "Help with checkout"],
+            quick_replies=["Compare items", "See similar items"],
             filters=session.explicit_filters,
             preferences={},
             question_count=session.question_count,
@@ -757,7 +769,7 @@ async def _search_and_respond_vehicles(
             filters=search_filters,
             preferences={},
             question_count=question_count,
-            quick_replies=["See similar items", "Research", "Compare items", "Rate recommendations", "Help with checkout"],
+            quick_replies=["See similar items", "Research", "Compare items", "Rate recommendations"],
             timings_ms=timings
         )
     except Exception as e:
@@ -859,7 +871,6 @@ async def _search_and_respond_ecommerce(
             "Research",
             "Compare items",
             "Rate recommendations",
-            "Help with checkout",
         ],
         timings_ms=timings
     )

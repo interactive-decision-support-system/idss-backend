@@ -268,30 +268,42 @@ class UniversalAgent:
         t0 = time.perf_counter()
         self.history.append({"role": "user", "content": message})
 
-        # 1. Domain Detection — only if not already known.
-        # If domain is unknown but we have conversation history, detect from history
-        # (avoids 'I don't care' resetting domain on mid-conversation messages).
-        if not self.domain:
-            t1 = time.perf_counter()
+        # 1. Domain Detection — run when domain is unknown, or when message contains
+        # fast-map keywords that clearly indicate a different domain (zero-latency switch).
+        t1 = time.perf_counter()
+        if self.domain:
+            # Check for domain switch via fast map (no LLM call, O(n) word scan).
+            # e.g. session domain="vehicles" but user says "school laptops" → switch to "laptops".
+            words = message.strip().lower().split()
+            for w in words:
+                candidate = self._FAST_DOMAIN_MAP.get(w)
+                if candidate and candidate != self.domain:
+                    logger.info(f"Fast-map domain switch: '{w}' → {candidate} (was {self.domain})")
+                    self.domain = candidate
+                    self.filters = {}
+                    self.questions_asked = []
+                    self.question_count = 0
+                    break
+        else:
             if self.history and len(self.history) > 1:
                 # Recover domain from prior conversation context
                 self.domain = self._detect_domain_from_message(history=self.history)
             else:
                 self.domain = self._detect_domain_from_message(message=message)
-            timings["domain_detection_ms"] = (time.perf_counter() - t1) * 1000
-            if not self.domain or self.domain == "unknown":
-                # Still unknown, ask for clarification
-                response = {
-                    "response_type": "question",
-                    "message": "I can help with Cars, Laptops, Books, or Phones. What are you looking for today?",
-                    "quick_replies": ["Cars", "Laptops", "Books", "Phones"],
-                    "session_id": self.session_id,
-                    "timings_ms": timings
-                }
-                self.history.append({"role": "assistant", "content": response["message"]})
-                # Reset domain so we try again next time
-                self.domain = None
-                return response
+        timings["domain_detection_ms"] = (time.perf_counter() - t1) * 1000
+        if not self.domain or self.domain == "unknown":
+            # Still unknown, ask for clarification
+            response = {
+                "response_type": "question",
+                "message": "I can help with Cars, Laptops, Books, or Phones. What are you looking for today?",
+                "quick_replies": ["Cars", "Laptops", "Books", "Phones"],
+                "session_id": self.session_id,
+                "timings_ms": timings
+            }
+            self.history.append({"role": "assistant", "content": response["message"]})
+            # Reset domain so we try again next time
+            self.domain = None
+            return response
 
         # 2. Extract Criteria (Schema-Driven) with IDSS signals
         schema = get_domain_schema(self.domain)
