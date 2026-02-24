@@ -104,8 +104,9 @@ def _build_spec_sheet(products: List[Dict[str, Any]], domain: str) -> str:
         price_str = f"${price:,.0f}" if price else "N/A"
         bucket = p.get("bucket_label")
 
+        product_id = p.get("id") or p.get("product_id", "")
         lines.append(f"[{i}] {name} ({brand})")
-        lines.append(f"    ID: {p.get('id', '')}")
+        lines.append(f"    PRODUCT_ID: {product_id}  ← copy this exactly into selected_ids")
         lines.append(f"    Price: {price_str}")
         if bucket:
             lines.append(f"    Tier/Bucket: {bucket}")
@@ -174,7 +175,7 @@ async def generate_comparison_narrative(
     Or a fallback plain-text comparison if the LLM call fails.
     """
     if not products:
-        return "I don't have any recommendations to compare yet. Let me search for some first!", []
+        return "I don't have any recommendations to compare yet. Let me search for some first!", [], []
 
     try:
         from openai import AsyncOpenAI
@@ -200,18 +201,21 @@ async def generate_comparison_narrative(
 
         system_prompt = (
             "You are a helpful product advisor. Compare the recommended products based strictly on what the user asked.\n\n"
-            "OUTPUT: Valid JSON with exactly two keys:\n"
+            "OUTPUT: Valid JSON with exactly three keys:\n"
             "  'narrative': formatted comparison string (rules below)\n"
-            "  'selected_ids': array of ID strings for the 2–3 products you compared\n\n"
+            f"  'selected_ids': array of PRODUCT_ID strings (copy verbatim from the spec sheet) for ALL {n} products in the spec sheet\n"
+            f"  'selected_names': array of the product name strings for ALL {n} products (used as fallback)\n\n"
             "NARRATIVE FORMAT — one block per product:\n"
             "  '• **[Product Name]**\\n[Spec]: [value] | [Spec]: [value]\\n[1–2 sentence insight specific to the user's criteria]'\n"
             "Separate each product block with a blank line (\\n\\n).\n"
             "After the last product block, on its own line: 'Best pick: [one-sentence recommendation].'\n\n"
             "RULES:\n"
+            f"- You MUST write one bullet block for EVERY product in the spec sheet. There are {n} products — include all {n}.\n"
             "- Start IMMEDIATELY with the first '•'. No intro sentence.\n"
             "- Pull spec values directly from the spec sheet. Only include the specs the user asked about.\n"
             "- NEVER include UUIDs or internal IDs in the narrative. Only use product name/brand.\n"
             "- Keep each insight 1–2 sentences, specific, and directly relevant to the user's question.\n"
+            "- selected_ids MUST be the exact PRODUCT_ID values from the spec sheet (the UUID strings after 'PRODUCT_ID:').\n"
         )
 
         user_prompt = (
@@ -233,12 +237,20 @@ async def generate_comparison_narrative(
         
         response_text = completion.choices[0].message.content.strip()
         data = json.loads(response_text)
-        return data.get("narrative", "Here's the comparison..."), data.get("selected_ids", [])
+        return (
+            data.get("narrative", "Here's the comparison..."),
+            data.get("selected_ids", []),
+            data.get("selected_names", []),
+        )
 
     except Exception as e:
         logger.error(f"Comparison LLM call failed: {e}")
-        # Graceful fallback: structured plain-text comparison
-        return _fallback_comparison(products, domain), [p.get("id") for p in products[:3] if p.get("id")]
+        # Graceful fallback: structured plain-text comparison — include ALL products
+        return (
+            _fallback_comparison(products, domain),
+            [p.get("id") or p.get("product_id") for p in products if p.get("id") or p.get("product_id")],
+            [p.get("name", "") for p in products],
+        )
 
 
 def _fallback_comparison(products: List[Dict[str, Any]], domain: str) -> str:

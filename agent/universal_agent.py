@@ -168,7 +168,10 @@ class UniversalAgent:
                 else:
                     # E-commerce: use price_cents
                     if range_match:
-                        search_filters["price_min_cents"] = int(range_match.group(1)) * 100
+                        # Only set the ceiling for e-commerce ranges — "$1500-$2000" means
+                        # "up to $2000". A strict floor would exclude near-miss products
+                        # (e.g. Apple laptops at $1399 for a "$1500-$2000" budget).
+                        # The product store's quality floor already provides a soft lower bound.
                         search_filters["price_max_cents"] = int(range_match.group(2)) * 100
                     elif under_match:
                         search_filters["price_max_cents"] = int(under_match.group(1)) * 100

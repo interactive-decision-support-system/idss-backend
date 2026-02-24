@@ -317,11 +317,19 @@ class SupabaseProductStore:
             return []
 
     @staticmethod
+    @staticmethod
     def _row_to_dict(row: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalise a Supabase products row to the flat dict that format_product() expects.
         """
-        attrs = row.get("attributes") or {}
+        attrs = dict(row.get("attributes") or {})
+        title_str = row.get("title") or row.get("name") or ""
+        # Fill missing spec keys by parsing the product title.
+        # DB attributes are sparse for some scrape sources — all info lives in the title.
+        _title_parsed = _parse_specs_from_title(title_str)
+        for _k, _v in _title_parsed.items():
+            if _k not in attrs or attrs[_k] is None:
+                attrs[_k] = _v
         price_raw = row.get("price")
         price_dollars = float(price_raw) if price_raw else 0.0
         link = row.get("link") or row.get("merchant_product_url")
@@ -340,7 +348,7 @@ class SupabaseProductStore:
             # Taxonomy — normalise to title case ("electronics" → "Electronics")
             "category": (row.get("category") or "").title() or None,
             "product_type": row.get("product_type"),
-            "brand": row.get("brand"),
+            "brand": _derive_brand(row.get("brand"), row.get("title") or row.get("name") or ""),
             # ---- Laptop specs (confirmed DB attribute keys) ----
             "processor": attrs.get("cpu"),          # DB key: 'cpu'
             "ram": _fmt_gb(attrs.get("ram_gb")),    # DB key: 'ram_gb'
@@ -372,6 +380,53 @@ class SupabaseProductStore:
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
+
+# Tokens that are NOT real laptop/product OEM brands.
+# When the DB 'brand' column contains one of these, we scan the title for
+# the first word that is NOT in this set (that's the real manufacturer).
+_NON_BRAND_TOKENS: frozenset = frozenset([
+    # CPU / chip makers
+    "intel", "amd", "qualcomm", "arm", "nvidia", "mediatek",
+    # GPU sub-brands
+    "geforce", "rtx", "gtx", "radeon", "quadro",
+    # Condition / refurb prefixes
+    "recertified", "refurbished", "certified", "renewed", "open-box", "openbox",
+    # Generic filler words that sometimes land in brand column
+    "laptop", "computer", "notebook", "pc", "gaming",
+])
+
+# Characters to strip when tokenizing a title for brand extraction
+import re as _re
+_TITLE_WORD_RE = _re.compile(r"[^\w]")
+
+
+def _derive_brand(db_brand: Optional[str], title: str) -> Optional[str]:
+    """
+    Return the correct OEM brand for a product.
+
+    The DB 'brand' column sometimes contains a chip-maker name (Intel, AMD),
+    a GPU sub-brand (GeForce, RTX), or a condition prefix (Recertified).
+    When that happens, scan the product title for the first token that looks
+    like a real manufacturer name (not in _NON_BRAND_TOKENS, len > 1).
+
+    E.g.  db_brand="Recertified", title="Recertified - DELL - Intel i7 …"
+          → scans ["Recertified"❌, "DELL"✓] → returns "DELL"
+
+          db_brand="GeForce",     title="HP Pavilion GeForce RTX …"
+          → scans ["HP"✓] → returns "HP"
+    """
+    if not db_brand:
+        return db_brand
+    if db_brand.lower() not in _NON_BRAND_TOKENS:
+        return db_brand  # already a proper brand — trust it
+    # Strip punctuation separators (" - ", "–", etc.) and scan title words
+    tokens = [t for t in title.strip().split() if t.strip("-–—,. ")]
+    for tok in tokens:
+        clean = tok.strip("-–—,.()")
+        if len(clean) > 1 and clean.lower() not in _NON_BRAND_TOKENS:
+            return clean
+    return db_brand
+
 
 def _fmt_gb(val: Any) -> Optional[str]:
     """Format a raw GB integer from the DB into a human-readable string."""
@@ -427,6 +482,90 @@ def _extract_source(url: Optional[str]) -> Optional[str]:
 
 # ---------------------------------------------------------------------------
 # SQLAlchemy fallback (used when SUPABASE_KEY is not set)
+# ---------------------------------------------------------------------------
+# Title-parsing fallback: extract laptop specs from the product title string
+# when the DB attributes JSONB column is empty or missing key fields.
+# ---------------------------------------------------------------------------
+def _parse_specs_from_title(title: str) -> Dict[str, Any]:
+    """
+    Parse common laptop spec tokens from a product title and return a dict
+    of attribute keys (matching the Supabase attributes JSONB schema).
+
+    Only fills keys not already present in DB attrs — DB always wins.
+
+    Handled patterns (case-insensitive):
+      RAM     : "16GB Memory", "16GB RAM", "16GB LPDDR5"
+      Storage : "512GB PCIe SSD", "1TB NVMe", "512GB HDD"
+      Screen  : "15.6\"", "15.6 inch", "15.6-Inch"
+      CPU     : "Intel Core i7-1355U", "Intel i7 13th Gen", "AMD Ryzen 9"
+      GPU     : "Intel Iris Xe", "NVIDIA GeForce RTX 4060", "AMD Radeon"
+    """
+    if not title:
+        return {}
+    specs: Dict[str, Any] = {}
+
+    # --- RAM: "16GB Memory" / "16 GB RAM" / "16GB LPDDR5" ---
+    # Must NOT match storage GB: require RAM/Memory/LPDDR/DDR suffix
+    ram_m = _re.search(
+        r'(\d+)\s*GB\s*(?:RAM|Memory|LPDDR\d*X?|DDR\d*X?)',
+        title, _re.IGNORECASE
+    )
+    if ram_m:
+        specs["ram_gb"] = int(ram_m.group(1))
+
+    # --- Storage: "512GB PCIe SSD" / "1TB NVMe" / "512GB SSD" / "256GB HDD" ---
+    storage_m = _re.search(
+        r'(\d+)\s*(TB|GB)\s*(?:PCIe\s+)?(?:NVMe|SSD|HDD|eMMC)',
+        title, _re.IGNORECASE
+    )
+    if storage_m:
+        val = int(storage_m.group(1))
+        unit = storage_m.group(2).upper()
+        specs["storage_gb"] = val * 1000 if unit == "TB" else val
+        specs["storage_type"] = (
+            "SSD" if _re.search(r'NVMe|PCIe|SSD', title, _re.IGNORECASE) else "HDD"
+        )
+
+    # --- Screen size: "15.6\"" / "15.6 inch" / "15.6-Inch" / bare "15.6" at end ---
+    screen_m = _re.search(
+        r'\b(\d{2}\.?\d?)\s*(?:[-\s]?inch|")',
+        title, _re.IGNORECASE
+    )
+    if not screen_m:
+        # Bare number at end of string, e.g. "... Natural Silver 16GB Memory 15.6"
+        screen_m = _re.search(r'\b(\d{2}\.?\d?)\s*$', title.strip())
+    if screen_m:
+        try:
+            specs["screen_size"] = float(screen_m.group(1))
+        except ValueError:
+            pass
+
+    # --- CPU: Intel Core / Intel iN 13th Gen / AMD Ryzen / Apple M-series ---
+    cpu_m = _re.search(
+        r'(Intel\s+Core\s+(?:Ultra\s+)?[iM]\d+[\-\s]?\w*'
+        r'|Intel\s+[iM]\d+(?:\s+\d+\w+\s+Gen)?'
+        r'|Intel\s+(?:Celeron|Pentium)\s+\w+'
+        r'|AMD\s+Ryzen\s+\d+\s*\w*\s*\d*\w*'
+        r'|Apple\s+M\d+(?:\s+(?:Pro|Max|Ultra))?)',
+        title, _re.IGNORECASE
+    )
+    if cpu_m:
+        specs["cpu"] = cpu_m.group(1).strip()
+
+    # --- GPU: discrete or notable integrated ---
+    gpu_m = _re.search(
+        r'((?:NVIDIA\s+)?GeForce\s+(?:RTX|GTX)\s+\d+\w*'
+        r'|(?:AMD\s+)?Radeon\s+(?:RX\s+)?\w+'
+        r'|Intel\s+(?:Iris\s+Xe|Arc\s+\w+))',
+        title, _re.IGNORECASE
+    )
+    if gpu_m:
+        specs["gpu"] = gpu_m.group(1).strip()
+
+    return specs
+
+
+# ---------------------------------------------------------------------------
 # Queries the same `products` table via DATABASE_URL with proper numeric
 # JSONB casting — avoids PostgREST string-comparison bugs on attributes.
 # ---------------------------------------------------------------------------
@@ -472,6 +611,67 @@ class _SQLAlchemyProductStore:
         limit: int = 100,
         exclude_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
+        """
+        Progressive filter relaxation — mirrors SupabaseProductStore's 5-step approach.
+        Steps:
+          1. brand + price range
+          2. drop price floor (price_min only)
+          3. drop brand
+          4. drop both brand and price floor
+        """
+        if self._engine is None:
+            logger.error("SQLAlchemy engine not available")
+            return []
+
+        # Parse prices once — shared across relaxation steps
+        price_min = _parse_price(filters.get("price_min_cents"), filters.get("price_min"))
+        price_max = _parse_price(filters.get("price_max_cents"), filters.get("price_max"))
+        if price_max is None and filters.get("budget"):
+            price_max = _parse_price(None, filters["budget"])
+        # Quality floor: avoid bottom-of-barrel results when only a ceiling is given
+        if price_max is not None and (price_min is None or price_min < price_max * 0.5):
+            price_min = price_max * 0.5
+        category = filters.get("category", "")
+        if category.lower() == "electronics" and (price_min is None or price_min < 50.0):
+            price_min = 50.0
+
+        brand = filters.get("brand")
+        if brand and str(brand).lower() in ("no preference", "any", ""):
+            brand = None
+
+        steps = [
+            dict(drop_price_min=False, drop_brand=False),
+            dict(drop_price_min=True,  drop_brand=False),
+            dict(drop_price_min=False, drop_brand=True),
+            dict(drop_price_min=True,  drop_brand=True),
+        ]
+        for step in steps:
+            rows = self._sql_fetch(
+                filters,
+                price_min=None if step["drop_price_min"] else price_min,
+                price_max=price_max,
+                brand=None if step["drop_brand"] else brand,
+                limit=limit,
+                exclude_ids=exclude_ids,
+            )
+            if rows:
+                logger.info(
+                    f"SQLAlchemy search found {len(rows)} results "
+                    f"(drop_price_min={step['drop_price_min']}, drop_brand={step['drop_brand']})"
+                )
+                return rows
+        return []
+
+    def _sql_fetch(
+        self,
+        filters: Dict[str, Any],
+        price_min: Optional[float],
+        price_max: Optional[float],
+        brand: Optional[str],
+        limit: int,
+        exclude_ids: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        """Execute one SQL query + Python-side spec filtering pass."""
         import json as _json
         try:
             from sqlalchemy import text as sa_text
@@ -479,24 +679,10 @@ class _SQLAlchemyProductStore:
             logger.error("sqlalchemy not installed — cannot fallback to DATABASE_URL")
             return []
 
-        if self._engine is None:
-            logger.error("SQLAlchemy engine not available")
-            return []
-
-        # Parse prices
-        price_min = _parse_price(filters.get("price_min_cents"), filters.get("price_min"))
-        price_max = _parse_price(filters.get("price_max_cents"), filters.get("price_max"))
-        if price_max is None and filters.get("budget"):
-            price_max = _parse_price(None, filters["budget"])
-        if price_max is not None and (price_min is None or price_min < price_max * 0.5):
-            price_min = price_max * 0.5
-        category = filters.get("category", "")
-        if category.lower() == "electronics" and (price_min is None or price_min < 50.0):
-            price_min = 50.0
-
         conditions = ["price > 0.01"]
         params: Dict[str, Any] = {}
 
+        category = filters.get("category", "")
         if category:
             conditions.append("LOWER(category) = LOWER(:category)")
             params["category"] = category
@@ -506,8 +692,7 @@ class _SQLAlchemyProductStore:
             conditions.append("product_type = :product_type")
             params["product_type"] = product_type
 
-        brand = filters.get("brand")
-        if brand and str(brand).lower() not in ("no preference", "any", ""):
+        if brand:
             conditions.append("brand ILIKE :brand")
             params["brand"] = f"%{brand}%"
 
@@ -528,7 +713,6 @@ class _SQLAlchemyProductStore:
             params["exclude_ids"] = list(exclude_ids)
 
         where = " AND ".join(conditions)
-        # Fetch a larger pool so Python-side spec filtering has enough to work with
         fetch_limit = min(limit * 8, 800)
         sql = sa_text(f"SELECT * FROM products WHERE {where} ORDER BY RANDOM() LIMIT :fetch_limit")
         params["fetch_limit"] = fetch_limit
@@ -541,6 +725,9 @@ class _SQLAlchemyProductStore:
             logger.error(f"SQLAlchemy products query failed: {e}")
             return []
 
+        if not rows:
+            return []
+
         # Python-side JSONB spec filtering (correct numeric comparison)
         min_ram = filters.get("min_ram_gb")
         min_storage = filters.get("min_storage_gb")
@@ -548,12 +735,11 @@ class _SQLAlchemyProductStore:
         max_screen = filters.get("max_screen_size")
         min_battery = filters.get("min_battery_hours")
         storage_type = filters.get("storage_type")
-        good_for_flags = {k: filters.get(k) for k in (
+        good_for_flags = {k for k in (
             "good_for_ml", "good_for_gaming", "good_for_creative", "good_for_web_dev"
         ) if filters.get(k)}
 
         def _num(val, default=0):
-            """Safely coerce a JSONB value (may arrive as str or int) to float."""
             if val is None:
                 return default
             try:
@@ -569,7 +755,6 @@ class _SQLAlchemyProductStore:
                     attrs = _json.loads(attrs)
                 except Exception:
                     attrs = {}
-
             if min_ram and _num(attrs.get("ram_gb")) < int(min_ram):
                 continue
             if min_storage and _num(attrs.get("storage_gb")) < int(min_storage):
@@ -582,13 +767,13 @@ class _SQLAlchemyProductStore:
                 continue
             if storage_type and str(attrs.get("storage_type", "")).upper() != storage_type.upper():
                 continue
-            if good_for_flags:
-                if not all(attrs.get(flag) for flag in good_for_flags):
-                    continue
+            if good_for_flags and not all(attrs.get(flag) for flag in good_for_flags):
+                continue
             filtered.append(SupabaseProductStore._row_to_dict(row))
 
-        # If spec filtering wiped everything, fall back to unfiltered (relaxation)
-        if not filtered and rows:
+        # If spec filtering wiped everything, return the unfiltered pool so the
+        # relaxation loop can count this step as a "hit" and stop early.
+        if not filtered:
             logger.info("SQLAlchemy spec filters returned 0 — returning unfiltered pool")
             filtered = [SupabaseProductStore._row_to_dict(r) for r in rows]
 

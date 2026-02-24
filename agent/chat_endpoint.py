@@ -8,6 +8,7 @@ Provides a unified /chat endpoint that:
 4. Returns the same response format as IDSS /chat
 """
 
+import re
 import uuid
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
@@ -263,6 +264,223 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
 
 
 # ============================================================================
+# Best-Value Scoring
+# ============================================================================
+
+def _pick_best_value(products: list) -> Optional[dict]:
+    """
+    Score each product by a weighted value formula and return the single best.
+
+    Weights:
+      35% price      — lower is better (normalized within the set)
+      35% rating     — higher is better (0-5 → 0-1)
+      10% review vol — more reviews = more trustworthy rating (capped at 0.10)
+      20% specs      — RAM tier bonus for laptops; mileage bonus for vehicles
+    """
+    if not products:
+        return None
+    if len(products) == 1:
+        return products[0]
+
+    prices = []
+    for p in products:
+        raw = p.get("price") or p.get("price_value") or 0
+        try:
+            prices.append(float(raw))
+        except (TypeError, ValueError):
+            prices.append(0.0)
+
+    valid_prices = [p for p in prices if p > 0]
+    min_price = min(valid_prices) if valid_prices else 0.0
+    max_price = max(valid_prices) if valid_prices else 1.0
+    price_range = max(max_price - min_price, 1.0)
+
+    scored = []
+    for product, price in zip(products, prices):
+        # --- Price score (lower → better) ---
+        price_score = 1.0 - (price - min_price) / price_range if max_price > 0 else 0.5
+
+        # --- Rating score ---
+        try:
+            rating = float(product.get("rating") or 0)
+        except (TypeError, ValueError):
+            rating = 0.0
+        rating_score = rating / 5.0
+
+        # --- Review volume (confidence boost, max 0.10) ---
+        try:
+            reviews = int(product.get("reviews_count") or 0)
+        except (TypeError, ValueError):
+            reviews = 0
+        review_boost = min(reviews / 200.0, 0.10)
+
+        # --- Spec bonus (laptops: RAM tier) ---
+        spec_score = 0.0
+        attrs = product.get("attributes") or {}
+        try:
+            ram_gb = int(attrs.get("ram_gb") or 0)
+            if ram_gb >= 32:
+                spec_score += 0.20
+            elif ram_gb >= 16:
+                spec_score += 0.12
+            elif ram_gb >= 8:
+                spec_score += 0.06
+        except (TypeError, ValueError):
+            pass
+        # Vehicles: penalise high mileage
+        try:
+            mileage = int(product.get("mileage") or product.get("vehicle", {}).get("mileage") or 0)
+            if mileage and max_price > 0:
+                spec_score -= min(mileage / 200_000, 0.15)
+        except (TypeError, ValueError):
+            pass
+
+        if rating == 0:
+            # No rating data: lean on price + specs
+            total = price_score * 0.60 + spec_score * 0.30 + review_boost
+        else:
+            total = (price_score * 0.35) + (rating_score * 0.35) + review_boost + (spec_score * 0.20)
+
+        scored.append((total, product))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored[0][1]
+
+
+def _explain_best_value(product: dict, domain: str, all_products: Optional[list] = None) -> str:
+    """
+    Return a markdown bullet-point explanation (≥3 bullets) for why this
+    product was chosen as the best value pick.
+    Optionally receives all_products for price-comparison context.
+    """
+    name = product.get("name") or "This product"
+    price = product.get("price") or product.get("price_value") or 0
+    try:
+        price_float = float(price)
+        price_fmt = f"${int(price_float):,}"
+    except (TypeError, ValueError):
+        price_float = 0.0
+        price_fmt = "a competitive price"
+
+    bullets: list[str] = []
+    attrs = product.get("attributes") or {}
+
+    # --- 1. Price bullet — with context vs. other products when available ---
+    if all_products and len(all_products) > 1:
+        valid_prices = []
+        for p in all_products:
+            try:
+                v = float(p.get("price") or p.get("price_value") or 0)
+                if v > 0:
+                    valid_prices.append(v)
+            except (TypeError, ValueError):
+                pass
+        if valid_prices:
+            avg_price = sum(valid_prices) / len(valid_prices)
+            min_price = min(valid_prices)
+            if price_float <= min_price:
+                bullets.append(
+                    f"**Lowest price** in your results at {price_fmt} "
+                    f"— best affordability out of {len(valid_prices)} options"
+                )
+            elif price_float < avg_price:
+                savings = int(avg_price - price_float)
+                bullets.append(
+                    f"**Priced at {price_fmt}** — ${savings:,} below the average "
+                    f"of your results, great value for money"
+                )
+            else:
+                bullets.append(
+                    f"**Priced at {price_fmt}** — premium price justified by "
+                    f"top-tier specs and rating"
+                )
+    if not bullets:
+        bullets.append(f"**Priced at {price_fmt}** — strong value for the specs offered")
+
+    # --- 2. Rating / reviews bullet ---
+    try:
+        rating = float(product.get("rating") or 0)
+        reviews = int(product.get("reviews_count") or product.get("rating_count") or 0)
+        reviews_str = f" from {reviews:,} verified reviews" if reviews > 0 else ""
+        if rating >= 4.5:
+            bullets.append(f"**Top-rated at {rating:.1f}/5**{reviews_str} — outstanding user satisfaction")
+        elif rating >= 4.0:
+            bullets.append(f"**Well-rated at {rating:.1f}/5**{reviews_str}")
+        elif rating > 0:
+            bullets.append(f"**Rated {rating:.1f}/5**{reviews_str}")
+    except (TypeError, ValueError):
+        pass
+
+    # --- 3. RAM bullet ---
+    try:
+        ram_gb = int(attrs.get("ram_gb") or 0)
+        if ram_gb >= 32:
+            bullets.append(f"**{ram_gb}GB RAM** — handles heavy multitasking, video editing, and demanding workloads effortlessly")
+        elif ram_gb >= 16:
+            bullets.append(f"**{ram_gb}GB RAM** — smooth multitasking for coding, design tools, and everyday use")
+        elif ram_gb >= 8:
+            bullets.append(f"**{ram_gb}GB RAM** — sufficient for everyday tasks and light multitasking")
+    except (TypeError, ValueError):
+        pass
+
+    # --- 4. Storage bullet ---
+    try:
+        storage_gb = int(attrs.get("storage_gb") or 0)
+        storage_type = (attrs.get("storage_type") or "SSD").upper()
+        if storage_gb >= 1000:
+            bullets.append(f"**{storage_gb // 1000}TB {storage_type}** — massive storage for files, projects, and media")
+        elif storage_gb >= 512:
+            bullets.append(f"**{storage_gb}GB {storage_type}** — generous fast storage for most power users")
+        elif storage_gb >= 256:
+            bullets.append(f"**{storage_gb}GB {storage_type}** — solid fast storage for everyday use")
+        elif storage_gb >= 128:
+            bullets.append(f"**{storage_gb}GB {storage_type}**")
+    except (TypeError, ValueError):
+        pass
+
+    # --- 5. Processor bullet ---
+    cpu = (
+        attrs.get("cpu") or attrs.get("processor")
+        or product.get("processor") or product.get("cpu")
+    )
+    if cpu:
+        bullets.append(f"**Processor: {cpu}** — capable performance for the price")
+
+    # --- 6. Battery bullet ---
+    try:
+        battery_hours = float(attrs.get("battery_life_hours") or 0)
+        if battery_hours >= 10:
+            bullets.append(f"**{int(battery_hours)}-hour battery life** — all-day use without a charger")
+        elif battery_hours >= 7:
+            bullets.append(f"**{int(battery_hours)}-hour battery** — good for long sessions away from a desk")
+    except (TypeError, ValueError):
+        pass
+
+    # --- Vehicles: mileage bullet instead of specs ---
+    if domain == "vehicles":
+        try:
+            mileage = int(product.get("mileage") or product.get("vehicle", {}).get("mileage") or 0)
+            if mileage:
+                bullets.append(f"**{mileage:,} miles** on the odometer")
+        except (TypeError, ValueError):
+            pass
+
+    # --- Ensure at least 3 bullets with fallbacks ---
+    fallbacks = [
+        "**Best overall score** across price, rating, and performance in your current results",
+        "**Reliable brand** with strong user satisfaction based on available ratings",
+        "**Balanced specs** — offers the best combination of performance and affordability",
+    ]
+    for fb in fallbacks:
+        if len(bullets) >= 3:
+            break
+        bullets.append(fb)
+
+    bullets_md = "\n".join(f"- {b}" for b in bullets[:6])  # cap at 6 to keep it clean
+    return f"**{name}** is the best value pick:\n\n{bullets_md}"
+
+
+# ============================================================================
 # Post-Recommendation Handlers
 # ============================================================================
 
@@ -270,28 +488,91 @@ async def _handle_post_recommendation(
     request: ChatRequest, session, session_id: str, session_manager
 ) -> Optional[ChatResponse]:
     """Handle post-recommendation follow-ups. Returns None if not a post-rec action."""
-    msg_lower = request.message.strip().lower()
     active_domain = session.active_domain
+
+    # -----------------------------------------------------------------------
+    # Extract [ctx:id1,id2,...] tag injected by the frontend "Tell me more"
+    # button. This encodes the EXACT products currently visible so we analyze
+    # only those — not all historical session products.
+    # The tag is stripped before any LLM call so the model never sees it.
+    # -----------------------------------------------------------------------
+    _ctx_match = re.search(r'\[ctx:([^\]]*)\]', request.message)
+    context_product_ids: Optional[set] = (
+        set(filter(None, _ctx_match.group(1).split(','))) if _ctx_match else None
+    )
+    # Message with the hidden tag removed — used for LLM calls and msg_lower
+    clean_message: str = re.sub(r'\s*\[ctx:[^\]]*\]', '', request.message).strip()
+
+    msg_lower = clean_message.lower()
 
     # -----------------------------------------------------------------------
     # Fast intent router: compare vs. refine vs. other
     # -----------------------------------------------------------------------
     # Keyword fast-path skips the LLM call for obvious fixed-button messages
+    _FAST_BEST_VALUE_KWS = (
+        "best value", "get best", "show me the best", "best pick",
+    )
     _FAST_COMPARE_KWS = (
-        "best value", "get best", "pros and cons", "compare my",
+        "pros and cons", "compare my",
         "compare these", "which is better", "which should i buy",
         "tell me more about these", "research",
     )
     _FAST_REFINE_KWS = ("refine my search", "refine search", "change my criteria")
-    if any(kw in msg_lower for kw in _FAST_COMPARE_KWS):
+    if any(kw in msg_lower for kw in _FAST_BEST_VALUE_KWS):
+        intent = "best_value"
+    elif any(kw in msg_lower for kw in _FAST_COMPARE_KWS):
         intent = "compare"
     elif any(kw in msg_lower for kw in _FAST_REFINE_KWS):
         intent = "refine"
     else:
         intent = await detect_post_rec_intent(request.message)
 
-    if intent == "compare":
+    if intent == "best_value":
         session_manager.add_message(session_id, "user", request.message)
+        products = list(getattr(session, "last_recommendation_data", []))
+        if not products and getattr(session, "last_recommendation_ids", None):
+            products = _fetch_products_by_ids(session.last_recommendation_ids[:12])
+        # Deduplicate
+        _seen_bv: set = set()
+        _deduped_bv = []
+        for _p in products:
+            _pid = str(_p.get("id", ""))
+            if _pid and _pid not in _seen_bv:
+                _seen_bv.add(_pid)
+                _deduped_bv.append(_p)
+        products = _deduped_bv
+
+        best = _pick_best_value(products)
+        if best:
+            explanation = _explain_best_value(best, active_domain or "laptops", products)
+            from app.formatters import format_product
+            fmt_domain = "books" if _domain_to_category(active_domain) == "Books" else (active_domain or "laptops")
+            formatted = format_product(best, fmt_domain).model_dump(mode="json", exclude_none=True)
+            return ChatResponse(
+                response_type="recommendations",
+                message=f"Here's the best value pick from your results:\n\n{explanation}",
+                session_id=session_id,
+                quick_replies=["See similar items", "Compare items", "Refine search"],
+                recommendations=[[formatted]],
+                bucket_labels=["Best Value Pick"],
+                filters=session.explicit_filters,
+                preferences={},
+                question_count=session.question_count,
+                domain=active_domain,
+            )
+        return ChatResponse(
+            response_type="question",
+            message="I don't have any recommendations to evaluate yet. What are you looking for?",
+            session_id=session_id,
+            quick_replies=["Laptops", "Vehicles", "Books"],
+            filters={},
+            preferences={},
+            question_count=0,
+            domain=None,
+        )
+
+    if intent == "compare":
+        session_manager.add_message(session_id, "user", clean_message)
         # Use in-session product data first (no DB round-trip)
         products = list(getattr(session, "last_recommendation_data", []))
         if not products and getattr(session, "last_recommendation_ids", None):
@@ -306,28 +587,78 @@ async def _handle_post_recommendation(
                 _seen_pids.add(_pid)
                 _deduped.append(_p)
         products = _deduped
+
+        # If the frontend sent a [ctx:...] tag, filter to only those specific
+        # products — this ensures "Tell me more" analyzes the exact products
+        # the user was looking at, not all historical session products.
+        if context_product_ids and products:
+            _ctx_filtered = [
+                p for p in products
+                if str(p.get("id") or p.get("product_id", "")) in context_product_ids
+            ]
+            if _ctx_filtered:
+                products = _ctx_filtered
+                logger.info("compare_ctx_filter", f"Filtered to {len(products)} context products from [ctx:] tag", {})
+
         if products:
-            selected_ids = []
+            selected_ids: list = []
+            selected_names: list = []
             try:
                 import time as _time
                 t0 = _time.perf_counter()
-                narrative, selected_ids = await generate_comparison_narrative(
-                    products, request.message, active_domain or "laptops"
+                narrative, selected_ids, selected_names = await generate_comparison_narrative(
+                    products, clean_message, active_domain or "laptops"
                 )
                 logger.info("comparison_generated", f"Comparison narrative in {(_time.perf_counter()-t0)*1000:.0f}ms", {})
             except Exception as e:
                 logger.error("comparison_failed", str(e), {})
                 narrative = "Sorry, I had trouble generating a comparison. Try asking again."
-                
-            # Filter products to only those selected by the LLM (or fallback to top 3)
+
+            # Filter products to only those selected by the LLM
             selected_products = []
             if selected_ids:
                 str_selected_ids = [str(sid) for sid in selected_ids]
-                logger.info("comparison_ids", f"LLM returned selected_ids: {str_selected_ids}, Available products: {[str(p.get('id')) for p in products]}")
-                selected_products = [p for p in products if str(p.get("id")) in str_selected_ids]
+                logger.info("comparison_ids", f"LLM returned selected_ids: {str_selected_ids}, Available products: {[str(p.get('id') or p.get('product_id')) for p in products]}")
+                selected_products = [
+                    p for p in products
+                    if str(p.get("id") or p.get("product_id", "")) in str_selected_ids
+                ]
+            # Name-based fallback: LLM sometimes returns product names instead of UUIDs.
+            # For each target name the LLM returned, find the single best-matching
+            # product by counting overlapping "distinctive" words (filtered for stop words).
+            # Minimum 2 distinctive words must match to avoid false positives.
+            if not selected_products and selected_names:
+                _STOP = frozenset([
+                    "laptop", "intel", "amd", "with", "and", "the", "for",
+                    "gaming", "screen", "memory", "storage", "ssd", "hdd",
+                    "ram", "gen", "inch", "series", "edition", "plus", "ultra",
+                    "business", "computer", "notebook", "model", "new", "black",
+                    "silver", "grey", "gray", "white", "blue", "nvidia", "geforce",
+                    "ryzen", "core", "processor", "ghz", "display", "touch",
+                ])
+                def _distinctive_words(text: str) -> set:
+                    return {
+                        w.lower().strip('",.-()[]') for w in text.split()
+                        if len(w) > 3 and w.lower().strip('",.-()[]') not in _STOP
+                    }
+                for target_name in selected_names:
+                    if not target_name:
+                        continue
+                    target_words = _distinctive_words(target_name)
+                    best_score, best_match = 0, None
+                    for p in products:
+                        p_words = _distinctive_words(p.get("name") or "")
+                        score = len(target_words & p_words)
+                        if score > best_score:
+                            best_score, best_match = score, p
+                    if best_match and best_score >= 2 and best_match not in selected_products:
+                        selected_products.append(best_match)
+                        logger.info("comparison_name_match", f"Matched '{best_match.get('name')}' for target '{target_name}' (score={best_score})", {})
+                if not selected_products:
+                    logger.warning("comparison_name_match", "Name fallback found no matches with score >= 2", {})
             if not selected_products:
-                logger.warning("comparison_fallback", "No products matched selected_ids, falling back to top 3")
-                selected_products = products[:3]
+                logger.warning("comparison_fallback", "No products matched selected_ids or names, falling back to all context products")
+                selected_products = products
             # Deduplicate selected_products (LLM may return same ID twice in selected_ids)
             _seen_sel: set = set()
             _deduped_sel = []
@@ -514,7 +845,9 @@ async def _handle_post_recommendation(
             domain=active_domain,
         )
 
-    if "anything else" in msg_lower or ("help" in msg_lower and "checkout" not in msg_lower):
+    # "help" alone is too broad — "can u help me find dell laptops" contains "help" but is
+    # a new search request that should go to process_refinement, not this dead-end handler.
+    if "anything else" in msg_lower:
         session_manager.add_message(session_id, "user", request.message)
         return ChatResponse(
             response_type="question",
