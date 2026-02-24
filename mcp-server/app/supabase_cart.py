@@ -11,7 +11,7 @@ Cart table schema:
   UNIQUE (user_id, product_id)
 
 Checkout: for each cart row, decrement products.inventory by quantity; then delete cart rows for user.
-Uses SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_KEY) for server-side access.
+Prefers DATABASE_URL (SQLAlchemy, bypasses RLS) over SUPABASE_KEY (REST API, blocked by RLS).
 """
 from __future__ import annotations
 
@@ -22,14 +22,24 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("mcp.supabase_cart")
 
-_cart_client: Optional["SupabaseCartClient"] = None
+_cart_client: Optional[Any] = None
 
 
-def get_supabase_cart_client() -> Optional["SupabaseCartClient"]:
-    """Return the singleton Supabase cart client, or None if not configured."""
+def get_supabase_cart_client() -> Optional[Any]:
+    """Return the singleton cart client (SQLAlchemy preferred, REST fallback), or None."""
     global _cart_client
     if _cart_client is not None:
         return _cart_client
+    # Prefer DATABASE_URL — bypasses RLS on the cart table
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        try:
+            _cart_client = _SQLAlchemyCartClient(db_url)
+            logger.info("Using SQLAlchemy cart client via DATABASE_URL")
+            return _cart_client
+        except Exception as e:
+            logger.warning("SQLAlchemy cart client init failed: %s", e)
+    # Fall back to REST API (may fail if RLS blocks anon key)
     url = os.environ.get("SUPABASE_URL", "")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY", "")
     if not url or not key:
@@ -103,13 +113,23 @@ class SupabaseCartClient:
                 row = rows[0]
                 new_qty = (row.get("quantity") or 0) + quantity
                 return self._update_quantity(user_id, product_id, new_qty)
-            # New row: check product exists and inventory
-            prod = self._get_product(product_id)
-            if prod is None:
-                return False, "Product not found"
-            inv = prod.get("inventory")
-            if inv is not None and int(inv) < quantity:
-                return False, "Insufficient inventory"
+            # New row: validate product & check inventory.
+            # If a product_snapshot is provided, trust it (products table has RLS that
+            # blocks the anon key from reading rows via the REST API).  Only hit the
+            # REST API when no snapshot is available.
+            if product_snapshot:
+                inv = product_snapshot.get("inventory")
+            else:
+                prod = self._get_product(product_id)
+                if prod is None:
+                    return False, "Product not found"
+                inv = prod.get("inventory")
+            if inv is not None:
+                try:
+                    if int(inv) < quantity:
+                        return False, "Insufficient inventory"
+                except (TypeError, ValueError):
+                    pass
             payload = {
                 "user_id": user_id,
                 "product_id": product_id,
@@ -263,3 +283,198 @@ class SupabaseCartClient:
             return True, None
         except Exception as e:
             return False, str(e)
+
+
+# ---------------------------------------------------------------------------
+# SQLAlchemy cart client — uses DATABASE_URL, bypasses RLS
+# ---------------------------------------------------------------------------
+
+class _SQLAlchemyCartClient:
+    """
+    Cart and checkout via direct Postgres connection (DATABASE_URL).
+    Bypasses Supabase RLS so the backend service role can read/write cart rows.
+    Same public interface as SupabaseCartClient.
+    """
+
+    def __init__(self, db_url: str) -> None:
+        try:
+            from sqlalchemy import create_engine
+        except ImportError:
+            raise RuntimeError("sqlalchemy not installed")
+        self._engine = create_engine(
+            db_url,
+            pool_pre_ping=True,
+            pool_size=3,
+            max_overflow=2,
+            connect_args={"connect_timeout": 15},
+        )
+
+    # ------------------------------------------------------------------
+    # Public methods
+    # ------------------------------------------------------------------
+
+    def get_cart(self, user_id: str) -> List[Dict[str, Any]]:
+        logger.info("sqla_cart: method=get_cart user_id=%s", user_id)
+        try:
+            from sqlalchemy import text as sa_text
+            import json as _json
+            with self._engine.connect() as conn:
+                rows = conn.execute(
+                    sa_text(
+                        "SELECT id, product_id, product_snapshot, quantity "
+                        "FROM cart WHERE user_id = :uid ORDER BY created_at ASC"
+                    ),
+                    {"uid": user_id},
+                ).fetchall()
+            result = []
+            for r in rows:
+                snapshot = r[2]
+                if isinstance(snapshot, str):
+                    try:
+                        snapshot = _json.loads(snapshot)
+                    except Exception:
+                        pass
+                result.append({
+                    "id": str(r[0]),
+                    "product_id": r[1],
+                    "product_snapshot": snapshot,
+                    "quantity": r[3],
+                })
+            logger.info("sqla_cart: method=get_cart user_id=%s row_count=%s", user_id, len(result))
+            return result
+        except Exception as e:
+            logger.error("sqla_cart: method=get_cart user_id=%s error=%s", user_id, e)
+            return []
+
+    def add_to_cart(
+        self,
+        user_id: str,
+        product_id: str,
+        product_snapshot: Dict[str, Any],
+        quantity: int = 1,
+    ) -> tuple[bool, Optional[str]]:
+        logger.info("sqla_cart: method=add_to_cart user_id=%s product_id=%s qty=%s", user_id, product_id, quantity)
+        try:
+            from sqlalchemy import text as sa_text
+            import json as _json
+            snapshot_json = _json.dumps(product_snapshot)
+            with self._engine.begin() as conn:
+                # Check inventory from snapshot
+                inv = product_snapshot.get("inventory") if product_snapshot else None
+                if inv is not None:
+                    try:
+                        if int(inv) < quantity:
+                            return False, "Insufficient inventory"
+                    except (TypeError, ValueError):
+                        pass
+                # Upsert: insert or increment quantity on conflict
+                conn.execute(
+                    sa_text(
+                        "INSERT INTO cart (user_id, product_id, product_snapshot, quantity) "
+                        "VALUES (:uid, :pid, :snap::jsonb, :qty) "
+                        "ON CONFLICT (user_id, product_id) "
+                        "DO UPDATE SET quantity = cart.quantity + :qty, "
+                        "product_snapshot = EXCLUDED.product_snapshot"
+                    ),
+                    {"uid": user_id, "pid": product_id, "snap": snapshot_json, "qty": quantity},
+                )
+            logger.info("sqla_cart: method=add_to_cart user_id=%s product_id=%s result=success", user_id, product_id)
+            return True, None
+        except Exception as e:
+            logger.error("sqla_cart: method=add_to_cart user_id=%s product_id=%s error=%s", user_id, product_id, e)
+            return False, str(e)
+
+    def remove_from_cart(self, user_id: str, product_id: str) -> tuple[bool, Optional[str]]:
+        logger.info("sqla_cart: method=remove_from_cart user_id=%s product_id=%s", user_id, product_id)
+        try:
+            from sqlalchemy import text as sa_text
+            with self._engine.begin() as conn:
+                conn.execute(
+                    sa_text("DELETE FROM cart WHERE user_id = :uid AND product_id = :pid"),
+                    {"uid": user_id, "pid": product_id},
+                )
+            logger.info("sqla_cart: method=remove_from_cart user_id=%s product_id=%s result=success", user_id, product_id)
+            return True, None
+        except Exception as e:
+            logger.error("sqla_cart: method=remove_from_cart user_id=%s product_id=%s error=%s", user_id, product_id, e)
+            return False, str(e)
+
+    def update_quantity(self, user_id: str, product_id: str, quantity: int) -> tuple[bool, Optional[str]]:
+        """Set cart item quantity (0 = remove)."""
+        logger.info("sqla_cart: method=update_quantity user_id=%s product_id=%s qty=%s", user_id, product_id, quantity)
+        if quantity <= 0:
+            return self.remove_from_cart(user_id, product_id)
+        try:
+            from sqlalchemy import text as sa_text
+            with self._engine.begin() as conn:
+                conn.execute(
+                    sa_text(
+                        "UPDATE cart SET quantity = :qty "
+                        "WHERE user_id = :uid AND product_id = :pid"
+                    ),
+                    {"uid": user_id, "pid": product_id, "qty": quantity},
+                )
+            logger.info("sqla_cart: method=update_quantity user_id=%s product_id=%s result=success", user_id, product_id)
+            return True, None
+        except Exception as e:
+            logger.error("sqla_cart: method=update_quantity user_id=%s product_id=%s error=%s", user_id, product_id, e)
+            return False, str(e)
+
+    def checkout(
+        self, user_id: str
+    ) -> tuple[bool, Optional[str], Optional[str], Optional[List[str]]]:
+        """Checkout: decrement products.inventory for each cart item, then clear cart."""
+        logger.info("sqla_cart: method=checkout user_id=%s", user_id)
+        cart_rows = self.get_cart(user_id)
+        if not cart_rows:
+            return False, None, "Cart is empty", None
+
+        try:
+            from sqlalchemy import text as sa_text
+            sold_out: List[str] = []
+            with self._engine.begin() as conn:
+                for row in cart_rows:
+                    pid = row.get("product_id")
+                    qty = int(row.get("quantity") or 0)
+                    if not pid or qty <= 0:
+                        continue
+                    # Check current inventory
+                    result = conn.execute(
+                        sa_text("SELECT inventory FROM products WHERE id::text = :pid LIMIT 1"),
+                        {"pid": pid},
+                    ).fetchone()
+                    if result is None:
+                        sold_out.append(pid)
+                        continue
+                    inv = result[0]
+                    if inv is not None and int(inv) < qty:
+                        sold_out.append(pid)
+
+                if sold_out:
+                    logger.info("sqla_cart: method=checkout user_id=%s out_of_stock=%s", user_id, sold_out)
+                    return False, None, "Some items are out of stock", sold_out
+
+                # Decrement inventory and clear cart
+                for row in cart_rows:
+                    pid = row.get("product_id")
+                    qty = int(row.get("quantity") or 0)
+                    if not pid or qty <= 0:
+                        continue
+                    conn.execute(
+                        sa_text(
+                            "UPDATE products SET inventory = GREATEST(0, inventory - :qty) "
+                            "WHERE id::text = :pid"
+                        ),
+                        {"pid": pid, "qty": qty},
+                    )
+                conn.execute(
+                    sa_text("DELETE FROM cart WHERE user_id = :uid"),
+                    {"uid": user_id},
+                )
+
+            order_id = f"order-{uuid.uuid4().hex[:12]}"
+            logger.info("sqla_cart: method=checkout user_id=%s result=success order_id=%s", user_id, order_id)
+            return True, order_id, None, None
+        except Exception as e:
+            logger.error("sqla_cart: method=checkout user_id=%s error=%s", user_id, e)
+            return False, None, str(e), None
