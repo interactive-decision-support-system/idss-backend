@@ -89,6 +89,9 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
+# Local test SQLite databases
+*.db
+
 # Data files (symlinked from original repo) - only top-level data folder
 /data/
 
