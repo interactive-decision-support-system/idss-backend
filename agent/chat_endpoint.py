@@ -297,6 +297,15 @@ async def _handle_post_recommendation(
         if not products and getattr(session, "last_recommendation_ids", None):
             # Fallback: re-fetch from DB if session data not yet populated
             products = _fetch_products_by_ids(session.last_recommendation_ids[:6])
+        # Deduplicate by product ID — same product can appear in multiple buckets
+        _seen_pids: set = set()
+        _deduped = []
+        for _p in products:
+            _pid = str(_p.get("id", ""))
+            if _pid and _pid not in _seen_pids:
+                _seen_pids.add(_pid)
+                _deduped.append(_p)
+        products = _deduped
         if products:
             selected_ids = []
             try:
@@ -319,6 +328,15 @@ async def _handle_post_recommendation(
             if not selected_products:
                 logger.warning("comparison_fallback", "No products matched selected_ids, falling back to top 3")
                 selected_products = products[:3]
+            # Deduplicate selected_products (LLM may return same ID twice in selected_ids)
+            _seen_sel: set = set()
+            _deduped_sel = []
+            for _ps in selected_products:
+                _ps_id = str(_ps.get("id", ""))
+                if _ps_id not in _seen_sel:
+                    _seen_sel.add(_ps_id)
+                    _deduped_sel.append(_ps)
+            selected_products = _deduped_sel
 
             from app.formatters import format_product
             fmt_domain = "books" if _domain_to_category(active_domain) == "Books" else (active_domain or "laptops")

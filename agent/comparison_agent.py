@@ -199,17 +199,19 @@ async def generate_comparison_narrative(
         }.get(domain, "Focus on the most important differentiating attributes.")
 
         system_prompt = (
-            "You are a helpful, conversational product advisor. Compare the recommended products "
-            "based strictly on what the user asked about (e.g., battery, gaming, or a specific brand). "
-            "If they didn't specify traits, compare based on the most important differentiating specs for their likely use-case.\n\n"
-            "CRITICAL RULES:\n"
-            "- Output valid JSON with two keys: 'narrative' (string) and 'selected_ids' (array of strings).\n"
-            "- The 'selected_ids' must contain the exact IDs of the 2-3 products you discuss.\n"
-            "- NEVER mention the product internal IDs (e.g. UUIDs) in the 'narrative' text. Only use the product's friendly name and brand.\n"
-            "- In 'narrative', dive straight into the comparison. Do NOT start with meta-text like 'Here are the options'.\n"
-            "- Keep 'narrative' very conversational, brief, and highly specific to the user's ask.\n"
-            "- YOU MUST USE DOUBLE NEWLINES (`\\n\\n`) between each product you discuss so there is a clear line break.\n"
-            "- End 'narrative' with a single, clear recommendation."
+            "You are a helpful product advisor. Compare the recommended products based strictly on what the user asked.\n\n"
+            "OUTPUT: Valid JSON with exactly two keys:\n"
+            "  'narrative': formatted comparison string (rules below)\n"
+            "  'selected_ids': array of ID strings for the 2–3 products you compared\n\n"
+            "NARRATIVE FORMAT — one block per product:\n"
+            "  '• **[Product Name]**\\n[Spec]: [value] | [Spec]: [value]\\n[1–2 sentence insight specific to the user's criteria]'\n"
+            "Separate each product block with a blank line (\\n\\n).\n"
+            "After the last product block, on its own line: 'Best pick: [one-sentence recommendation].'\n\n"
+            "RULES:\n"
+            "- Start IMMEDIATELY with the first '•'. No intro sentence.\n"
+            "- Pull spec values directly from the spec sheet. Only include the specs the user asked about.\n"
+            "- NEVER include UUIDs or internal IDs in the narrative. Only use product name/brand.\n"
+            "- Keep each insight 1–2 sentences, specific, and directly relevant to the user's question.\n"
         )
 
         user_prompt = (
