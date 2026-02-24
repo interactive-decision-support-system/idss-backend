@@ -197,6 +197,8 @@ LAPTOP_SCHEMA = DomainSchema(
             allowed_values=[
                 "Apple", "Dell", "Lenovo", "HP", "ASUS", "MSI", "Razer",
                 "Acer", "Microsoft", "Samsung", "LG", "Gigabyte",
+                # Direct-seller brands scraped into Supabase
+                "Framework", "System76", "ROG", "Alienware",
             ]
         ),
         PreferenceSlot(

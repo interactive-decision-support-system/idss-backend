@@ -371,7 +371,7 @@ class _SQLAlchemyCartClient:
                 conn.execute(
                     sa_text(
                         "INSERT INTO cart (user_id, product_id, product_snapshot, quantity) "
-                        "VALUES (:uid, :pid, :snap::jsonb, :qty) "
+                        "VALUES (:uid, :pid, CAST(:snap AS jsonb), :qty) "
                         "ON CONFLICT (user_id, product_id) "
                         "DO UPDATE SET quantity = cart.quantity + :qty, "
                         "product_snapshot = EXCLUDED.product_snapshot"

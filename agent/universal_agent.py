@@ -452,7 +452,7 @@ class UniversalAgent:
             for s in schema.slots:
                 desc = f"- {s.name} ({s.description})"
                 if s.allowed_values:
-                    desc += f"\n  ALLOWED VALUES (use exactly one of these): {', '.join(s.allowed_values)}"
+                    desc += f"\n  KNOWN VALUES (prefer these; if the user explicitly names a specific value not in this list, extract it as stated): {', '.join(s.allowed_values)}"
                 slots_desc.append(desc)
             schema_text = "\n".join(slots_desc)
 
