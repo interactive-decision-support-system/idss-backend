@@ -4,5 +4,4 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "uvicorn app.main:app --app-dir /app/mcp-server --host 0.0.0.0 --port 8000"
-healthcheckPath = "/health"
 restartPolicyType = "ON_FAILURE"
