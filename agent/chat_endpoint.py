@@ -8,6 +8,7 @@ Provides a unified /chat endpoint that:
 4. Returns the same response format as IDSS /chat
 """
 
+import asyncio
 import re
 import uuid
 from typing import Optional, Dict, Any, List
@@ -601,13 +602,39 @@ async def _handle_post_recommendation(
             if _ctx_filtered:
                 products = _ctx_filtered
         if products:
+            # ------------------------------------------------------------------
+            # Narrative cache: keyed on sorted product IDs (TTL 10 min).
+            # Same products → same narrative → instant on repeat clicks.
+            # ------------------------------------------------------------------
+            import hashlib as _hashlib
+            _sorted_pid_str = ":".join(sorted(
+                str(p.get("id") or p.get("product_id", "")) for p in products
+            ))
+            _narr_cache_key = f"narrative:{_hashlib.md5(_sorted_pid_str.encode()).hexdigest()}"
+            narrative: str = ""
             try:
-                narrative, _, _ = await generate_comparison_narrative(
-                    products, clean_message, active_domain or "laptops"
-                )
-            except Exception as e:
-                logger.error("pros_cons_failed", str(e), {})
-                narrative = "Sorry, I had trouble analyzing these products. Try asking again."
+                from app.cache import cache_client as _cc_narr
+                _raw_narr = _cc_narr.client.get(_cc_narr._key(_narr_cache_key))
+                if _raw_narr:
+                    narrative = _raw_narr
+                    logger.info("narrative_cache_hit", f"Narrative cache HIT for {len(products)} products", {})
+            except Exception as _ce:
+                logger.warning("narrative_cache_error", str(_ce), {})
+
+            if not narrative:
+                try:
+                    narrative, _, _ = await generate_comparison_narrative(
+                        products, clean_message, active_domain or "laptops", mode="features"
+                    )
+                    # Store in Redis so repeat clicks are instant
+                    try:
+                        from app.cache import cache_client as _cc_narr
+                        _cc_narr.client.setex(_cc_narr._key(_narr_cache_key), 600, narrative)
+                    except Exception:
+                        pass
+                except Exception as e:
+                    logger.error("pros_cons_failed", str(e), {})
+                    narrative = "Sorry, I had trouble analyzing these products. Try asking again."
             # response_type="question" → frontend shows text only, no product cards
             return ChatResponse(
                 response_type="question",
@@ -1137,11 +1164,11 @@ async def _search_and_respond_vehicles(
                 domain="vehicles",
                 timings_ms=timings
             )
-        # Generate conversational explanation
+        # Generate conversational explanation — run in thread to avoid blocking the event loop
         message = "Here are top vehicle recommendations. What would you like to do next?"
         if agent:
             try:
-                message = agent.generate_recommendation_explanation(result.recommendations, "vehicles")
+                message = await asyncio.to_thread(agent.generate_recommendation_explanation, result.recommendations, "vehicles")
             except Exception as e:
                 logger.error("rec_explanation_failed", f"Failed to generate explanation: {e}", {})
         from app.formatters import format_product
@@ -1260,11 +1287,11 @@ async def _search_and_respond_ecommerce(
     session_manager.set_last_recommendation_data(session_id, flat_data)
 
     product_label = "laptops" if domain == "laptops" else "books"
-    # Generate conversational explanation
+    # Generate conversational explanation — run in thread to avoid blocking the event loop
     message = f"Here are top {product_label} recommendations. What would you like to do next?"
     if agent:
         try:
-            message = agent.generate_recommendation_explanation(recs, domain)
+            message = await asyncio.to_thread(agent.generate_recommendation_explanation, recs, domain)
         except Exception as e:
             logger.error("rec_explanation_failed", f"Failed to generate explanation: {e}", {})
     timings["ecommerce_formatting_ms"] = (time.perf_counter() - t_format) * 1000
@@ -1334,6 +1361,8 @@ def _fetch_products_by_ids(product_ids: List[str]) -> List[Dict[str, Any]]:
                 "color": getattr(product, "color", None),
                 "tags": getattr(product, "tags", None),
                 "reviews": getattr(product, "reviews", None),
+                "warranty": getattr(product, "warranty", None),
+                "return_policy": getattr(product, "return_policy", None),
                 "available_qty": product.inventory or 0,
                 "rating": float(product.rating) if product.rating else None,
                 "rating_count": product.rating_count,
@@ -1390,9 +1419,14 @@ async def _search_ecommerce_products(
     """
     Search e-commerce products via Supabase REST API.
     Returns (buckets, bucket_labels) where buckets is a 2D list of formatted product dicts.
+
+    Agent-side Redis cache wraps the Supabase call.  Cache key includes filters,
+    category, limit and exclude_ids so different callers get fresh results.
+    TTL: 5 min (CACHE_TTL_SEARCH env var or default 300 s).
     """
     from app.formatters import format_product
     from app.tools.supabase_product_store import get_product_store
+    from app.cache import cache_client as _cc
 
     # Normalise category / product_type defaults
     if category.lower() == "electronics" and not filters.get("product_type"):
@@ -1403,19 +1437,34 @@ async def _search_ecommerce_products(
     # Always set category on the filters so the store can filter correctly
     search_filters = {**filters, "category": category}
 
-    logger.info("search_ecommerce_start", "Searching products via Supabase", {
-        "category": category, "filters": search_filters,
-        "n_rows": n_rows, "n_per_row": n_per_row,
-    })
+    limit = n_rows * n_per_row * 3   # fetch a larger pool for bucketing
 
-    try:
-        limit = n_rows * n_per_row * 3   # fetch a larger pool for bucketing
+    # ── Agent-side search cache (Redis) ──────────────────────────────────────
+    # The MCP HTTP cache only fires when accessed via HTTP; direct store calls
+    # bypass it.  We cache here too so repeated identical searches skip Supabase.
+    _excl_key = ",".join(sorted(exclude_ids)) if exclude_ids else ""
+    _cache_key = _cc.make_search_key(
+        {**search_filters, "_excl": _excl_key}, category, page=1, limit=limit
+    )
+    _cached = _cc.get_search_results(_cache_key)
+    if _cached is not None:
+        logger.info("search_ecommerce_cache_hit", f"Agent search cache HIT ({len(_cached)} items)", {})
+        product_dicts = _cached
+    else:
+        logger.info("search_ecommerce_start", "Searching products via Supabase (cache miss)", {
+            "category": category, "filters": search_filters,
+            "n_rows": n_rows, "n_per_row": n_per_row,
+        })
         store = get_product_store()
         product_dicts = store.search_products(
             search_filters,
             limit=limit,
             exclude_ids=exclude_ids,
         )
+        if product_dicts:
+            _cc.set_search_results(_cache_key, product_dicts, adaptive=True)
+
+    try:
 
         if not product_dicts:
             logger.warning("search_ecommerce_empty", "No products returned from Supabase", {

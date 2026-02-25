@@ -9,6 +9,7 @@ Uses the same OpenAI client pattern as universal_agent.py.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -163,15 +164,19 @@ async def generate_comparison_narrative(
     products: List[Dict[str, Any]],
     user_message: str,
     domain: str,
+    mode: str = "compare",
 ) -> str:
     """
-    Generate a rich Markdown narrative comparison of the given products,
-    tailored to the user's specific question/intent.
+    Generate a rich Markdown narrative for the given products.
+
+    mode="compare"  → side-by-side spec comparison with Best pick (existing)
+    mode="features" → per-product feature bullet list + "Great for:" tags
+                      (used by "Tell me more" / pros & cons flow)
 
     Returns a tuple of:
       1. A ready-to-display Markdown string.
       2. A list of product IDs that were actually compared.
-      
+
     Or a fallback plain-text comparison if the LLM call fails.
     """
     if not products:
@@ -181,7 +186,6 @@ async def generate_comparison_narrative(
         from openai import AsyncOpenAI
         client = AsyncOpenAI()
 
-        spec_sheet = _build_spec_sheet(products, domain)
         n = len(products)
 
         domain_focus = {
@@ -199,6 +203,75 @@ async def generate_comparison_narrative(
             ),
         }.get(domain, "Focus on the most important differentiating attributes.")
 
+        if mode == "features":
+            # ---------------------------------------------------------------
+            # "Tell me more" mode — parallel per-product LLM calls.
+            #
+            # WHY: A single call for N products generates ~120 tokens × N =
+            # 720 tokens sequentially → 6-7 seconds.  N parallel calls each
+            # produce ~120 tokens → all finish in parallel → ~1 second total.
+            # ---------------------------------------------------------------
+
+            async def _gen_one_product(p: Dict[str, Any]) -> str:
+                """Generate feature bullets for a single product (parallel-safe)."""
+                name = p.get("name") or "Product"
+                price = p.get("price")
+                price_str = f"${price:,.0f}" if price else ""
+                one_spec = _build_spec_sheet([p], domain).strip()
+
+                sys_p = (
+                    "You are a product advisor. Write a SHORT, specific feature overview for this ONE product.\n"
+                    "Format exactly:\n"
+                    "- [key feature — ≤8 words, reference real specs]\n"
+                    "- [key feature — ≤8 words]\n"
+                    "- [key feature — ≤8 words]\n"
+                    "Great for: [use case 1], [use case 2], [use case 3]\n"
+                    "Pros: [1 clear strength]. Cons: [1 honest weakness].\n\n"
+                    "Rules: Be specific (e.g. 'Apple M4 — up to 18-hr battery', not 'good performance'). "
+                    "Start immediately with '- '. No intro sentence."
+                )
+                usr_p = (
+                    f"Product:\n{one_spec}\n\n"
+                    f"User question: \"{user_message}\"\n"
+                    f"{domain_focus}"
+                )
+
+                try:
+                    comp = await client.chat.completions.create(
+                        model=OPENAI_MODEL,
+                        **_REASONING_KWARGS,
+                        max_tokens=160,
+                        messages=[
+                            {"role": "system", "content": sys_p},
+                            {"role": "user", "content": usr_p},
+                        ],
+                    )
+                    body = comp.choices[0].message.content.strip()
+                except Exception as ex:
+                    logger.error(f"Feature gen failed for {name}: {ex}")
+                    # Spec-based fallback so one failure doesn't blank the card
+                    spec_lines = []
+                    for lbl, k in [("CPU", "processor"), ("RAM", "ram"),
+                                   ("Storage", "storage"), ("GPU", "gpu"),
+                                   ("Battery", "battery_life"), ("Rating", "rating")]:
+                        if p.get(k):
+                            spec_lines.append(f"{lbl}: {p[k]}")
+                    body = "\n".join(f"- {s}" for s in spec_lines) or "- No spec data available"
+
+                header = f"**{name}**" + (f" ({price_str})" if price_str else "")
+                return f"{header}\n{body}"
+
+            # Fire all product calls in parallel — total time ≈ slowest single call
+            results = await asyncio.gather(*[_gen_one_product(p) for p in products])
+            narrative = "\n\n".join(str(r) for r in results)
+            selected_ids = [str(p.get("id") or p.get("product_id", "")) for p in products]
+            selected_names = [str(p.get("name", "")) for p in products]
+            return narrative, selected_ids, selected_names
+
+        # -----------------------------------------------------------------------
+        # Default compare mode — single call, structured JSON with spec table
+        # -----------------------------------------------------------------------
+        spec_sheet = _build_spec_sheet(products, domain)
         system_prompt = (
             "You are a helpful product advisor. Compare the recommended products based strictly on what the user asked.\n\n"
             "OUTPUT: Valid JSON with exactly three keys:\n"
@@ -234,7 +307,7 @@ async def generate_comparison_narrative(
                 {"role": "user", "content": user_prompt},
             ],
         )
-        
+
         response_text = completion.choices[0].message.content.strip()
         data = json.loads(response_text)
         return (
