@@ -169,14 +169,15 @@ class AddToCartRequest(BaseModel):
 class CheckoutRequest(BaseModel):
     """
     Complete checkout for a cart.
-    
+
     Note: Uses IDs only for cart, payment method, and address.
     """
     model_config = ConfigDict(extra="forbid")
-    
+
     cart_id: str = Field(..., description="Cart identifier")
     payment_method_id: str = Field(..., description="Payment method identifier")
     address_id: str = Field(..., description="Shipping address identifier")
+    shipping_method: Optional[str] = Field("standard", description="Shipping method: standard, express, overnight")
 
 
 # 
@@ -306,6 +307,8 @@ class OrderData(BaseModel):
     """
     order_id: str
     cart_id: str
+    subtotal_cents: int = 0
+    tax_cents: int = 0
     total_cents: int
     currency: str = "USD"
     status: str
@@ -467,6 +470,8 @@ class UnifiedProduct(BaseModel):
     reviews_count: Optional[int] = Field(None, description="Number of reviews")
     reviews: Optional[str] = Field(None, description="Raw reviews JSON or text for display")
     available_qty: Optional[int] = Field(None, description="Quantity in stock")
+    warranty: Optional[str] = Field(None, description="Warranty period / description")
+    return_policy: Optional[str] = Field(None, description="Return policy text")
     source: Optional[str] = Field(None, description="Scrape origin label, e.g. 'System76', 'Framework', 'Lenovo'")
     
     # Domain specific details (only one set should be populated)

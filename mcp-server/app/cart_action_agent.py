@@ -55,11 +55,11 @@ def build_ucp_remove_from_cart(user_id: str, product_id: str) -> UCPRemoveFromCa
     )
 
 
-def build_ucp_checkout(user_id: str) -> UCPCheckoutRequest:
+def build_ucp_checkout(user_id: str, shipping_method: str = "standard") -> UCPCheckoutRequest:
     """Build UCP checkout request from checkout action."""
     return UCPCheckoutRequest(
         action="checkout",
-        parameters=UCPCheckoutParameters(cart_id=user_id),
+        parameters=UCPCheckoutParameters(cart_id=user_id, shipping_method=shipping_method),
     )
 
 

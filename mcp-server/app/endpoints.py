@@ -3063,8 +3063,23 @@ def checkout(
         log_mcp_event(db, request_id, "checkout", "/api/checkout", request, response)
         return response
 
-    # Calculate total
-    total_cents = sum(item["price_cents"] * item["qty"] for item in cart["items"].values())
+    # Calculate subtotal
+    subtotal_cents = sum(item["price_cents"] * item["qty"] for item in cart["items"].values())
+
+    # Determine shipping cost and delivery window by method
+    _SHIPPING_OPTIONS = {
+        "express":   {"cost": 599,  "days": 3},   # $5.99, 2-3 days
+        "overnight": {"cost": 1499, "days": 1},   # $14.99, 1 day
+    }
+    shipping_method = (request.shipping_method or "standard").lower()
+    shipping_cost_cents = _SHIPPING_OPTIONS.get(shipping_method, {}).get("cost", 0)  # standard = free
+    delivery_days      = _SHIPPING_OPTIONS.get(shipping_method, {}).get("days", 5)
+
+    # CA sales tax: 8.75% on subtotal only (shipping not taxed)
+    TAX_RATE = 0.0875
+    tax_cents = round(subtotal_cents * TAX_RATE)
+
+    total_cents = subtotal_cents + shipping_cost_cents + tax_cents
 
     # Mark cart as checked out
     cart["status"] = "checked_out"
@@ -3074,15 +3089,17 @@ def checkout(
 
     order_id = f"order-{uuid.uuid4()}"
     shipping_info = ShippingInfo(
-        shipping_method="standard",
-        estimated_delivery_days=5,
-        shipping_cost_cents=599,
+        shipping_method=shipping_method,
+        estimated_delivery_days=delivery_days,
+        shipping_cost_cents=shipping_cost_cents,
         shipping_region="US",
     )
 
     order_data = OrderData(
         order_id=order_id,
         cart_id=cart_id,
+        subtotal_cents=subtotal_cents,
+        tax_cents=tax_cents,
         total_cents=total_cents,
         currency="USD",
         status="confirmed",

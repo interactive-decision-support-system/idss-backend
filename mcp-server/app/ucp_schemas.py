@@ -70,10 +70,11 @@ class UCPAddToCartRequest(BaseModel):
 class UCPCheckoutParameters(BaseModel):
     """Parameters for UCP checkout action."""
     model_config = ConfigDict(extra="forbid")
-    
+
     cart_id: str = Field(..., description="Cart identifier")
     payment_method: Optional[str] = Field(None, description="Payment method (optional for minimal UCP)")
     shipping_address: Optional[str] = Field(None, description="Shipping address (optional)")
+    shipping_method: Optional[str] = Field("standard", description="Shipping method: standard, express, overnight")
 
 
 class UCPCheckoutRequest(BaseModel):

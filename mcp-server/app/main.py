@@ -897,6 +897,7 @@ class CheckoutActionRequest(BaseModel):
     user_id: str
     items: Optional[List[Dict[str, Any]]] = None
     product_type: Optional[str] = None
+    shipping_method: Optional[str] = "standard"
 
 
 @app.post("/api/action/fetch-cart")
@@ -948,8 +949,8 @@ async def action_remove_from_cart(request: RemoveFromCartRequest, db: Session = 
 @app.post("/api/action/checkout")
 async def action_checkout(request: CheckoutActionRequest, db: Session = Depends(get_db)):
     """Checkout the user's cart. Agent sends UCP checkout to MCP over HTTP."""
-    logger.info("action_api_request: action=%s user_id=%s", "checkout", request.user_id)
-    ucp_req = build_ucp_checkout(request.user_id)
+    logger.info("action_api_request: action=%s user_id=%s shipping_method=%s", "checkout", request.user_id, request.shipping_method)
+    ucp_req = build_ucp_checkout(request.user_id, shipping_method=request.shipping_method or "standard")
     logger.info("ucp_request: ucp_action=%s payload=%s", "checkout", ucp_req.model_dump())
     response = await ucp_client_checkout(ucp_req)
     logger.info("ucp_response: ucp_action=%s status=%s order_id=%s", "checkout", response.status, getattr(response, "order_id", None))

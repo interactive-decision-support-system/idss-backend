@@ -371,6 +371,9 @@ class SupabaseProductStore:
             # Scrape origin — derived from product URL domain so the frontend can show "From: System76"
             "source": _extract_source(link) or row.get("brand"),
             "inventory": row.get("inventory"),
+            # Authenticity / buyer-protection fields
+            "warranty": row.get("warranty"),
+            "return_policy": row.get("return_policy"),
             # Full attributes blob for anything else
             "attributes": attrs,
             "description": attrs.get("description"),

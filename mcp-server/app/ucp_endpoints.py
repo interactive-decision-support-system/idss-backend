@@ -342,6 +342,7 @@ async def ucp_checkout(
         cart_id=cart_id,
         payment_method_id=request.parameters.payment_method or "default",
         address_id=request.parameters.shipping_address or "default",
+        shipping_method=request.parameters.shipping_method or "standard",
     )
     mcp_response = checkout(mcp_request, db)
     ucp_status = mcp_status_to_ucp(mcp_response.status)
