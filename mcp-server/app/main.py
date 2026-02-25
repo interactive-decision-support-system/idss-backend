@@ -16,9 +16,14 @@ import logging
 import traceback
 import os
 import sys
+import time as _time
+import json as _json
 from dotenv import load_dotenv
 from pathlib import Path
 from contextlib import asynccontextmanager
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
 
 # Add repo root to Python path so `agent` package is importable
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -133,6 +138,55 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Latency logging middleware
+# Logs every non-OPTIONS request with method, path, status, and duration_ms.
+# Lines are also written to latency_log.jsonl in the project root for offline
+# analysis and the poster latency table.
+# ---------------------------------------------------------------------------
+_LATENCY_LOG_PATH = Path(__file__).parent.parent.parent / "backend_latency_logs.jsonl"
+
+class LatencyLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next) -> StarletteResponse:
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        t0 = _time.perf_counter()
+        response = await call_next(request)
+        duration_ms = round((_time.perf_counter() - t0) * 1000, 1)
+        path = request.url.path
+        entry = {
+            "ts": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+            "method": request.method,
+            "path": path,
+            "status": response.status_code,
+            "duration_ms": duration_ms,
+        }
+        # Categorize for poster table
+        if "/search-products" in path or "/ucp/search" in path:
+            entry["category"] = "feature_search"
+        elif "/get-product" in path or "/ucp/product" in path:
+            entry["category"] = "get_product"
+        elif "/complex-query" in path or "best-value" in path or "similar" in path:
+            entry["category"] = "complex_query"
+        elif "inventory" in path or "fetch-cart" in path:
+            entry["category"] = "inventory"
+        elif "/api/action/chat" in path:
+            entry["category"] = "agent_chat"
+        else:
+            entry["category"] = "other"
+        logger.info(
+            "[LATENCY] %s %s -> %d  %.1fms  [%s]",
+            entry["method"], path, entry["status"], duration_ms, entry["category"]
+        )
+        try:
+            with open(_LATENCY_LOG_PATH, "a") as f:
+                f.write(_json.dumps(entry) + "\n")
+        except Exception:
+            pass
+        return response
+
+app.add_middleware(LatencyLoggingMiddleware)
 
 # Include supplier API router
 app.include_router(supplier_router)

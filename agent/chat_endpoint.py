@@ -613,7 +613,7 @@ async def _handle_post_recommendation(
                 response_type="question",
                 message=narrative,
                 session_id=session_id,
-                quick_replies=["Compare items", "Get best value", "Refine search"],
+                quick_replies=["Get best value", "See similar items", "Refine search"],
                 filters=session.explicit_filters,
                 preferences={},
                 question_count=session.question_count,
@@ -670,9 +670,14 @@ async def _handle_post_recommendation(
                 logger.error("comparison_failed", str(e), {})
                 narrative = "Sorry, I had trouble generating a comparison. Try asking again."
 
-            # Filter products to only those selected by the LLM
-            selected_products = []
-            if selected_ids:
+            # When user explicitly selected products via Compare dialog [ctx:...],
+            # skip UUID matching entirely — use exactly the products already filtered above.
+            if context_product_ids:
+                selected_products = products
+            else:
+                selected_products = []
+            # Filter products to only those selected by the LLM (only when no explicit ctx selection)
+            if not context_product_ids and selected_ids:
                 str_selected_ids = [str(sid) for sid in selected_ids]
                 logger.info("comparison_ids", f"LLM returned selected_ids: {str_selected_ids}, Available products: {[str(p.get('id') or p.get('product_id')) for p in products]}")
                 selected_products = [
@@ -683,7 +688,7 @@ async def _handle_post_recommendation(
             # For each target name the LLM returned, find the single best-matching
             # product by counting overlapping "distinctive" words (filtered for stop words).
             # Minimum 2 distinctive words must match to avoid false positives.
-            if not selected_products and selected_names:
+            if not context_product_ids and not selected_products and selected_names:
                 _STOP = frozenset([
                     "laptop", "intel", "amd", "with", "and", "the", "for",
                     "gaming", "screen", "memory", "storage", "ssd", "hdd",
@@ -713,7 +718,7 @@ async def _handle_post_recommendation(
                 if not selected_products:
                     logger.warning("comparison_name_match", "Name fallback found no matches with score >= 2", {})
             if not selected_products:
-                logger.warning("comparison_fallback", "No products matched selected_ids or names, falling back to all context products")
+                logger.warning("comparison_fallback", "No products matched selected_ids or names, falling back to all context products", {})
                 selected_products = products
             # Deduplicate selected_products (LLM may return same ID twice in selected_ids)
             _seen_sel: set = set()
