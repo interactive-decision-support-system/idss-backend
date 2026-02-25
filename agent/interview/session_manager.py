@@ -186,23 +186,61 @@ class InterviewSessionManager:
         self._persist(session_id)
 
     def set_last_recommendation_data(self, session_id: str, products: List[Dict[str, Any]]) -> None:
-        """Store full product dicts from last recommendations — avoids DB re-fetch for comparison."""
+        """Store full product dicts from last recommendations — avoids DB re-fetch for comparison.
+
+        Handles BOTH input formats:
+        - Raw flat dict (from supabase_product_store): top-level 'ram', 'processor', etc.
+        - Formatted UnifiedProduct dict (from format_product().model_dump()):
+          specs nested under laptop.specs.*, vehicle.*, book.*
+        """
         session = self.get_session(session_id)
-        # Keep only the fields useful for comparison narrative (trim large description blobs)
         slim = []
-        keep_keys = {
-            "id", "product_id", "name", "brand", "price", "product_type",
-            "processor", "ram", "storage", "storage_type", "screen_size",
-            "gpu", "battery_life", "os", "weight", "rating", "rating_count",
-            "refresh_rate_hz", "resolution", "color",
-            "image_url", "primary_image_url", "image",  # For format_product UI rendering
-            # vehicles
-            "make", "model", "year", "mileage", "trim", "fuel_type", "drivetrain",
-            # books
-            "author", "genre", "pages",
-        }
         for p in products[:12]:
-            slim.append({k: v for k, v in p.items() if k in keep_keys and v is not None})
+            # Unpack nested spec objects so the slim always has flat fields
+            laptop_specs: Dict[str, Any] = (p.get("laptop") or {}).get("specs") or {}
+            vehicle: Dict[str, Any] = p.get("vehicle") or {}
+            book: Dict[str, Any] = p.get("book") or {}
+
+            item: Dict[str, Any] = {
+                # --- common ---
+                "id":           p.get("id") or p.get("product_id"),
+                "name":         p.get("name"),
+                "brand":        p.get("brand"),
+                "price":        p.get("price"),
+                "product_type": p.get("productType") or p.get("product_type"),
+                "bucket_label": p.get("bucket_label"),
+                "rating":       p.get("rating"),
+                "rating_count": p.get("rating_count") or p.get("reviews_count"),
+                "color":        p.get("color"),
+                "image_url":    (p.get("image_url") or p.get("primary_image_url")
+                                 or (p.get("image") or {}).get("primary")),
+                # --- laptop specs: flat key wins; fall back to nested ---
+                "processor":       p.get("processor") or laptop_specs.get("processor"),
+                "ram":             p.get("ram")       or laptop_specs.get("ram"),
+                "storage":         p.get("storage")   or laptop_specs.get("storage"),
+                "storage_type":    p.get("storage_type") or laptop_specs.get("storage_type"),
+                "screen_size":     p.get("screen_size")  or laptop_specs.get("screen_size"),
+                "gpu":             (p.get("gpu") or laptop_specs.get("graphics")
+                                    or laptop_specs.get("gpu")),
+                "battery_life":    p.get("battery_life") or laptop_specs.get("battery_life"),
+                "os":              p.get("os")     or laptop_specs.get("os"),
+                "weight":          p.get("weight") or laptop_specs.get("weight"),
+                "refresh_rate_hz": p.get("refresh_rate_hz") or laptop_specs.get("refresh_rate_hz"),
+                "resolution":      p.get("resolution") or laptop_specs.get("resolution"),
+                # --- vehicles ---
+                "make":       p.get("make")       or vehicle.get("make"),
+                "model":      p.get("model")      or vehicle.get("model"),
+                "year":       p.get("year")       or vehicle.get("year"),
+                "mileage":    p.get("mileage")    or vehicle.get("mileage"),
+                "trim":       p.get("trim")       or vehicle.get("trim"),
+                "fuel_type":  p.get("fuel_type")  or vehicle.get("fuel"),
+                "drivetrain": p.get("drivetrain") or vehicle.get("drivetrain"),
+                # --- books ---
+                "author": p.get("author") or book.get("author"),
+                "genre":  p.get("genre")  or p.get("subcategory") or book.get("genre"),
+                "pages":  p.get("pages")  or book.get("pages"),
+            }
+            slim.append({k: v for k, v in item.items() if v is not None})
         session.last_recommendation_data = slim
         self._persist(session_id)
 

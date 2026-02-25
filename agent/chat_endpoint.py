@@ -671,17 +671,31 @@ async def _handle_post_recommendation(
                 _deduped.append(_p)
         products = _deduped
 
-        # If the frontend sent a [ctx:...] tag, filter to only those specific
-        # products — this ensures "Tell me more" analyzes the exact products
-        # the user was looking at, not all historical session products.
-        if context_product_ids and products:
+        # If the frontend sent a [ctx:...] tag, filter to exactly those products.
+        # If the session data was overwritten (e.g. user compared an older
+        # recommendation after "see similar items" replaced session state),
+        # fall back to fetching directly from the DB by the specific IDs.
+        if context_product_ids:
             _ctx_filtered = [
                 p for p in products
                 if str(p.get("id") or p.get("product_id", "")) in context_product_ids
-            ]
+            ] if products else []
             if _ctx_filtered:
                 products = _ctx_filtered
                 logger.info("compare_ctx_filter", f"Filtered to {len(products)} context products from [ctx:] tag", {})
+            else:
+                # IDs not in session data — user may be comparing an older
+                # recommendation set. Fetch from DB (full specs via _row_to_dict).
+                try:
+                    from app.tools.supabase_product_store import get_product_store as _gps
+                    _fetched = _gps().get_by_ids(list(context_product_ids))
+                    if _fetched:
+                        products = _fetched
+                        logger.info("compare_ctx_db_fetch", f"ctx IDs not in session, fetched {len(products)} from DB", {})
+                    else:
+                        logger.warning("compare_ctx_db_fetch", "DB fetch returned 0 products for ctx IDs", {})
+                except Exception as _fe:
+                    logger.error("compare_ctx_db_fetch_error", str(_fe), {})
 
         if products:
             selected_ids: list = []

@@ -796,6 +796,34 @@ class _SQLAlchemyProductStore:
             logger.error(f"get_by_id (SQLAlchemy) failed: {e}")
             return None
 
+    def get_by_ids(self, product_ids: List[str]) -> List[Dict[str, Any]]:
+        """Fetch multiple products by ID in one query, preserving caller order.
+
+        Uses _row_to_dict so spec parsing (_parse_specs_from_title, brand
+        derivation, etc.) is applied — same quality as search_products output.
+        """
+        if not product_ids or self._engine is None:
+            return []
+        try:
+            from sqlalchemy import text as sa_text
+            params = {f"id{i}": pid for i, pid in enumerate(product_ids)}
+            placeholders = ", ".join(f":id{i}" for i in range(len(product_ids)))
+            with self._engine.connect() as conn:
+                result = conn.execute(
+                    sa_text(f"SELECT * FROM products WHERE id IN ({placeholders})"),
+                    params,
+                )
+                rows = result.fetchall()
+            id_order = {pid: i for i, pid in enumerate(product_ids)}
+            dicts = [SupabaseProductStore._row_to_dict(dict(r._mapping)) for r in rows]
+            return sorted(
+                dicts,
+                key=lambda d: id_order.get(str(d.get("id") or d.get("product_id", "")), 999),
+            )
+        except Exception as e:
+            logger.error(f"get_by_ids (SQLAlchemy) failed: {e}")
+            return []
+
 
 # ---------------------------------------------------------------------------
 # Price parsing helpers
