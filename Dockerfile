@@ -1,36 +1,31 @@
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+# System deps
+RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install only runtime dependencies (no sentence-transformers/faiss/PyTorch — saves ~500MB and avoids timeout)
+RUN pip install --no-cache-dir \
+    fastapi==0.128.0 \
+    "uvicorn[standard]==0.40.0" \
+    pydantic==2.12.5 \
+    sqlalchemy==2.0.46 \
+    psycopg2-binary==2.9.11 \
+    redis==7.1.0 \
+    openai==2.16.0 \
+    python-dotenv==1.2.1 \
+    httpx==0.28.1
 
 # Copy application code
-COPY idss/ ./idss/
-COPY config/ ./config/
+COPY mcp-server/ ./mcp-server/
+COPY agent/ ./agent/
 
-# Create data directory (will be mounted as volume)
-RUN mkdir -p /app/data
-
-# Environment variables
+# PYTHONPATH so `from agent import ...` resolves inside mcp-server
+ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Expose port
-EXPOSE 8000
+EXPOSE 8001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/')" || exit 1
-
-# Start command
-CMD ["uvicorn", "idss.api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--app-dir", "/app/mcp-server", "--host", "0.0.0.0", "--port", "8001"]
