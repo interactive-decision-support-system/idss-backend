@@ -512,20 +512,27 @@ async def _handle_post_recommendation(
     _FAST_BEST_VALUE_KWS = (
         "best value", "get best", "show me the best", "best pick",
     )
+    # "Tell me more" and "pros and cons" → text-only response, NO product cards
+    _FAST_PROS_CONS_KWS = (
+        "tell me more about these",   # exact text from the action bar button
+        "pros and cons",              # any pros/cons request
+    )
+    # Explicit compare (user named products or pressed Compare dialog) → show cards
     _FAST_COMPARE_KWS = (
-        "pros and cons", "compare my",
-        "compare these", "which is better", "which should i buy",
-        "tell me more about these", "research",
+        " vs ", "vs.", "compare my", "compare these", "compare them",
+        "which is better", "which should i buy",
     )
     _FAST_REFINE_KWS = ("refine my search", "refine search", "change my criteria")
     if any(kw in msg_lower for kw in _FAST_BEST_VALUE_KWS):
         intent = "best_value"
+    elif any(kw in msg_lower for kw in _FAST_PROS_CONS_KWS):
+        intent = "pros_cons"
     elif any(kw in msg_lower for kw in _FAST_COMPARE_KWS):
         intent = "compare"
     elif any(kw in msg_lower for kw in _FAST_REFINE_KWS):
         intent = "refine"
     else:
-        intent = await detect_post_rec_intent(request.message)
+        intent = await detect_post_rec_intent(clean_message)
 
     if intent == "best_value":
         session_manager.add_message(session_id, "user", request.message)
@@ -569,6 +576,55 @@ async def _handle_post_recommendation(
             preferences={},
             question_count=0,
             domain=None,
+        )
+
+    if intent == "pros_cons":
+        # "Tell me more" / "pros and cons" → narrative text only, NO product cards.
+        # The cards are already visible above — re-rendering them creates duplicates.
+        session_manager.add_message(session_id, "user", clean_message)
+        products = list(getattr(session, "last_recommendation_data", []))
+        if not products and getattr(session, "last_recommendation_ids", None):
+            products = _fetch_products_by_ids(session.last_recommendation_ids[:12])
+        _seen_pc: set = set()
+        _deduped_pc = []
+        for _p in products:
+            _pid = str(_p.get("id", ""))
+            if _pid and _pid not in _seen_pc:
+                _seen_pc.add(_pid)
+                _deduped_pc.append(_p)
+        products = _deduped_pc
+        if context_product_ids and products:
+            _ctx_filtered = [
+                p for p in products
+                if str(p.get("id") or p.get("product_id", "")) in context_product_ids
+            ]
+            if _ctx_filtered:
+                products = _ctx_filtered
+        if products:
+            try:
+                narrative, _, _ = await generate_comparison_narrative(
+                    products, clean_message, active_domain or "laptops"
+                )
+            except Exception as e:
+                logger.error("pros_cons_failed", str(e), {})
+                narrative = "Sorry, I had trouble analyzing these products. Try asking again."
+            # response_type="question" → frontend shows text only, no product cards
+            return ChatResponse(
+                response_type="question",
+                message=narrative,
+                session_id=session_id,
+                quick_replies=["Compare items", "Get best value", "Refine search"],
+                filters=session.explicit_filters,
+                preferences={},
+                question_count=session.question_count,
+                domain=active_domain,
+            )
+        return ChatResponse(
+            response_type="question",
+            message="I don't have any recommendations to analyze yet. What are you looking for?",
+            session_id=session_id,
+            quick_replies=["Laptops", "Vehicles", "Books"],
+            filters={}, preferences={}, question_count=0, domain=None,
         )
 
     if intent == "compare":
