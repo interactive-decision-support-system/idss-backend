@@ -87,8 +87,9 @@ class StructuredLogger:
         if context:
             log_entry["context"] = context
         
-        # Emit as single-line JSON
-        log_line = json.dumps(log_entry)
+        # Emit as single-line JSON (default=str handles non-serializable values
+        # such as UUID, Decimal, or MagicMock objects in test environments)
+        log_line = json.dumps(log_entry, default=str)
         
         # Route to appropriate log level
         if level == LogLevel.DEBUG:
