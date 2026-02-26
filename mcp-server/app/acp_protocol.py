@@ -1,21 +1,42 @@
 """
-ACP (Agent Communication Protocol) - OpenAI Function Calling Format
+ACP (Agentic Commerce Protocol) — OpenAI/Stripe real spec + OpenAI Function Calling.
 
-Compatible with OpenAI Assistants API and Function Calling.
-Provides MCP functionality in OpenAI-compatible format.
+Two integration modes:
+
+1. Real ACP (agenticcommerce.dev spec):
+   - Checkout session state machine via /acp/checkout-sessions/* REST endpoints
+   - Product feed at /acp/feed.json and /acp/feed.csv
+   - Re-exported from acp_endpoints.py
+
+2. OpenAI Function Calling (legacy / compatibility):
+   - get_acp_tools() — OpenAI tool definitions for search/get/cart
+   - get_acp_session_tools() — OpenAI tool definitions for ACP checkout session flow
+   - execute_acp_function() — maps function calls to MCP HTTP endpoints
 
 Usage:
-    from app.acp_protocol import get_acp_tools, execute_acp_function
-    
-    # Get tool definitions for OpenAI
-    tools = get_acp_tools()
-    
-    # Execute function call from OpenAI
-    result = execute_acp_function(function_name, arguments)
+    from app.acp_protocol import (
+        acp_create_checkout_session,   # real ACP
+        get_acp_tools,                  # OpenAI function calling
+        get_acp_session_tools,          # OpenAI ACP session tools
+        execute_acp_function,
+    )
 """
 
 from typing import Dict, Any, List
 import json
+
+# ---------------------------------------------------------------------------
+# Re-export real ACP endpoint functions (agenticcommerce.dev spec)
+# ---------------------------------------------------------------------------
+from app.acp_endpoints import (  # noqa: F401
+    acp_create_checkout_session,
+    acp_get_checkout_session,
+    acp_update_checkout_session,
+    acp_complete_checkout_session,
+    acp_cancel_checkout_session,
+    generate_product_feed,
+    _acp_sessions,
+)
 
 
 def get_acp_tools() -> List[Dict[str, Any]]:
@@ -113,6 +134,98 @@ def get_acp_tools() -> List[Dict[str, Any]]:
                 "additionalProperties": False
             }
         }
+    ]
+
+
+def get_acp_session_tools() -> List[Dict[str, Any]]:
+    """
+    OpenAI function definitions for the ACP checkout session flow.
+
+    These map to the real ACP REST endpoints the merchant exposes.
+    An OpenAI assistant can call these to drive a purchase end-to-end.
+    """
+    return [
+        {
+            "type": "function",
+            "name": "acp_create_checkout_session",
+            "description": "Create an ACP checkout session with one or more products. Returns a session_id and pending totals.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "line_items": {
+                        "type": "array",
+                        "description": "Products to purchase",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "product_id": {"type": "string"},
+                                "title": {"type": "string"},
+                                "price_dollars": {"type": "number"},
+                                "quantity": {"type": "integer"},
+                                "image_url": {"type": ["string", "null"]},
+                            },
+                            "required": ["product_id", "title", "price_dollars", "quantity", "image_url"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "currency": {"type": "string", "description": "ISO 4217 currency code, default USD"},
+                    "buyer_email": {"type": ["string", "null"]},
+                },
+                "required": ["line_items", "currency", "buyer_email"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "acp_update_checkout_session",
+            "description": "Update buyer info, shipping address, or shipping method on an ACP checkout session.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "ACP session ID from create"},
+                    "shipping_method": {
+                        "type": ["string", "null"],
+                        "enum": ["standard", "express", "overnight", None],
+                        "description": "Shipping speed",
+                    },
+                    "buyer_email": {"type": ["string", "null"]},
+                },
+                "required": ["session_id", "shipping_method", "buyer_email"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "acp_complete_checkout_session",
+            "description": "Complete (place) an ACP checkout session. Returns an order_id on success.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "ACP session ID from create"},
+                    "payment_method": {"type": "string", "description": "Payment method type, e.g. card"},
+                    "payment_token": {"type": ["string", "null"], "description": "Stripe delegated payment token"},
+                },
+                "required": ["session_id", "payment_method", "payment_token"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "acp_cancel_checkout_session",
+            "description": "Cancel an ACP checkout session.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "ACP session ID to cancel"},
+                },
+                "required": ["session_id"],
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
