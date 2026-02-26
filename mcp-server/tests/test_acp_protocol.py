@@ -414,10 +414,9 @@ class TestProtocolHeaderMiddleware:
         assert resp.headers.get("x-commerce-protocol") == "acp"
 
     def test_ucp_route_has_ucp_header(self, client):
-        resp = client.post("/ucp/search", json={
-            "action": "search",
-            "parameters": {"query": "laptop", "limit": 1},
-        })
+        # Use the lightweight /ucp/cart endpoint (GET) so we don't trigger a
+        # full DB search that would try to JSON-serialize internal query objects.
+        resp = client.get("/ucp/cart/test-cart-id")
         assert resp.headers.get("x-commerce-protocol") == "ucp"
 
 
