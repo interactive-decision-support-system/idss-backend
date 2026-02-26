@@ -549,7 +549,8 @@ def _parse_specs_from_title(title: str) -> Dict[str, Any]:
         r'|Intel\s+[iM]\d+(?:\s+\d+\w+\s+Gen)?'
         r'|Intel\s+(?:Celeron|Pentium)\s+\w+'
         r'|AMD\s+Ryzen\s+\d+\s*\w*\s*\d*\w*'
-        r'|Apple\s+M\d+(?:\s+(?:Pro|Max|Ultra))?)',
+        r'|Apple\s+M\d+(?:\s+(?:Pro|Max|Ultra))?'
+        r'|\bM[1-9](?!\d)(?:\s+(?:Pro|Max|Ultra))?(?=\s|[^A-Za-z0-9]|$))',
         title, _re.IGNORECASE
     )
     if cpu_m:
