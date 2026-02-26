@@ -45,21 +45,35 @@ _REFINE_KEYWORDS = {
 async def detect_post_rec_intent(message: str) -> str:
     """
     LLM-based intent detection for post-recommendation messages.
-    Returns: 'compare' | 'refine'
+    Returns: 'compare' | 'refine' | 'followup_qa'
     """
     try:
         from openai import AsyncOpenAI
         client = AsyncOpenAI()
-        
+
         system_prompt = (
             "You are an intent routing assistant. The user is looking at a list of product recommendations.\n"
-            "Classify their follow-up message into one of two categories:\n"
-            "1. 'refine': The user explicitly wants to CHANGE the search filters and run a new search (e.g., 'show me cheaper ones', 'I want an Apple instead', 'different brand', 'at least 16in screen', 'more ram'). ANY request to add, change, or relax a specification MUST route to 'refine'.\n"
-            "2. 'compare': The user is asking a follow-up question about the CURRENT recommendations, comparing them, or asking for details/justification (e.g., 'why is Lenovo better?', 'which has better battery?', 'are you sure?').\n\n"
-            "CRITICAL: Default to 'compare' UNLESS there is an explicit request to add, change, or relax any product preference/specification, in which case you must output 'refine'.\n"
-            "Return valid JSON with a single key 'intent' mapping to the category string."
+            "Classify their follow-up message into exactly ONE of these three categories:\n\n"
+            "1. 'refine': The user explicitly wants to CHANGE the search filters and run a new search "
+            "(e.g., 'show me cheaper ones', 'I want an Apple instead', 'different brand', "
+            "'at least 16in screen', 'more ram', 'show me something else'). "
+            "ANY request to add, change, or relax a specification MUST route to 'refine'.\n\n"
+            "2. 'compare': The user explicitly asks for a side-by-side comparison or asks which one is "
+            "better (e.g., 'compare X vs Y', 'which is better for gaming', 'pros and cons of each', "
+            "'which should I buy').\n\n"
+            "3. 'followup_qa': The user is asking a contextual question about the current recommendations "
+            "— suitability for a use case, a specific attribute, worthiness, etc. "
+            "(e.g., 'are these good enough for ML?', 'do any of these come in black?', "
+            "'will this handle 4K video editing?', 'is 16GB enough for my needs?', "
+            "'which one has the longest warranty?', 'are these worth the price?').\n\n"
+            "CRITICAL RULES:\n"
+            "- 'refine' if the user wants to change/add/relax ANY search criterion.\n"
+            "- 'compare' only for explicit head-to-head comparisons or 'which one is better' questions.\n"
+            "- 'followup_qa' for suitability questions, attribute queries, and anything else.\n"
+            "- Default to 'followup_qa' when uncertain.\n\n"
+            "Return valid JSON with a single key 'intent'."
         )
-        
+
         completion = await client.chat.completions.create(
             model=OPENAI_MODEL,
             **_REASONING_KWARGS,
@@ -69,23 +83,23 @@ async def detect_post_rec_intent(message: str) -> str:
                 {"role": "user", "content": message},
             ],
         )
-        
+
         data = json.loads(completion.choices[0].message.content)
-        intent = data.get("intent", "compare")
-        
-        # Guard against weird LLM outputs
-        if intent not in ("compare", "refine"):
-            intent = "compare"
-            
+        intent = data.get("intent", "followup_qa")
+
+        if intent not in ("compare", "refine", "followup_qa"):
+            intent = "followup_qa"
+
         return intent
-        
+
     except Exception as e:
         logger.error(f"Intent router failed: {e}")
-        # Ultra-fast keyword fallback
         lower = message.lower()
         if any(kw in lower for kw in _REFINE_KEYWORDS):
             return "refine"
-        return "compare"  # Default to discussion on failure
+        if any(kw in lower for kw in _COMPARE_KEYWORDS):
+            return "compare"
+        return "followup_qa"  # Default to Q&A
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +254,6 @@ async def generate_comparison_narrative(
                     comp = await client.chat.completions.create(
                         model=OPENAI_MODEL,
                         **_REASONING_KWARGS,
-                        max_tokens=160,
                         messages=[
                             {"role": "system", "content": sys_p},
                             {"role": "user", "content": usr_p},
@@ -323,6 +336,136 @@ async def generate_comparison_narrative(
             _fallback_comparison(products, domain),
             [p.get("id") or p.get("product_id") for p in products if p.get("id") or p.get("product_id")],
             [p.get("name", "") for p in products],
+        )
+
+
+async def generate_followup_answer(
+    products: List[Dict[str, Any]],
+    user_question: str,
+    user_preferences: Dict[str, Any],
+    domain: str,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+) -> str:
+    """
+    Generate a conversational answer to a follow-up question about the recommendations.
+
+    Unlike generate_comparison_narrative(), this function:
+    - Answers the user's specific question directly (no forced per-product bullets)
+    - Takes the user's stated preferences into account ("Given you need 16GB RAM for ML...")
+    - Uses prior conversation history for full context
+    - Returns a natural Markdown paragraph, not a structured comparison table
+
+    Args:
+        products:             Current recommendation pool from session.last_recommendation_data
+        user_question:        The user's follow-up question (cleaned, no [ctx:] tag)
+        user_preferences:     session.explicit_filters — what the user told us (budget, use_case, etc.)
+        domain:               "laptops" | "vehicles" | "books"
+        conversation_history: session.conversation_history (last few turns for context)
+
+    Returns:
+        A ready-to-display Markdown string answering the question.
+    """
+    if not products:
+        return "I don't have any recommendations loaded yet. What are you looking for?"
+
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI()
+
+        # Build a human-readable summary of what the user told us
+        pref_lines = []
+        _PREF_LABELS = {
+            "use_case": "Use case", "budget": "Budget",
+            "price_max": "Max price", "price_min": "Min price",
+            "price_max_cents": "Max price",
+            "min_ram_gb": "Min RAM (GB)", "min_storage_gb": "Min storage (GB)",
+            "min_screen_size": "Min screen (in)", "max_screen_size": "Max screen (in)",
+            "min_screen_inches": "Min screen (in)",
+            "brand": "Brand preference", "brands": "Brand preferences",
+            "storage_type": "Storage type", "os": "OS preference",
+            "good_for_gaming": "Gaming", "good_for_ml": "ML / AI",
+            "good_for_creative": "Creative work", "good_for_web_dev": "Web dev",
+        }
+        for k, v in (user_preferences or {}).items():
+            if v in (None, "", False, [], {}) or k.startswith("_"):
+                continue
+            label = _PREF_LABELS.get(k, k.replace("_", " ").title())
+            if k == "price_max_cents":
+                v = f"${int(v) // 100:,}"
+            elif k == "price_min_cents":
+                v = f"${int(v) // 100:,}"
+            pref_lines.append(f"  {label}: {v}")
+        user_context_str = (
+            "**What the user told us:**\n" + "\n".join(pref_lines)
+            if pref_lines
+            else "No explicit preferences recorded yet."
+        )
+
+        # Spec sheet of the shown products
+        spec_sheet = _build_spec_sheet(products, domain)
+
+        # Recent conversation (last 6 turns = 3 exchanges) for additional context
+        history_str = ""
+        if conversation_history:
+            recent = [m for m in conversation_history[-6:] if m.get("role") in ("user", "assistant")]
+            if recent:
+                history_str = "\n**Recent conversation:**\n" + "\n".join(
+                    f"  {m['role'].capitalize()}: {m['content'][:200]}"
+                    for m in recent
+                )
+
+        domain_guidance = {
+            "laptops": (
+                "Relevant specs for laptops: RAM (multitasking/ML), CPU (performance), "
+                "GPU (graphics/ML), storage size/type (speed), battery (portability), screen size."
+            ),
+            "vehicles": (
+                "Relevant factors: reliability, fuel efficiency, total cost of ownership, "
+                "comfort, cargo space, safety ratings."
+            ),
+            "books": "Relevant factors: author credibility, writing style, pages, genre fit.",
+        }.get(domain, "Focus on the most important attributes for the user's question.")
+
+        system_prompt = (
+            "You are a knowledgeable product advisor. The user has already been shown a set of "
+            "recommendations and now has a follow-up question about them. "
+            "Answer their question directly and conversationally, referencing the specific products "
+            "and their specs where relevant. Leverage the user's stated preferences to personalise "
+            "your answer (e.g. 'Since you mentioned needing 16GB RAM for ML work, ...').\n\n"
+            "FORMAT RULES:\n"
+            "- Answer the question in 2–5 sentences (or a short bullet list if comparing attributes).\n"
+            "- Reference product names and key specs — be specific, not generic.\n"
+            "- If the answer varies by product, call out the differences briefly.\n"
+            "- End with ONE short follow-up suggestion (e.g., 'Want me to show only the ones that qualify?').\n"
+            "- Do NOT re-list all products verbatim; answer the question, then stop.\n"
+            f"- Domain: {domain}. {domain_guidance}"
+        )
+
+        user_prompt = (
+            f"{user_context_str}\n"
+            f"{history_str}\n\n"
+            f"**Current recommendations:**\n{spec_sheet}\n\n"
+            f"**User's question:** {user_question}"
+        )
+
+        completion = await client.chat.completions.create(
+            model=OPENAI_MODEL,
+            **_REASONING_KWARGS,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        return completion.choices[0].message.content.strip()
+
+    except Exception as e:
+        logger.error(f"generate_followup_answer failed: {e}")
+        # Plain fallback: just list product names with brief context
+        names = [p.get("name", "Product") for p in products[:3]]
+        return (
+            f"Based on your recommendations ({', '.join(names)}), "
+            "I wasn't able to generate a detailed answer right now. "
+            "You can ask me to compare them, refine your search, or try again."
         )
 
 

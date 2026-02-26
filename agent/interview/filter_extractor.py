@@ -35,7 +35,7 @@ class ExtractedFilters(BaseModel):
     """Structured filter values extracted from a conversational answer."""
     price_min: Optional[float] = Field(None, description="Minimum price in dollars")
     price_max: Optional[float] = Field(None, description="Maximum price in dollars")
-    brand: Optional[str] = Field(None, description="Brand name, or null for no preference")
+    brands: Optional[List[str]] = Field(None, description="One or more brand names. Use a list even for a single brand. Null/omit for no preference.")
     min_ram_gb: Optional[int] = Field(None, description="Minimum RAM in GB")
     min_storage_gb: Optional[int] = Field(None, description="Minimum storage in GB")
     min_screen_inches: Optional[float] = Field(None, description="Minimum screen size in inches")
@@ -75,8 +75,9 @@ Screen
   "14\"" → min_screen_inches=14
 
 Brand
-  Named brand (Apple, Dell, HP, Lenovo, ASUS, etc.) → brand="<name>"
-  "no preference", "any", "don't care", "doesn't matter" → brand=null (omit)
+  Single brand ("Apple") → brands=["Apple"]
+  Multiple brands ("Acer, Apple, Dell" or "Acer and Apple") → brands=["Acer", "Apple", "Dell"]
+  "no preference", "any", "don't care", "doesn't matter" → brands=null (omit)
 
 Use cases
   "gaming" → use_cases=["gaming"]
@@ -156,8 +157,11 @@ async def extract_filters_from_answer(
             result["price_min"] = extracted.price_min
         if extracted.price_max is not None:
             result["price_max"] = extracted.price_max
-        if extracted.brand is not None:
-            result["brand"] = extracted.brand
+        if extracted.brands:
+            if len(extracted.brands) == 1:
+                result["brand"] = extracted.brands[0]
+            else:
+                result["brands"] = extracted.brands
         if extracted.min_ram_gb is not None:
             result["min_ram_gb"] = extracted.min_ram_gb
         if extracted.min_storage_gb is not None:

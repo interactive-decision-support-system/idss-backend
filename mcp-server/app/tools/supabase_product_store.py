@@ -274,9 +274,18 @@ class SupabaseProductStore:
         if product_type:
             params.append(("product_type", f"eq.{product_type}"))
 
+        brands_list = filters.get("brands")  # multi-brand OR list
         brand = filters.get("brand")
-        if brand and not drop_brand and str(brand).lower() not in ("no preference", "any", "", "null"):
-            params.append(("brand", f"ilike.*{brand}*"))
+        if not drop_brand:
+            if brands_list and isinstance(brands_list, list):
+                clean = [b.strip() for b in brands_list if b.strip() and b.strip().lower() not in ("no preference", "any")]
+                if len(clean) > 1:
+                    or_parts = ",".join(f"brand.ilike.*{b}*" for b in clean)
+                    params.append(("or", f"({or_parts})"))
+                elif clean:
+                    params.append(("brand", f"ilike.*{clean[0]}*"))
+            elif brand and str(brand).lower() not in ("no preference", "any", "", "null"):
+                params.append(("brand", f"ilike.*{brand}*"))
 
         # Books: genre / subcategory filter (stored in attributes or as product_type sub-value)
         genre = filters.get("genre") or filters.get("subcategory")
@@ -664,10 +673,12 @@ class _SQLAlchemyProductStore:
             brand = None
 
         steps = [
-            dict(drop_price_min=False, drop_brand=False),
-            dict(drop_price_min=True,  drop_brand=False),
-            dict(drop_price_min=False, drop_brand=True),
-            dict(drop_price_min=True,  drop_brand=True),
+            dict(drop_price_min=False, drop_brand=False, drop_specs=False),
+            dict(drop_price_min=True,  drop_brand=False, drop_specs=False),
+            dict(drop_price_min=False, drop_brand=False, drop_specs=True),
+            dict(drop_price_min=True,  drop_brand=False, drop_specs=True),
+            dict(drop_price_min=False, drop_brand=True,  drop_specs=True),
+            dict(drop_price_min=True,  drop_brand=True,  drop_specs=True),
         ]
         for step in steps:
             rows = self._sql_fetch(
@@ -677,11 +688,12 @@ class _SQLAlchemyProductStore:
                 brand=None if step["drop_brand"] else brand,
                 limit=limit,
                 exclude_ids=exclude_ids,
+                drop_specs=step["drop_specs"],
             )
             if rows:
                 logger.info(
                     f"SQLAlchemy search found {len(rows)} results "
-                    f"(drop_price_min={step['drop_price_min']}, drop_brand={step['drop_brand']})"
+                    f"(drop_price_min={step['drop_price_min']}, drop_brand={step['drop_brand']}, drop_specs={step['drop_specs']})"
                 )
                 return rows
         return []
@@ -694,6 +706,7 @@ class _SQLAlchemyProductStore:
         brand: Optional[str],
         limit: int,
         exclude_ids: Optional[List[str]],
+        drop_specs: bool = False,
     ) -> List[Dict[str, Any]]:
         """Execute one SQL query + Python-side spec filtering pass."""
         import json as _json
@@ -716,7 +729,19 @@ class _SQLAlchemyProductStore:
             conditions.append("product_type = :product_type")
             params["product_type"] = product_type
 
-        if brand:
+        # Multi-brand OR filter (comes from filters["brands"] list)
+        brands_list = filters.get("brands")
+        if brands_list and isinstance(brands_list, list) and not brand:
+            clean_brands = [b.strip() for b in brands_list if b.strip() and b.strip().lower() not in ("no preference", "any")]
+            if len(clean_brands) > 1:
+                or_clauses = " OR ".join(f"brand ILIKE :brand_{i}" for i in range(len(clean_brands)))
+                conditions.append(f"({or_clauses})")
+                for i, b in enumerate(clean_brands):
+                    params[f"brand_{i}"] = f"%{b}%"
+            elif clean_brands:
+                conditions.append("brand ILIKE :brand")
+                params["brand"] = f"%{clean_brands[0]}%"
+        elif brand:
             conditions.append("brand ILIKE :brand")
             params["brand"] = f"%{brand}%"
 
@@ -753,53 +778,52 @@ class _SQLAlchemyProductStore:
             return []
 
         # Python-side JSONB spec filtering (correct numeric comparison)
-        min_ram = filters.get("min_ram_gb")
-        min_storage = filters.get("min_storage_gb")
-        min_screen = filters.get("min_screen_size") or filters.get("min_screen_inches")
-        max_screen = filters.get("max_screen_size")
-        min_battery = filters.get("min_battery_hours")
-        storage_type = filters.get("storage_type")
-        good_for_flags = {k for k in (
-            "good_for_ml", "good_for_gaming", "good_for_creative", "good_for_web_dev"
-        ) if filters.get(k)}
-
-        def _num(val, default=0):
-            if val is None:
-                return default
-            try:
-                return float(val)
-            except (TypeError, ValueError):
-                return default
-
-        filtered = []
-        for row in rows:
-            attrs = row.get("attributes") or {}
-            if isinstance(attrs, str):
-                try:
-                    attrs = _json.loads(attrs)
-                except Exception:
-                    attrs = {}
-            if min_ram and _num(attrs.get("ram_gb")) < int(min_ram):
-                continue
-            if min_storage and _num(attrs.get("storage_gb")) < int(min_storage):
-                continue
-            if min_screen and _num(attrs.get("screen_size")) < float(min_screen):
-                continue
-            if max_screen and _num(attrs.get("screen_size"), 999) > float(max_screen):
-                continue
-            if min_battery and _num(attrs.get("battery_life_hours")) < float(min_battery):
-                continue
-            if storage_type and str(attrs.get("storage_type", "")).upper() != storage_type.upper():
-                continue
-            if good_for_flags and not all(attrs.get(flag) for flag in good_for_flags):
-                continue
-            filtered.append(SupabaseProductStore._row_to_dict(row))
-
-        # If spec filtering wiped everything, return the unfiltered pool so the
-        # relaxation loop can count this step as a "hit" and stop early.
-        if not filtered:
-            logger.info("SQLAlchemy spec filters returned 0 — returning unfiltered pool")
+        # Skipped when drop_specs=True so the outer relaxation loop can try without specs.
+        if drop_specs:
             filtered = [SupabaseProductStore._row_to_dict(r) for r in rows]
+        else:
+            min_ram = filters.get("min_ram_gb")
+            min_storage = filters.get("min_storage_gb")
+            min_screen = filters.get("min_screen_size") or filters.get("min_screen_inches")
+            max_screen = filters.get("max_screen_size")
+            min_battery = filters.get("min_battery_hours")
+            storage_type = filters.get("storage_type")
+            good_for_flags = {k for k in (
+                "good_for_ml", "good_for_gaming", "good_for_creative", "good_for_web_dev"
+            ) if filters.get(k)}
+
+            def _num(val, default=0):
+                if val is None:
+                    return default
+                try:
+                    return float(val)
+                except (TypeError, ValueError):
+                    return default
+
+            filtered = []
+            for row in rows:
+                attrs = row.get("attributes") or {}
+                if isinstance(attrs, str):
+                    try:
+                        attrs = _json.loads(attrs)
+                    except Exception:
+                        attrs = {}
+                if min_ram and _num(attrs.get("ram_gb")) < int(min_ram):
+                    continue
+                if min_storage and _num(attrs.get("storage_gb")) < int(min_storage):
+                    continue
+                if min_screen and _num(attrs.get("screen_size")) < float(min_screen):
+                    continue
+                if max_screen and _num(attrs.get("screen_size"), 999) > float(max_screen):
+                    continue
+                if min_battery and _num(attrs.get("battery_life_hours")) < float(min_battery):
+                    continue
+                if storage_type and str(attrs.get("storage_type", "")).upper() != storage_type.upper():
+                    continue
+                if good_for_flags and not all(attrs.get(flag) for flag in good_for_flags):
+                    continue
+                filtered.append(SupabaseProductStore._row_to_dict(row))
+            # Return empty so the outer relaxation loop can try with drop_specs=True.
 
         random.shuffle(filtered)
         return filtered[:limit]

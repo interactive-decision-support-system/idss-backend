@@ -187,7 +187,12 @@ class UniversalAgent:
                 if domain == "vehicles":
                     search_filters["make"] = value
                 else:
-                    search_filters["brand"] = value
+                    # Split comma-separated multi-brand selections (e.g. "Acer, Apple, Dell")
+                    brand_parts = [b.strip() for b in str(value).split(",") if b.strip()]
+                    if len(brand_parts) > 1:
+                        search_filters["brands"] = brand_parts
+                    else:
+                        search_filters["brand"] = value
 
             elif slot_name == "use_case":
                 if domain == "vehicles":

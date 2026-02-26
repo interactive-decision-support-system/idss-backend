@@ -21,7 +21,7 @@ from agent.interview.session_manager import (
 )
 from agent.universal_agent import UniversalAgent, AgentState
 from agent.domain_registry import get_domain_schema
-from agent.comparison_agent import detect_post_rec_intent, generate_comparison_narrative
+from agent.comparison_agent import detect_post_rec_intent, generate_comparison_narrative, generate_followup_answer
 from app.structured_logger import StructuredLogger
 
 logger = StructuredLogger("chat_endpoint")
@@ -509,7 +509,7 @@ async def _handle_post_recommendation(
     msg_lower = clean_message.lower()
 
     # -----------------------------------------------------------------------
-    # Fast intent router: compare vs. refine vs. other
+    # Fast intent router: compare vs. refine vs. followup_qa vs. other
     # -----------------------------------------------------------------------
     # Keyword fast-path skips the LLM call for obvious fixed-button messages
     _FAST_BEST_VALUE_KWS = (
@@ -526,6 +526,15 @@ async def _handle_post_recommendation(
         "which is better", "which should i buy",
     )
     _FAST_REFINE_KWS = ("refine my search", "refine search", "change my criteria")
+    # Follow-up Q&A — suitability / attribute questions about the shown products
+    _FAST_FOLLOWUP_KWS = (
+        "are these", "are any of", "do any of", "do these", "will these",
+        "would these", "would any", "is the", "is this",
+        "can these", "can any", "can this",
+        "how does", "how do these", "what about",
+        "good enough", "good for", "suitable for", "work for",
+        "worth it", "worth the", "worth buying",
+    )
     if any(kw in msg_lower for kw in _FAST_BEST_VALUE_KWS):
         intent = "best_value"
     elif any(kw in msg_lower for kw in _FAST_PROS_CONS_KWS):
@@ -534,6 +543,8 @@ async def _handle_post_recommendation(
         intent = "compare"
     elif any(kw in msg_lower for kw in _FAST_REFINE_KWS):
         intent = "refine"
+    elif any(kw in msg_lower for kw in _FAST_FOLLOWUP_KWS):
+        intent = "followup_qa"
     else:
         intent = await detect_post_rec_intent(clean_message)
 
@@ -803,6 +814,62 @@ async def _handle_post_recommendation(
             preferences={},
             question_count=0,
             domain=None,
+        )
+
+    if intent == "followup_qa":
+        # Conversational Q&A about the shown products.
+        # Answers the user's question in context of their stated preferences + product specs.
+        # Returns text only (response_type="question") — no new product cards.
+        session_manager.add_message(session_id, "user", clean_message)
+        products = list(getattr(session, "last_recommendation_data", []))
+        if not products and getattr(session, "last_recommendation_ids", None):
+            products = _fetch_products_by_ids(session.last_recommendation_ids[:12])
+        # Deduplicate
+        _seen_fqa: set = set()
+        _deduped_fqa = []
+        for _p in products:
+            _pid = str(_p.get("id", ""))
+            if _pid and _pid not in _seen_fqa:
+                _seen_fqa.add(_pid)
+                _deduped_fqa.append(_p)
+        products = _deduped_fqa
+
+        # Filter to ctx products if provided (user may ask about a specific subset)
+        if context_product_ids and products:
+            _ctx_filt = [
+                p for p in products
+                if str(p.get("id") or p.get("product_id", "")) in context_product_ids
+            ]
+            if _ctx_filt:
+                products = _ctx_filt
+
+        answer = "I'm sorry, I don't have any recommendations to answer questions about yet."
+        if products:
+            try:
+                # Merge session filters with agent slot values for richer preference context
+                user_prefs = dict(getattr(session, "explicit_filters", {}) or {})
+                user_prefs.update(getattr(session, "agent_filters", {}) or {})
+                answer = await generate_followup_answer(
+                    products=products,
+                    user_question=clean_message,
+                    user_preferences=user_prefs,
+                    domain=active_domain or "laptops",
+                    conversation_history=list(getattr(session, "conversation_history", []) or []),
+                )
+            except Exception as _fqe:
+                logger.error("followup_qa_failed", str(_fqe), {})
+                answer = "Sorry, I had trouble answering that question. Try asking again or rephrase it."
+
+        session_manager.add_message(session_id, "assistant", answer)
+        return ChatResponse(
+            response_type="question",
+            message=answer,
+            session_id=session_id,
+            quick_replies=["Compare items", "See similar items", "Refine search"],
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
         )
 
     # intent == 'refine' or None → fall through to the keyword handlers below,
