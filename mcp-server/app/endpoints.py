@@ -756,7 +756,76 @@ async def search_products(
                 # Set product type if not set
                 if not session.product_type:
                     session_manager.set_product_type(effective_session_id, product_type or "electronics")
-                
+
+                # Fetch real brands once per server process (cached); passed as context
+                # to the LLM at every turn so it always knows what we actually carry.
+                _available_brands: List[str] = []
+                try:
+                    from app.tools.supabase_product_store import get_available_brands as _get_brands
+                    _available_brands = _get_brands(product_type=product_type or "laptop")
+                except Exception as _be:
+                    logger.warning("brand_fetch_error", f"Could not fetch available brands: {_be}", {})
+
+                # Handle "See all brands" quick-reply: return the full brand list
+                # as a new question so the user can pick from every option we carry.
+                if cleaned_query and re.search(
+                    r'\bsee\s+all\s+brands?\b|\bshow\s+(me\s+)?all\s+brands?\b',
+                    cleaned_query, re.IGNORECASE
+                ):
+                    if _available_brands:
+                        _all_q = "Here are all the brands we carry. Which one do you prefer?"
+                        _all_replies = _available_brands + ["No preference"]
+                        session_manager.add_message(effective_session_id, "assistant", _all_q)
+                        timings["total"] = (time.time() - start_time) * 1000
+                        _domain_ab = "laptops" if (product_type or "") in ["laptop", "electronics"] else "books"
+                        return SearchProductsResponse(
+                            status=ResponseStatus.INVALID,
+                            data=SearchResultsData(products=[], total_count=0, next_cursor=None),
+                            constraints=[
+                                ConstraintDetail(
+                                    code="FOLLOWUP_QUESTION_REQUIRED",
+                                    message=_all_q,
+                                    details={
+                                        "question": _all_q,
+                                        "quick_replies": _all_replies,
+                                        "missing_info": ["brand"],
+                                        "product_type": product_type,
+                                        "topic": "brand",
+                                        "response_type": "question",
+                                        "session_id": effective_session_id,
+                                        "domain": _domain_ab,
+                                        "tool": "mcp_ecommerce",
+                                        "question_id": "brand",
+                                    },
+                                    allowed_fields=None,
+                                    suggested_actions=_all_replies,
+                                )
+                            ],
+                            trace=create_trace(request_id, False, timings, ["interview_system"]),
+                            version=create_version_info(),
+                        )
+
+                # LLM filter extraction — parse the user's answer in context of
+                # what question was just asked (more accurate than pure regex).
+                # Only runs during an active interview (session has prior questions).
+                try:
+                    from agent.interview.filter_extractor import extract_filters_from_answer
+                    llm_filters = await extract_filters_from_answer(
+                        user_answer=cleaned_query or "",
+                        conversation_history=session.conversation_history,
+                        questions_asked=session.questions_asked,
+                        known_filters=session.explicit_filters,
+                        product_type=product_type or "laptop",
+                    )
+                    if llm_filters:
+                        filters.update(llm_filters)
+                        logger.info("llm_filter_extraction", "LLM extracted filters from answer", {
+                            "session_id": effective_session_id,
+                            "llm_filters": llm_filters,
+                        })
+                except Exception as _fe:
+                    logger.warning("llm_filter_extraction_error", f"LLM filter extraction skipped: {_fe}", {})
+
                 # Update filters in session
                 if filters:
                     session_manager.update_filters(effective_session_id, filters)
@@ -803,18 +872,23 @@ async def search_products(
                     # Otherwise use LLM for brand/other questions (fall back to rule-based if openai not installed)
                     try:
                         from agent.interview.question_generator import generate_question
+                        # Merge session's persisted filters with anything extracted this
+                        # turn (session.explicit_filters is stale — loaded before
+                        # update_filters() ran, so budget/RAM/etc. are missing from it).
+                        _current_filters = {**session.explicit_filters, **filters}
                         question_response = generate_question(
                             product_type=product_type or "electronics",
                             conversation_history=session.conversation_history,
-                            explicit_filters=session.explicit_filters,
-                            questions_asked=session.questions_asked
+                            explicit_filters=_current_filters,
+                            questions_asked=session.questions_asked,
+                            available_brands=_available_brands or None,
                         )
                         q_msg = question_response.question
                         q_replies = question_response.quick_replies
                         q_topic = question_response.topic
                     except (ImportError, ModuleNotFoundError):
                         logger.info("openai_not_available", "Using rule-based questions (install openai for LLM)", {})
-                        question, q_replies = generate_followup_question(product_type, missing_info, filters)
+                        question, q_replies = generate_followup_question(product_type, missing_info, filters, available_brands=_available_brands or None)
                         q_msg = question
                         q_topic = missing_info[0] if missing_info else "brand"
 

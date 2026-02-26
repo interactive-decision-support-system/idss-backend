@@ -59,7 +59,12 @@ Ask about these topics in a natural order (skip what's already known):
 - If a topic is in "Topics already asked about", NEVER ask about it again
 - Check the conversation history to see what was already asked
 - Make quick_replies diverse and helpful options
-- If all important topics are covered, move to recommendations instead of asking again"""
+- If all important topics are covered, move to recommendations instead of asking again
+
+## CRITICAL — question text hygiene
+- Your question text must cover ONE topic only — do NOT pad it with specs or filters the user already answered
+- For brand questions: ask ONLY "Do you have a brand preference?" (or a natural variant). NEVER mention budget, RAM, screen size, or any other already-known spec in the question text
+- For brand quick_replies: use the real brands from our catalogue (provided in context) + "See all brands" + "No preference" — do NOT add "Other""""
 
 
 SYSTEM_PROMPT_ELECTRONICS = """You are a helpful electronics shopping assistant. Your goal is to ask clarifying questions
@@ -87,14 +92,20 @@ Ask about these topics in a natural order (skip what's already known):
 - If a topic is in "Topics already asked about", NEVER ask about it again
 - Check the conversation history to see what was already asked
 - Make quick_replies diverse and helpful options
-- If all important topics are covered, move to recommendations instead of asking again"""
+- If all important topics are covered, move to recommendations instead of asking again
+
+## CRITICAL — question text hygiene
+- Your question text must cover ONE topic only — do NOT pad it with specs or filters the user already answered
+- For brand questions: ask ONLY "Do you have a brand preference?" (or a natural variant). NEVER mention budget, RAM, screen size, or any other already-known spec in the question text
+- For brand quick_replies: use the real brands from our catalogue (provided in context) + "See all brands" + "No preference" — do NOT add "Other""""
 
 
 def generate_question(
     product_type: str,
     conversation_history: List[Dict[str, str]],
     explicit_filters: Dict[str, Any],
-    questions_asked: List[str]
+    questions_asked: List[str],
+    available_brands: Optional[List[str]] = None,
 ) -> QuestionResponse:
     """
     Generate the next clarifying question based on context.
@@ -130,6 +141,14 @@ def generate_question(
         context_parts.append(f"**Topics already asked about:** {', '.join(questions_asked)}")
         context_parts.append(f"**CRITICAL: DO NOT ask about these topics again:** {', '.join(questions_asked)}")
 
+    if available_brands:
+        top = available_brands[:4]
+        context_parts.append(
+            f"**Brands we actually carry in our catalogue:** {', '.join(available_brands)}\n"
+            f"If you ask about brand, set quick_replies to EXACTLY: {top} + ['See all brands', 'No preference']. "
+            "Do NOT add 'Other'. Do NOT suggest brands not in this list."
+        )
+
     context = "\n\n".join(context_parts) if context_parts else "No information gathered yet."
 
     # Build messages
@@ -158,6 +177,23 @@ def generate_question(
         )
 
         result = response.choices[0].message.parsed
+
+        # For brand questions, fully override question text and quick_replies.
+        # The LLM consistently pads the question with other topics and invents
+        # brand/model combo names — simpler to own this output entirely.
+        if "brand" in result.topic.lower():
+            brand_names = (
+                available_brands[:4]
+                if available_brands
+                else [r for r in result.quick_replies
+                      if r not in {"Other", "See all brands", "No preference"}][:4]
+            )
+            result = QuestionResponse(
+                question="Do you have a brand preference?",
+                quick_replies=brand_names + ["See all brands", "No preference"],
+                topic="brand",
+            )
+
         if logger:
             logger.info(f"Generated question: {result.question}")
             logger.info(f"Quick replies: {result.quick_replies}")

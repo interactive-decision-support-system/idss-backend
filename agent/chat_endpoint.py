@@ -54,6 +54,7 @@ class ChatResponse(BaseModel):
 
     # Question-specific fields
     quick_replies: Optional[List[str]] = Field(default=None, description="Quick reply options for questions")
+    brand_options: Optional[List[str]] = Field(default=None, description="Full brand list for inline picker (brand questions only)")
 
     # Recommendation-specific fields
     recommendations: Optional[List[List[Dict[str, Any]]]] = Field(default=None, description="2D grid of products [rows][items]")
@@ -199,6 +200,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
             message=agent_response["message"],
             session_id=session_id,
             quick_replies=agent_response.get("quick_replies"),
+            brand_options=agent_response.get("brand_options"),
             filters=agent.get_search_filters(),
             preferences={},
             question_count=agent_response.get("question_count", session.question_count),

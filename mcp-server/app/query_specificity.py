@@ -464,7 +464,12 @@ def should_ask_followup(query: str, filters: Dict[str, object], product_type: Op
     return (len(missing) > 0), missing
 
 
-def generate_followup_question(product_type: str, missing_info: List[str], filters: Dict[str, object]) -> Tuple[str, List[str]]:
+def generate_followup_question(
+    product_type: str,
+    missing_info: List[str],
+    filters: Dict[str, object],
+    available_brands: Optional[List[str]] = None,
+) -> Tuple[str, List[str]]:
     """Return a follow-up question using domain registry slot definitions."""
     if product_type == "book":
         domain = "books"
@@ -488,6 +493,10 @@ def generate_followup_question(product_type: str, missing_info: List[str], filte
     slot_name = missing_info[0]
     slot = next((s for s in schema.slots if s.name == slot_name), None)
     if slot:
+        if slot_name == "brand" and available_brands:
+            # Show top 4 real DB brands, then an expansion option and escape hatch.
+            replies = available_brands[:4] + ["See all brands", "No preference"]
+            return slot.example_question, replies
         return slot.example_question, slot.example_replies
 
     return "Could you clarify what you are looking for?", fallback_replies

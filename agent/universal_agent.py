@@ -338,6 +338,24 @@ class UniversalAgent:
             gen_q = self._generate_question(missing_slot, schema)
             timings["question_generation_ms"] = (time.perf_counter() - t3) * 1000
 
+            # For brand slot: override quick_replies with real DB brands and
+            # include the full list as brand_options so the frontend can render
+            # an inline picker without a round-trip.
+            brand_options = None
+            if missing_slot.name == "brand":
+                try:
+                    from app.tools.supabase_product_store import get_available_brands as _gab
+                    _pt = "laptop" if self.domain in ("laptops",) else "book" if self.domain == "books" else None
+                    brand_options = _gab(product_type=_pt)
+                    top4 = brand_options[:4]
+                    gen_q = GeneratedQuestion(
+                        question="Do you have a brand preference?",
+                        quick_replies=top4 + ["See all brands", "No preference"],
+                        topic="brand",
+                    )
+                except Exception as _be:
+                    logger.warning(f"Brand fetch failed in agent: {_be}")
+
             # Track question asked
             self.questions_asked.append(missing_slot.name)
             self.question_count += 1
@@ -346,6 +364,7 @@ class UniversalAgent:
                 "response_type": "question",
                 "message": gen_q.question,
                 "quick_replies": gen_q.quick_replies,
+                "brand_options": brand_options,
                 "session_id": self.session_id,
                 "domain": self.domain,
                 "filters": self.filters,
@@ -483,9 +502,13 @@ class UniversalAgent:
                 logger.warning("Criteria extraction returned None")
                 return None
 
-            # Merge extracted filters into state
+            # Merge extracted filters into state — skip slots with no actual value
             if result.criteria:
-                new_filters = {item.slot_name: item.value for item in result.criteria}
+                new_filters = {
+                    item.slot_name: item.value
+                    for item in result.criteria
+                    if item.value not in (None, "", [], {})
+                }
                 logger.info(f"Extracted filters: {new_filters}")
                 self.filters.update(new_filters)
 

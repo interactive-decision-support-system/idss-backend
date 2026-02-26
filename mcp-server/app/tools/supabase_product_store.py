@@ -126,6 +126,26 @@ class SupabaseProductStore:
             logger.error(f"get_by_id failed: {e}")
             return None
 
+    def get_available_brands(self, product_type: Optional[str] = None) -> List[str]:
+        """Return sorted list of distinct non-null brand names from the DB."""
+        try:
+            params: List[Tuple[str, str]] = [
+                ("select", "brand"),
+                ("brand", "not.is.null"),
+                ("brand", "neq."),
+                ("limit", "25"),
+            ]
+            if product_type:
+                params.append(("product_type", f"eq.{product_type}"))
+            resp = self._client.get("/rest/v1/products", params=params)
+            resp.raise_for_status()
+            rows = resp.json()
+            brands = sorted({r["brand"].strip() for r in rows if r.get("brand") and r["brand"].strip()})
+            return brands
+        except Exception as e:
+            logger.warning(f"get_available_brands (REST) failed: {e}")
+            return []
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -825,10 +845,53 @@ class _SQLAlchemyProductStore:
             logger.error(f"get_by_ids (SQLAlchemy) failed: {e}")
             return []
 
+    def get_available_brands(self, product_type: Optional[str] = None) -> List[str]:
+        """Return sorted list of distinct non-null brand names from the DB."""
+        if self._engine is None:
+            return []
+        try:
+            from sqlalchemy import text as sa_text
+            query = "SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND brand != ''"
+            params: Dict[str, Any] = {}
+            if product_type:
+                query += " AND product_type = :product_type"
+                params["product_type"] = product_type
+            query += " ORDER BY brand"
+            with self._engine.connect() as conn:
+                result = conn.execute(sa_text(query), params)
+                return [row[0] for row in result if row[0]]
+        except Exception as e:
+            logger.warning(f"get_available_brands (SQLAlchemy) failed: {e}")
+            return []
+
 
 # ---------------------------------------------------------------------------
 # Price parsing helpers
 # ---------------------------------------------------------------------------
+
+# Module-level brand cache — populated on first call, reused for the lifetime
+# of the server process (brands don't change between requests).
+_brands_cache: Dict[str, List[str]] = {}
+
+
+def get_available_brands(product_type: Optional[str] = None, limit: int = 25) -> List[str]:
+    """
+    Return sorted distinct brand names from the active product store (up to `limit`).
+    Pass product_type (e.g. 'laptop') to scope results to that category.
+    Results are cached in memory after the first DB hit.
+    Returns [] on any error so callers can always fall back to static lists.
+    """
+    cache_key = product_type or "_all"
+    if cache_key in _brands_cache:
+        return _brands_cache[cache_key]
+    try:
+        brands = get_product_store().get_available_brands(product_type)[:limit]
+        _brands_cache[cache_key] = brands
+        return brands
+    except Exception as e:
+        logger.warning(f"get_available_brands failed: {e}")
+        return []
+
 
 def _parse_price(
     cents_val: Any,
