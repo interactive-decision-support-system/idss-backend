@@ -71,19 +71,29 @@ from app.ucp_endpoints import (
     ucp_get_cart, ucp_remove_from_cart, ucp_update_cart,
 )
 from app.ucp_event_logger import log_ucp_event
-from app.ucp_client import (
-    ucp_client_get_cart,
-    ucp_client_add_to_cart,
-    ucp_client_remove_from_cart,
-    ucp_client_checkout,
-)
 from app.cart_action_agent import (
     build_ucp_get_cart,
     build_ucp_add_to_cart,
     build_ucp_remove_from_cart,
     build_ucp_checkout,
     build_ucp_update_cart,
+    build_acp_create_session,
+    build_acp_update_session,
+    build_acp_complete_session,
 )
+from app.acp_schemas import (
+    ACPCreateSessionRequest, ACPUpdateSessionRequest, ACPCompleteSessionRequest,
+    ACPCheckoutSession,
+)
+from app.acp_endpoints import (
+    acp_create_checkout_session as _acp_create,
+    acp_get_checkout_session as _acp_get,
+    acp_update_checkout_session as _acp_update,
+    acp_complete_checkout_session as _acp_complete,
+    acp_cancel_checkout_session as _acp_cancel,
+    generate_product_feed,
+)
+from app.protocol_config import is_acp
 from app.supabase_cart import get_supabase_cart_client
 from app.supplier_api import router as supplier_router
 from agent import ChatRequest, ChatResponse, process_chat
@@ -187,6 +197,21 @@ class LatencyLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(LatencyLoggingMiddleware)
+
+
+class ProtocolHeaderMiddleware(BaseHTTPMiddleware):
+    """Add X-Commerce-Protocol header so agents can detect which protocol handled the request."""
+    async def dispatch(self, request: StarletteRequest, call_next) -> StarletteResponse:
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/acp/"):
+            response.headers["X-Commerce-Protocol"] = "acp"
+        elif path.startswith("/ucp/"):
+            response.headers["X-Commerce-Protocol"] = "ucp"
+        return response
+
+
+app.add_middleware(ProtocolHeaderMiddleware)
 
 # Include supplier API router
 app.include_router(supplier_router)
@@ -852,8 +877,141 @@ async def ucp_cancel_checkout_session(session_id: str, db: Session = Depends(get
     return session
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ACP (OpenAI/Stripe Agentic Commerce Protocol) Endpoints
+# Mirrors the UCP checkout session block above.
+# External ACP agent flow: ChatGPT → POST /acp/checkout-sessions → merchant
+# Reference: agenticcommerce.dev
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/acp/feed.json", tags=["ACP"])
+async def acp_feed_json(db: Session = Depends(get_db)):
+    """
+    ACP Product Feed — JSON format.
+
+    Returns the full product catalog in ACP feed format so OpenAI agents
+    can discover and purchase products without a search step.
+    """
+    items = generate_product_feed(db)
+    return {"protocol": "acp", "items": [i.model_dump() for i in items], "count": len(items)}
+
+
+@app.get("/acp/feed.csv", tags=["ACP"])
+async def acp_feed_csv(db: Session = Depends(get_db)):
+    """
+    ACP Product Feed — CSV format.
+
+    Same data as /acp/feed.json but as text/csv for tools that prefer tabular feeds.
+    """
+    from fastapi.responses import PlainTextResponse
+    items = generate_product_feed(db)
+    if not items:
+        return PlainTextResponse("id,title,price_dollars,availability,brand,category\n", media_type="text/csv")
+    header = "id,title,price_dollars,currency,availability,inventory,brand,category,rating,product_url"
+    rows = [header]
+    for it in items:
+        def _q(v: object) -> str:
+            s = str(v) if v is not None else ""
+            return f'"{s.replace(chr(34), chr(34)+chr(34))}"'
+        rows.append(",".join([
+            _q(it.id), _q(it.title), str(it.price_dollars), it.currency,
+            it.availability, str(it.inventory),
+            _q(it.brand or ""), _q(it.category or ""),
+            str(it.rating or ""), _q(it.product_url),
+        ]))
+    return PlainTextResponse("\n".join(rows), media_type="text/csv")
+
+
+@app.post("/acp/checkout-sessions", response_model=ACPCheckoutSession, tags=["ACP"])
+async def acp_create_session_endpoint(
+    request: ACPCreateSessionRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    ACP — Create checkout session (status: pending).
+
+    Per ACP spec: POST /checkout-sessions
+    Trigger: agent has selected products and is ready to purchase.
+    """
+    session = await _acp_create(request, db)
+    try:
+        log_ucp_event(db, "acp_create_session", "/acp/checkout-sessions", request, session)
+    except Exception:
+        pass
+    return session
+
+
+@app.get("/acp/checkout-sessions/{session_id}", response_model=ACPCheckoutSession, tags=["ACP"])
+async def acp_get_session_endpoint(session_id: str):
+    """ACP — Get checkout session by ID."""
+    session = await _acp_get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="ACP session not found")
+    return session
+
+
+@app.put("/acp/checkout-sessions/{session_id}", response_model=ACPCheckoutSession, tags=["ACP"])
+async def acp_update_session_endpoint(
+    session_id: str,
+    request: ACPUpdateSessionRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    ACP — Update checkout session (buyer info, shipping address, shipping method).
+
+    Recalculates shipping + tax on every update.
+    """
+    session = await _acp_update(session_id, request, db)
+    if not session:
+        raise HTTPException(status_code=404, detail="ACP session not found")
+    return session
+
+
+@app.post("/acp/checkout-sessions/{session_id}/complete", response_model=ACPCheckoutSession, tags=["ACP"])
+async def acp_complete_session_endpoint(
+    session_id: str,
+    request: ACPCompleteSessionRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    ACP — Complete checkout session (place order).
+
+    In production: Stripe delegated payment token is charged here.
+    Returns completed session with order_id on success.
+    """
+    session = await _acp_complete(session_id, request, db)
+    if not session:
+        raise HTTPException(status_code=404, detail="ACP session not found")
+    try:
+        log_ucp_event(db, "acp_complete_session", f"/acp/checkout-sessions/{session_id}/complete", request, session)
+    except Exception:
+        pass
+    return session
+
+
+@app.post("/acp/checkout-sessions/{session_id}/cancel", response_model=ACPCheckoutSession, tags=["ACP"])
+async def acp_cancel_session_endpoint(session_id: str):
+    """ACP — Cancel checkout session."""
+    session = await _acp_cancel(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="ACP session not found")
+    return session
+
+
+@app.post("/acp/webhooks/orders", tags=["ACP"])
+async def acp_order_webhook(payload: Dict[str, Any], request: Request):
+    """
+    ACP — Order event webhook from OpenAI/Stripe.
+
+    Returns 200 immediately to avoid retries. Events are logged for async processing.
+    Signature validation (X-ACP-Signature header) should be added before production use.
+    """
+    logger.info("acp_webhook_received: %s", payload)
+    return {"received": True}
+
+
 #
-# Agent Action Endpoints (Frontend → API → Agent → UCP → MCP → Supabase)
+# Agent Action Endpoints (Frontend → API → Agent → UCP/ACP → MCP → Supabase)
 # Frontend calls these with user_id (signed-in). When Supabase is configured,
 # they use the Supabase cart table and products.inventory; otherwise in-memory fallback.
 #
@@ -906,7 +1064,7 @@ async def action_fetch_cart(request: FetchCartRequest, db: Session = Depends(get
     logger.info("action_api_request: action=%s user_id=%s", "fetch_cart", request.user_id)
     ucp_req = build_ucp_get_cart(request.user_id)
     logger.info("ucp_request: ucp_action=%s payload=%s", "get_cart", ucp_req.model_dump())
-    response = await ucp_client_get_cart(ucp_req)
+    response = await ucp_get_cart(ucp_req, db)
     logger.info("ucp_response: ucp_action=%s status=%s item_count=%s", "get_cart", response.status, response.item_count)
     log_ucp_event(db, "ucp_get_cart", "/api/action/fetch-cart", ucp_req, response, session_id=request.user_id)
     if response.status != "success":
@@ -920,11 +1078,30 @@ async def action_fetch_cart(request: FetchCartRequest, db: Session = Depends(get
 
 @app.post("/api/action/add-to-cart")
 async def action_add_to_cart(request: AddToCartActionRequest, db: Session = Depends(get_db)):
-    """Add (or increment) a product in the user's cart. Agent sends UCP add_to_cart to MCP over HTTP."""
-    logger.info("action_api_request: action=%s user_id=%s product_id=%s quantity=%s", "add_to_cart", request.user_id, request.product_id, request.quantity)
+    """Add (or increment) a product in the user's cart. Uses ACP or UCP based on COMMERCE_PROTOCOL."""
+    logger.info("action_api_request: action=%s user_id=%s product_id=%s quantity=%s protocol=%s",
+                "add_to_cart", request.user_id, request.product_id, request.quantity,
+                "acp" if is_acp() else "ucp")
+
+    if is_acp():
+        # ACP path: create a checkout session with this product
+        snapshot = request.product_snapshot or {}
+        acp_req = build_acp_create_session(
+            product_id=request.product_id,
+            title=snapshot.get("name") or snapshot.get("title") or "Product",
+            price_dollars=float(snapshot.get("price", 0)),
+            quantity=request.quantity,
+            image_url=snapshot.get("image_url") or snapshot.get("imageurl"),
+        )
+        session = await _acp_create(acp_req, db)
+        if session.error:
+            return {"status": "error", "error": session.error}
+        return {"status": "success", "acp_session_id": session.id}
+
+    # UCP path (default)
     ucp_req = build_ucp_add_to_cart(request.user_id, request.product_id, request.quantity, request.product_snapshot)
     logger.info("ucp_request: ucp_action=%s payload=%s", "add_to_cart", ucp_req.model_dump())
-    response = await ucp_client_add_to_cart(ucp_req)
+    response = await ucp_add_to_cart(ucp_req, db)
     logger.info("ucp_response: ucp_action=%s status=%s", "add_to_cart", response.status)
     log_ucp_event(db, "ucp_add_to_cart", "/api/action/add-to-cart", ucp_req, response, session_id=request.user_id)
     if response.status != "success":
@@ -938,7 +1115,7 @@ async def action_remove_from_cart(request: RemoveFromCartRequest, db: Session = 
     logger.info("action_api_request: action=%s user_id=%s product_id=%s", "remove_from_cart", request.user_id, request.product_id)
     ucp_req = build_ucp_remove_from_cart(request.user_id, request.product_id)
     logger.info("ucp_request: ucp_action=%s payload=%s", "remove_from_cart", ucp_req.model_dump())
-    response = await ucp_client_remove_from_cart(ucp_req)
+    response = await ucp_remove_from_cart(ucp_req, db)
     logger.info("ucp_response: ucp_action=%s status=%s", "remove_from_cart", response.status)
     log_ucp_event(db, "ucp_remove_from_cart", "/api/action/remove-from-cart", ucp_req, response, session_id=request.user_id)
     if response.status != "success":
@@ -948,11 +1125,30 @@ async def action_remove_from_cart(request: RemoveFromCartRequest, db: Session = 
 
 @app.post("/api/action/checkout")
 async def action_checkout(request: CheckoutActionRequest, db: Session = Depends(get_db)):
-    """Checkout the user's cart. Agent sends UCP checkout to MCP over HTTP."""
-    logger.info("action_api_request: action=%s user_id=%s shipping_method=%s", "checkout", request.user_id, request.shipping_method)
+    """Checkout the user's cart. Uses ACP or UCP based on COMMERCE_PROTOCOL."""
+    logger.info("action_api_request: action=%s user_id=%s shipping_method=%s protocol=%s",
+                "checkout", request.user_id, request.shipping_method, "acp" if is_acp() else "ucp")
+
+    if is_acp():
+        # ACP path: complete the most-recent ACP session for this user.
+        # In a real deployment, the session_id would be stored per-user.
+        # Here we look for a pending session and complete it.
+        from app.acp_endpoints import _acp_sessions
+        pending = [s for s in _acp_sessions.values() if s.status in ("pending", "confirmed")]
+        if not pending:
+            return {"status": "error", "error": "No active ACP checkout session"}
+        # Complete the most-recently created session
+        session_id = pending[-1].id
+        acp_complete_req = build_acp_complete_session(payment_method="card")
+        session = await _acp_complete(session_id, acp_complete_req, db)
+        if not session or session.status != "completed":
+            return {"status": "error", "error": (session.error if session else "Checkout failed")}
+        return {"status": "success", "order_id": session.order_id, "acp_session_id": session.id}
+
+    # UCP path (default)
     ucp_req = build_ucp_checkout(request.user_id, shipping_method=request.shipping_method or "standard")
     logger.info("ucp_request: ucp_action=%s payload=%s", "checkout", ucp_req.model_dump())
-    response = await ucp_client_checkout(ucp_req)
+    response = await ucp_checkout(ucp_req, db)
     logger.info("ucp_response: ucp_action=%s status=%s order_id=%s", "checkout", response.status, getattr(response, "order_id", None))
     log_ucp_event(db, "ucp_checkout", "/api/action/checkout", ucp_req, response, session_id=request.user_id)
     if response.status != "success":
