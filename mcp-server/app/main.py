@@ -110,7 +110,14 @@ async def lifespan(app: FastAPI):
     """
     # Create database tables if they don't exist
     # In production, use Alembic migrations instead
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as _e:
+        logger.warning(
+            "Could not run Base.metadata.create_all: %s. "
+            "Tables should already exist (Supabase / remote DB).",
+            _e,
+        )
 
     skip_preload = os.getenv("MCP_SKIP_PRELOAD", "0") == "1"
     if skip_preload:
