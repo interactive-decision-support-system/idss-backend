@@ -76,6 +76,9 @@ async def detect_post_rec_intent(message: str) -> str:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message},
             ],
+            # Output is {"intent": "compare"} — 8 tokens. 20 prevents the model
+            # from adding unrequested explanation while keeping a safe margin.
+            max_completion_tokens=20,
         )
 
         data = json.loads(completion.choices[0].message.content)
@@ -361,6 +364,10 @@ async def generate_comparison_narrative(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            # 1000 tokens: worst-case 6 products × ~80 tok narrative each (~480)
+            # + JSON structure + UUIDs (~150) + product names (~120) = ~750 tok.
+            # No previous cap allowed the model to be verbose (observed 13 s).
+            max_completion_tokens=1000,
         )
 
         response_text = completion.choices[0].message.content.strip()
