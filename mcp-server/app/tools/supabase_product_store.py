@@ -258,10 +258,27 @@ class SupabaseProductStore:
         if brand and not drop_brand and str(brand).lower() not in ("no preference", "any", "", "null"):
             params.append(("brand", f"ilike.*{brand}*"))
 
+        # Brand EXCLUSIONS — always applied regardless of drop_brand / relaxation step.
+        # "excluded_brands" is a list like ["HP", "Acer"] from the agent.
+        excluded_brands = filters.get("excluded_brands")
+        if excluded_brands:
+            if isinstance(excluded_brands, str):
+                excluded_brands = [b.strip() for b in excluded_brands.split(",") if b.strip()]
+            for ex_brand in excluded_brands:
+                if ex_brand:
+                    # PostgREST: brand not ilike '*HP*'
+                    params.append(("brand", f"not.ilike.*{ex_brand}*"))
+
         # Books: genre / subcategory filter (stored in attributes or as product_type sub-value)
         genre = filters.get("genre") or filters.get("subcategory")
         if genre and str(genre).lower() not in ("no preference", "any", ""):
             params.append(("attributes->>genre", f"ilike.*{genre}*"))
+
+        # OS filter — applied when user explicitly requires a specific OS.
+        # Stored in attributes->>'os' or attributes->>'operating_system'.
+        os_filter = filters.get("os")
+        if os_filter and str(os_filter).lower() not in ("no preference", "any", ""):
+            params.append(("attributes->>os", f"ilike.*{os_filter}*"))
 
         if price_min is not None:
             params.append(("price", f"gte.{price_min:.2f}"))
@@ -700,10 +717,27 @@ class _SQLAlchemyProductStore:
             conditions.append("brand ILIKE :brand")
             params["brand"] = f"%{brand}%"
 
+        # Brand EXCLUSIONS — always applied, never dropped during relaxation.
+        excluded_brands = filters.get("excluded_brands")
+        if excluded_brands:
+            if isinstance(excluded_brands, str):
+                excluded_brands = [b.strip() for b in excluded_brands.split(",") if b.strip()]
+            for i, ex_brand in enumerate(excluded_brands):
+                if ex_brand:
+                    param_key = f"ex_brand_{i}"
+                    conditions.append(f"brand NOT ILIKE :{param_key}")
+                    params[param_key] = f"%{ex_brand}%"
+
         genre = filters.get("genre") or filters.get("subcategory")
         if genre and str(genre).lower() not in ("no preference", "any", ""):
             conditions.append("attributes->>'genre' ILIKE :genre")
             params["genre"] = f"%{genre}%"
+
+        # OS filter — never relaxed, user explicitly requires it.
+        os_filter = filters.get("os")
+        if os_filter and str(os_filter).lower() not in ("no preference", "any", ""):
+            conditions.append("(attributes->>'os' ILIKE :os_filter OR attributes->>'operating_system' ILIKE :os_filter)")
+            params["os_filter"] = f"%{os_filter}%"
 
         if price_min is not None:
             conditions.append("price >= :price_min")
@@ -780,6 +814,27 @@ class _SQLAlchemyProductStore:
         if not filtered:
             logger.info("SQLAlchemy spec filters returned 0 — returning unfiltered pool")
             filtered = [SupabaseProductStore._row_to_dict(r) for r in rows]
+
+        # Post-filter: remove products whose DERIVED brand or title contains an excluded brand.
+        # The SQL WHERE uses the raw DB brand column; _derive_brand() can resolve
+        # "Recertified → HP" from the title.  Some products have brand="New" (condition tag)
+        # but title="New HP 17 Laptop" — catch those via the title check too.
+        excl_derived = filters.get("excluded_brands")
+        if excl_derived:
+            if isinstance(excl_derived, str):
+                excl_derived = [b.strip().lower() for b in excl_derived.split(",") if b.strip()]
+            else:
+                excl_derived = [b.strip().lower() for b in excl_derived if b]
+            if excl_derived:
+                before = len(filtered)
+                def _brand_excluded(p: dict) -> bool:
+                    brand_lower = (p.get("brand") or "").lower()
+                    name_lower  = (p.get("name") or p.get("title") or "").lower()
+                    return any(ex in brand_lower or ex in name_lower for ex in excl_derived)
+                filtered = [p for p in filtered if not _brand_excluded(p)]
+                removed = before - len(filtered)
+                if removed:
+                    logger.info(f"Post-filter removed {removed} products whose brand/name matched excluded_brands")
 
         random.shuffle(filtered)
         return filtered[:limit]

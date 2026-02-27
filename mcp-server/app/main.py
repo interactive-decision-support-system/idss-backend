@@ -96,6 +96,8 @@ from app.acp_endpoints import (
 from app.protocol_config import is_acp
 from app.supabase_cart import get_supabase_cart_client
 from app.supplier_api import router as supplier_router
+from app.shipping_tax import calculate_shipping, ALL_STATES
+from app.coupons import validate_coupon
 from agent import ChatRequest, ChatResponse, process_chat
 from agent.interview.session_manager import SessionResponse, ResetRequest, ResetResponse
 from agent.interview.session_manager import get_session_state, reset_session, delete_session, list_sessions
@@ -1161,6 +1163,87 @@ async def action_checkout(request: CheckoutActionRequest, db: Session = Depends(
     if response.status != "success":
         return {"status": "error", "error": response.error or "Checkout failed", "details": getattr(response, "details", None)}
     return {"status": "success", "order_id": response.order_id}
+
+
+# ─── Shipping / Tax calculation ──────────────────────────────────────────────
+
+class ShippingCalcItem(BaseModel):
+    product_id: str
+    unit_price_cents: Optional[int] = None
+    unit_price_dollars: Optional[float] = None
+    quantity: int = 1
+    weight_lbs: Optional[float] = None
+
+class ShippingCalcRequest(BaseModel):
+    state_code: str                          # 2-letter US state code
+    shipping_method: str = "standard"        # standard | express | overnight
+    items: List[ShippingCalcItem]
+
+@app.post("/api/calculate-shipping")
+async def api_calculate_shipping(request: ShippingCalcRequest):
+    """
+    Calculate shipping cost + state sales tax for a list of items.
+
+    Returns subtotal, shipping, tax, and total — all in cents.
+    Accepts all 50 US states + DC. Tax rates are combined state+avg-local (2025).
+    """
+    try:
+        items_data = [item.model_dump(exclude_none=False) for item in request.items]
+        result = calculate_shipping(
+            state_code=request.state_code,
+            shipping_method=request.shipping_method,
+            items=items_data,
+        )
+        return {
+            "status": "ok",
+            "state_code": result.state_code,
+            "state_name": result.state_name,
+            "tax_rate_pct": result.tax_rate_pct,
+            "shipping_method": result.shipping_method,
+            "subtotal_cents": result.subtotal_cents,
+            "shipping_cents": result.shipping_cents,
+            "tax_cents": result.tax_cents,
+            "total_cents": result.total_cents,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/states")
+async def api_get_states():
+    """Return all US states + DC with their tax rates, for populating UI dropdowns."""
+    return {"status": "ok", "states": ALL_STATES}
+
+
+# ─── Coupon / Discount code validation ───────────────────────────────────────
+
+class CouponValidateRequest(BaseModel):
+    code: str
+    subtotal_cents: int
+    shipping_cents: int = 0
+
+@app.post("/api/validate-coupon")
+async def api_validate_coupon(request: CouponValidateRequest):
+    """
+    Validate a coupon code and return the discount amount.
+
+    Demo codes: STANFORD10, SAVE20, FREESHIP, WELCOME5, TECH50
+    """
+    result = validate_coupon(
+        code=request.code,
+        subtotal_cents=request.subtotal_cents,
+        shipping_cents=request.shipping_cents,
+    )
+    return {
+        "status": "ok",
+        "valid": result.valid,
+        "code": result.code,
+        "description": result.description,
+        "discount_type": result.discount_type,
+        "discount_value": result.discount_value,
+        "discount_cents": result.discount_cents,
+        "error": result.error,
+    }
 
 
 #

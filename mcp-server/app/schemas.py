@@ -481,5 +481,10 @@ class UnifiedProduct(BaseModel):
     
     # Legacy compatibility
     retailListing: Optional[RetailListing] = None
-    
+
+    # Per-product "Why we picked this" bullets for the frontend card.
+    # Generated server-side via rule-based logic in chat_endpoint._generate_why_picked().
+    # Examples: ["✓ Good battery life", "✓ Modular & repairable", "↳ Best value in tier"]
+    why_picked: Optional[List[str]] = Field(None, description="Short bullet reasons this product was recommended")
+
     model_config = ConfigDict(extra="ignore")
