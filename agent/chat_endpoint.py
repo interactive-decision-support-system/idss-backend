@@ -528,7 +528,13 @@ async def _handle_post_recommendation(
         " vs ", "vs.", "compare my", "compare these", "compare them",
         "which is better", "which should i buy",
     )
-    _FAST_REFINE_KWS = ("refine my search", "refine search", "change my criteria")
+    _FAST_REFINE_KWS = (
+        "refine my search", "refine search", "change my criteria",
+        # Exact quick-reply button texts from the refine sub-menu — route to
+        # "refine" directly to avoid the LLM intent call misclassifying them
+        # as "new_search" (which would wipe the session) or "other".
+        "change budget", "different screen size", "different brand", "add a requirement",
+    )
     # "See similar items" button sends this text — always route to the see-similar
     # handler (intent="refine"), never to compare.  Must come BEFORE the LLM call.
     _FAST_SEE_SIMILAR_KWS = (
@@ -864,6 +870,76 @@ async def _handle_post_recommendation(
             message="What would you like to change about your search? You can update your budget, preferred screen size, brand, or any other requirement.",
             session_id=session_id,
             quick_replies=["Change budget", "Different screen size", "Different brand", "Add a requirement"],
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
+
+    # -----------------------------------------------------------------------
+    # Refine sub-option handlers — catch the exact quick-reply button texts.
+    # Without these, "Different brand" / "Change budget" etc. fall through to
+    # process_refinement() which has no specific value to extract, so the
+    # search re-runs unchanged.  Return a targeted follow-up question so the
+    # user specifies exactly what they want before we re-search.
+    # -----------------------------------------------------------------------
+    if msg_lower == "change budget":
+        session_manager.add_message(session_id, "user", request.message)
+        return ChatResponse(
+            response_type="question",
+            message="What's your new budget? For example: 'under $500', '$600–$900', or 'up to $1,200'.",
+            session_id=session_id,
+            quick_replies=None,
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
+
+    if msg_lower == "different screen size":
+        session_manager.add_message(session_id, "user", request.message)
+        size_qr = (
+            ["13 inch", "14 inch", "15.6 inch", "17 inch"]
+            if active_domain == "laptops"
+            else None
+        )
+        return ChatResponse(
+            response_type="question",
+            message="What screen size are you looking for? For example: '13 inch', '14 inch', '15.6 inch', or '17 inch'.",
+            session_id=session_id,
+            quick_replies=size_qr,
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
+
+    if msg_lower == "different brand":
+        session_manager.add_message(session_id, "user", request.message)
+        if active_domain == "laptops":
+            brand_qr = ["HP", "Dell", "ASUS", "Lenovo", "Acer"]
+        elif active_domain in ("vehicles", "cars"):
+            brand_qr = ["Toyota", "Ford", "Honda", "BMW", "Chevrolet"]
+        else:
+            brand_qr = None
+        return ChatResponse(
+            response_type="question",
+            message="Which brand are you interested in? You can type any brand name or choose one below.",
+            session_id=session_id,
+            quick_replies=brand_qr,
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
+
+    if msg_lower == "add a requirement":
+        session_manager.add_message(session_id, "user", request.message)
+        return ChatResponse(
+            response_type="question",
+            message="What additional requirement would you like to add? For example: 'touchscreen', 'backlit keyboard', '16GB RAM', 'fast SSD', or 'gaming GPU'.",
+            session_id=session_id,
+            quick_replies=None,
             filters=session.explicit_filters,
             preferences={},
             question_count=session.question_count,
