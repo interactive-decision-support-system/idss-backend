@@ -747,8 +747,10 @@ class _SQLAlchemyProductStore:
             params["price_max"] = price_max
 
         if exclude_ids:
-            conditions.append("id != ALL(:exclude_ids)")
-            params["exclude_ids"] = list(exclude_ids)
+            # Cast id column to text to avoid "operator does not exist: uuid <> text".
+            # psycopg2 sends a Python list[str] as TEXT[], but the id column is UUID.
+            conditions.append("id::text != ALL(:exclude_ids)")
+            params["exclude_ids"] = [str(eid) for eid in exclude_ids]
 
         where = " AND ".join(conditions)
         fetch_limit = min(limit * 8, 800)
