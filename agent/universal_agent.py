@@ -1114,7 +1114,10 @@ Products found:
 
 Write the recommendation message."""}
                 ],
-                max_completion_tokens=2000,
+                # 400 tokens is generous for 6 bullets (~25 tok each) + Best pick (~30 tok).
+                # The former cap of 2000 was 10x overprovisioned: OpenAI pre-allocates
+                # KV-cache per max_completion_tokens, so high caps inflate queue latency.
+                max_completion_tokens=400,
             )
             message = (completion.choices[0].message.content or "").strip()
             if not message:
