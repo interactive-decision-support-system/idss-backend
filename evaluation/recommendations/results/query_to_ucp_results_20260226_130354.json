@@ -1,0 +1,139 @@
+[
+  {
+    "query_id": "q1",
+    "query": "I need a gaming laptop under $2000",
+    "expected_ucp_match": 1.0,
+    "produced_ucp": {
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming"
+      },
+      "price_max_cents": 200000,
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
+      "good_for_gaming": true
+    }
+  },
+  {
+    "query_id": "q2",
+    "query": "MacBook for coding and web development, budget around $1500",
+    "expected_ucp_match": 1.0,
+    "produced_ucp": {
+      "brand": "Apple",
+      "good_for_web_dev": true,
+      "_soft_preferences": {
+        "use_case": "web_dev"
+      },
+      "price_max_cents": 150000,
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "brand": "Apple",
+      "price_max_cents": 150000,
+      "good_for_web_dev": true
+    }
+  },
+  {
+    "query_id": "q3",
+    "query": "Cheap laptop for students under $600",
+    "expected_ucp_match": 1.0,
+    "produced_ucp": {
+      "price_max_cents": 60000,
+      "_soft_preferences": {
+        "use_case": "school"
+      },
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 60000
+    }
+  },
+  {
+    "query_id": "q4",
+    "query": "Dell XPS or similar, 16GB RAM, for work",
+    "expected_ucp_match": 0.8,
+    "produced_ucp": {
+      "brand": "Dell",
+      "min_ram_gb": 16,
+      "_soft_preferences": {
+        "use_case": "business"
+      },
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "brand": "Dell",
+      "min_ram_gb": 16,
+      "good_for_web_dev": true
+    }
+  },
+  {
+    "query_id": "q5",
+    "query": "Lightweight laptop, 14 inch screen, under $1200",
+    "expected_ucp_match": 1.0,
+    "produced_ucp": {
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5,
+      "price_max_cents": 120000,
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 120000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5
+    }
+  },
+  {
+    "query_id": "q6",
+    "query": "Laptop for video editing and creative work",
+    "expected_ucp_match": 1.0,
+    "produced_ucp": {
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "creative"
+      },
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "good_for_creative": true
+    }
+  },
+  {
+    "query_id": "q7",
+    "query": "Best value laptop with 32GB RAM for machine learning",
+    "expected_ucp_match": 0.75,
+    "produced_ucp": {
+      "_soft_preferences": {
+        "use_case": "machine_learning"
+      },
+      "min_ram_gb": 32,
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "min_ram_gb": 32,
+      "good_for_ml": true
+    }
+  }
+]

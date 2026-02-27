@@ -1,0 +1,641 @@
+[
+  {
+    "test_id": "laptop_1",
+    "user_query": "Need an HP laptop for everyday use under $650. Prefer a 15.6-inch touchscreen with at least 16GB RAM.",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_2",
+    "user_query": "Need a 2-in-1 or detachable tablet+keyboard laptop under $800 in the US with active stylus support and 7+ hours battery life. Prefer something under 16 inches, USB-C charging, and suitable for college notes, writing, browsing, and light gaming (e.g., Terraria at 1080p/60 on medium). Must work well with Linux (Debian/Mint), and refurb/used is preferred.",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_3",
+    "user_query": "Looking for a premium thin-and-light ultrabook in the US up to $4000, prioritizing battery life, build quality, and portability (ideally <3 lbs and <0.7 in thick) with a 14\"-class display (14.5\" max). Needs an Intel CPU, 32GB RAM, at least 2x USB4 and 2x USB-A 3.2 Gen2, plus dual M.2 NVMe slots (prefer 2280). Primary workloads include compiling large codebases, running multiple Docker containers/VMs, and casual photo/video editing.",
+    "agent_message": "Which brand do you prefer for a premium 14-inch ultrabook?",
+    "score": 0.7486501945733155,
+    "passed": true,
+    "details": {
+      "reason": "The input is a detailed request for a premium ultrabook with specific requirements. The actual output asks a relevant clarifying question about brand preference, which is appropriate and on-topic for a recommendation assistant. However, it could be improved by either acknowledging the detailed requirements or asking a more targeted question (e.g., about a specific feature that may be hard to find, such as dual M.2 NVMe slots), or by providing initial recommendations. The response is helpful and aligned with the evaluation steps, but not maximally so.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_4",
+    "user_query": "Need a $1000\u2013$1500 laptop in the USA for a statistics PhD, mainly to run large Bayesian simulations in R. Priorities are performance, strong build quality, and good battery life; weight/size should be backpack-friendly and no touchscreen. Open to refurbished/used and wants it to last, with possible light-to-moderate gaming later (e.g., Baldur\u2019s Gate 3).",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_5",
+    "user_query": "Looking for a Windows laptop for a neuroscience/business student under $1200 with a ~14-inch matte, non-touchscreen display. Priorities are fast performance for heavy multitasking (Office + streaming + 20+ browser tabs), durability, light weight, and 8+ hours of battery life. Considering Lenovo ThinkPad X1 (2024) or Surface Laptop 7, but not a MacBook.",
+    "agent_message": "What\u2019s your minimum RAM requirement for smooth multitasking (e.g., 8 GB, 16 GB, 32 GB, 64 GB)? Feel free to also share Storage Type",
+    "score": 0.815191774415538,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about RAM, which is important for heavy multitasking as described in the Input. It also invites the user to specify storage type, which is helpful for tailoring recommendations. However, it could be improved by referencing the user's stated laptop models or other priorities (such as battery life or weight), or by providing an initial recommendation. Overall, it aligns well with the evaluation steps but lacks some specificity.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_6",
+    "user_query": "Looking for a $400\u2013$500 laptop (open to used/refurb) to stream from a PS5 using a capture card and add overlays plus a face cam. Performance is the top priority; weight, thinness, and screen size don\u2019t matter. Also needs to handle video editing.",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_7",
+    "user_query": "Need a portable ~14\" laptop for an incoming biology major, with good battery life and a good keyboard. Prefer a touchscreen for digital note-taking (open to 2-in-1), and open to used/refurb options under $1000. Fingerprint reader and backlit keyboard/build quality are nice-to-haves.",
+    "agent_message": "What minimum RAM would you prefer for your laptop? Feel free to also share Brand",
+    "score": 0.7954764081735208,
+    "passed": true,
+    "details": {
+      "reason": "The input is a request for laptop recommendations with detailed preferences. The actual output asks a relevant clarifying question about minimum RAM, which is appropriate for tailoring recommendations. It also invites the user to specify a preferred brand, which is helpful. However, it could be improved by referencing more of the user's stated needs (e.g., touchscreen, budget, battery life) or by asking a more targeted follow-up. Overall, the response is on-topic, coherent, and suitable for a recommendation assistant.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_8",
+    "user_query": "Looking for a gaming laptop mainly to play Fortnite, The Sims 4 (with expansions/mods), GTA, and Stardew Valley. Wants to stay around $1,000 or less if possible, and is open to refurbished/used. Weight/thinness and extra features are not important.",
+    "agent_message": "What will you primarily use the laptop for? Feel free to also share Minimum RAM, Screen Size, Brand.",
+    "score": 0.6869747042876095,
+    "passed": true,
+    "details": {
+      "reason": "The input is a clear request for gaming laptop recommendations with specific games, budget, and openness to refurbished options. The actual output is on-topic and asks for clarifying details (RAM, screen size, brand), which is appropriate per the evaluation steps. However, it misses an opportunity to acknowledge the already-stated primary use (gaming) and the budget, and could have tailored the clarifying question more specifically to the user's needs. The response is relevant and coherent but not fully optimized for the information already provided.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_9",
+    "user_query": "Need a durable used/refurb 15-inch Windows 11 laptop for a garage/vehicle workshop budgeted at $230. It should handle basic office/web tasks plus vehicle tuning/diagnostic software, with ~3\u20134 hours battery life and the ability to connect to a TV. Prefer 16GB RAM, 256GB+ SSD, and a 1080p display; considering Lenovo ThinkPad models (P53s/T15/E15/L15).",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_10",
+    "user_query": "Looking for a US laptop with good build quality and performance for online school, CAD work, and light gaming (e.g., Project Zomboid, Kenshi, Minecraft). Budget is $600\u2013$1,000 but willing to pay more if the upgrade is significantly better. Refurb/used is fine; no strong preferences on weight or screen size.",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_11",
+    "user_query": "Looking for a new 15\"+ laptop ideally in the $400\u2013$500 range (max $650) focused on performance. Main use is playing World of Warcraft Classic at max settings with 60+ FPS, plus basic web browsing and streaming. No refurb/used and no need for touchscreen; will use an external mouse.",
+    "agent_message": "Which brand would you prioritize for a 15-inch gaming laptop? Feel free to also share Storage Type.",
+    "score": 0.7777311558684612,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output is on-topic and asks a relevant clarifying question about brand preference, which is appropriate for tailoring laptop recommendations. It also invites the user to specify storage type, which is useful for performance-focused gaming laptops. However, it could be improved by directly acknowledging the user's main requirements (budget, screen size, gaming performance) or by asking about other key specs like RAM or GPU. Overall, it aligns well with the evaluation steps but lacks a bit of specificity.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_12",
+    "user_query": "Looking for a gaming laptop in the US with a budget around $2000. Preferably a 16-inch screen. Will be used for MMOs and shooter games.",
+    "agent_message": "What minimum RAM do you require for your gaming laptop?",
+    "score": 0.8149928313733812,
+    "passed": true,
+    "details": {
+      "reason": "The input is a request for gaming laptop recommendations with specific requirements (US, ~$2000, 16-inch, MMOs and shooters). The actual output asks a relevant clarifying question about minimum RAM, which is appropriate and on-topic for a recommendation assistant. However, it could be improved by either providing initial recommendations or acknowledging the other stated preferences (screen size, budget, use case) in the follow-up. The response is helpful but not fully comprehensive.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_13",
+    "user_query": "Looking for a new work laptop under $1,000 USD with strong battery life (at least 6 hours) and high reliability. Prefer a 14\u201315 inch screen with the webcam at the top bezel, plus at least two USB ports and a headphone jack. Used mainly for Zoom and Microsoft Office; lightweight preferred but not required.",
+    "agent_message": "What minimum RAM would you consider for smooth Zoom and Office performance on a 14\u201315 inch business laptop? Feel free to also share Brand",
+    "score": 0.821907150398023,
+    "passed": true,
+    "details": {
+      "reason": "The input is a clear request for laptop recommendations with detailed preferences. The actual output responds by asking a relevant clarifying question about minimum RAM, which is appropriate for tailoring recommendations and aligns with the expected output criteria. However, the question about brand is less focused and could have been more directly tied to the user's stated needs. The response is on-topic, coherent, and suitable for a recommendation assistant, but could be improved by being more concise and directly referencing the user's requirements.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_14",
+    "user_query": "Looking for a reliable, well-built laptop for a 13-year-old in the US with a $600\u2013$1,000 budget (willing to pay more if it\u2019s a big upgrade). Needs good performance for online school, CAD work, and light gaming (e.g., Minecraft, Project Zomboid, Kenshi). Refurb/used is fine and there are no strong preferences on size, weight, or form factor.",
+    "agent_message": "What\u2019s the minimum RAM you\u2019d consider for a reliable school laptop that can handle online classes, CAD work, and light gaming, given a $600\u2013$1000 budget and the option for refurb/used? Feel free to also share Screen Size, Brand",
+    "score": 0.7870111817470193,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output is on-topic and asks a relevant clarifying question about RAM, which is important for the user's use case (school, CAD, gaming). It also references the budget and refurb/used option, showing understanding of the requirements. However, the question is somewhat verbose and introduces additional clarifying points (screen size, brand) that the user already indicated were not strong preferences, making it slightly less focused. Overall, it aligns well with the evaluation steps but could be more concise and targeted.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_15",
+    "user_query": "Looking for a college laptop in the USA under $1400 (lower is better), open to refurb/used in like-new condition with original packaging. Needs good battery life and performance for SolidWorks, coding (VS Code/MySQL), and moderate gaming (Forza, Hytale, modded Minecraft), ideally in a 14\u201315\" 2-in-1. Must have a touchscreen and OLED display; would like a good keyboard/touchpad and fingerprint reader.",
+    "agent_message": "What is the minimum RAM (in GB) you require for your college laptop? Feel free to also share Brand",
+    "score": 0.7656049610764327,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about minimum RAM, which is important for SolidWorks, coding, and gaming, aligning with the user's technical requirements. It also invites the user to specify a preferred brand, which can help tailor recommendations. However, the response could be improved by focusing on just one clarifying question, as the Expected Output suggests, and by being more concise. Overall, it is on-topic, coherent, and suitable for a recommendation assistant.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_16",
+    "user_query": "Looking for a good laptop from Costco in the US for up to $1000, new only (no refurbs/used) and not HP. Prefer a lightweight, thin laptop around 13 inches with all-day battery life, optional touchscreen, and reliable build quality. Needs to handle online classes and light gaming (Stardew Valley, indie games, visual novels); considering MacBook Air but concerned about game availability.",
+    "agent_message": "What minimum RAM do you want in your next laptop? Feel free to also share Brand",
+    "score": 0.4697312143111315,
+    "passed": false,
+    "details": {
+      "reason": "The output asks a relevant clarifying question about RAM, which is appropriate for tailoring laptop recommendations. However, it also asks about brand preference, despite the user already specifying 'not HP' and considering a MacBook Air, making this part redundant. The response does not provide any recommendations or address other key preferences (screen size, weight, battery life, Costco availability). Overall, it is partially aligned but lacks specificity and misses several user-stated requirements.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_17",
+    "user_query": "Looking for a laptop in the US for $500 or less (refurb/used OK) that can run Foundry VTT at recommended settings for Lancer/DnD. Prefers a 16-inch or larger screen and would like somewhat rugged build if possible. Linux compatibility is preferred but not required.",
+    "agent_message": "What minimum RAM do you want to target for smooth Foundry VTT performance on a 16-inch+ laptop? Feel free to also share Brand.",
+    "score": 0.8699254427326117,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about minimum RAM, which is important for Foundry VTT performance and aligns with the user's use case. It also invites the user to specify a preferred brand, which can help tailor recommendations. The response is on-topic, coherent, and suitable for a recommendation assistant. However, it could be slightly improved by referencing other user preferences (like ruggedness or Linux compatibility), but overall it strongly aligns with the evaluation steps.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_18",
+    "user_query": "US aerospace engineering student with a ~$2000 budget wants a Windows 2-in-1 laptop with touchscreen/stylus note-taking to replace a MacBook Air/iPad setup. Needs enough performance for SolidWorks, MATLAB, and other engineering/CAD software, and should work well with a USB-C monitor/keyboard and Bluetooth mouse setup.",
+    "agent_message": "What minimum RAM would you consider for SolidWorks, MATLAB, and CAD workloads on a Windows 2-in-1 with touchscreen/stylus? Feel free to also share Screen Size, Brand",
+    "score": 0.8135896948158899,
+    "passed": true,
+    "details": {
+      "reason": "The input is a request for laptop recommendations with detailed requirements. The actual output responds with a relevant clarifying question about minimum RAM, which is important for SolidWorks, MATLAB, and CAD workloads, and also invites the user to specify screen size and brand preferences. This aligns well with the evaluation steps, as asking for more information is appropriate. However, the output could be improved by focusing on a single clarifying question or by providing initial recommendations alongside the question, as the expected output suggests. The response is on-topic, coherent, and suitable for a recommendation assistant.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_19",
+    "user_query": "Looking for a non-Apple laptop in the $700\u2013$800 range for a college freshman. Needs to comfortably run Opera GX, Roblox, and Discord. Open to brands like Lenovo or Dell.",
+    "agent_message": "What\u2019s the minimum RAM you\u2019d be comfortable with for your new laptop? (e.g., 4 GB, 8 GB, 12 GB, 16 GB)",
+    "score": 0.90839189400047,
+    "passed": true,
+    "details": {
+      "reason": "The input is a request for non-Apple laptop recommendations within a specific budget and for particular use cases. The actual output asks a relevant clarifying question about RAM, which is important for running the mentioned applications and tailoring recommendations. The response is on-topic, coherent, and aligns with the expected output criteria. However, it could be slightly improved by acknowledging the user's other preferences (brand, budget) or by providing a brief rationale for why RAM matters.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_20",
+    "user_query": "Need a professional-looking 15\u201316\" laptop for mechanical engineering school under $2000, with at least ~6 hours battery life and good performance. Must handle CAD/3D workloads (Fusion 360, SolidWorks, Blender) and programming (MATLAB/Python), plus some gaming (BeamNG, Forza, GTA). Open to open-box if it looks new and is portable for backpack carry.",
+    "agent_message": "What minimum RAM do you need for CAD/3D workloads (Fusion 360, SolidWorks, Blender) and multitasking on a 15\u201316\" laptop? Feel free to also share Brand.",
+    "score": 0.7986329847349829,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about minimum RAM, which is important for CAD/3D workloads and multitasking, aligning with the user's needs. It also invites the user to specify a brand preference, which can help tailor recommendations. However, it does not provide any specific laptop recommendations or address other key requirements such as battery life, portability, or gaming performance. The response is on-topic, coherent, and suitable for a recommendation assistant, but could be improved by addressing more of the user's stated criteria.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_21",
+    "user_query": "Need a new Windows 2-in-1 laptop for college use, entertainment, light gaming (Roblox/Steam), and drawing with a touch screen and tablet/fold mode. Budget is $500\u2013$700 USD (buying in the US), new only, with good battery life and portable enough for a backpack. Prefer a reasonably large screen plus good keyboard and touchpad.",
+    "agent_message": "What minimum RAM would you like in your new Windows 2-in-1 (for multitasking, drawing, and light gaming)? Feel free to also share Brand.",
+    "score": 0.8793105943848767,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about minimum RAM, which is important for multitasking, drawing, and light gaming, directly aligning with the user's needs. It also invites the user to specify a preferred brand, which can help tailor recommendations. The response is on-topic, coherent, and suitable for a recommendation assistant. However, it could be slightly improved by referencing other key preferences from the input, such as screen size or battery life, but overall it meets the evaluation steps well.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_22",
+    "user_query": "Looking for a new MacBook under $3000 USD in the US, preferably around 16 inches. User is a software engineer prioritizing performance for running a Phoenix server and Claude Code, considering an M4 chip and unsure how to prioritize GPU vs memory. Prefers a model with a fingerprint scanner and is not open to refurb/used.",
+    "agent_message": "What is your minimum RAM requirement (in GB) for your MacBook?",
+    "score": 0.824782044182179,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about RAM, which is important for a software engineer prioritizing performance. This aligns with the evaluation steps, as it is on-topic, coherent, and suitable for a recommendation assistant. However, it could be improved by referencing other user preferences (such as the M4 chip, 16-inch screen, or fingerprint scanner) or by providing a brief recommendation alongside the question.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_23",
+    "user_query": "Recommend an up-to-date MacBook model suitable for professional applications. It should handle animation and game development workloads.",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_24",
+    "user_query": "Looking for a new (refurb OK if like-new) laptop in the US for $1500, stretchable to $2000, prioritizing strong CPU performance and good battery life with reasonable portability. Needs 14\u201316\" non-touch, non-OLED display ideally 1440p/60Hz, M.2 SSD with at least 512GB and upgradeable to 1TB+, and at least 16GB RAM (prefer 32GB if non-upgradable). Should handle light\u2013moderate gaming (LoL, Slay the Spire, modded Minecraft at 1440p ~60fps) and programming/LaTeX, with USB-C DP Alt Mode and preferably a headphone jack.",
+    "agent_message": "Which laptop brands would you prefer for a 14\u201316\" non-touch, non-OLED laptop with strong CPU performance, solid battery life, 16\u201332GB RAM, upgradeable SSD (512GB+), and 1440p/60Hz display? Feel free to also share Primary Use, Budget, and any other must-haves.",
+    "score": 0.6627726668307483,
+    "passed": true,
+    "details": {
+      "reason": "The output is on-topic and asks a clarifying question relevant to the user's request, specifically about brand preference, which can help tailor recommendations. However, it redundantly repeats much of the information already provided by the user (screen size, RAM, SSD, display), and asks for budget and primary use, which the user has already specified in detail. It does not provide any recommendations or focused follow-up questions that would move the conversation forward more efficiently. The response is relevant and coherent but could be more helpful by either recommending laptops or asking a more targeted clarifying question.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_25",
+    "user_query": "Looking for a laptop in the $2000\u2013$2500 budget range. Primary use is gaming, with some schoolwork.",
+    "agent_message": "What minimum RAM would you prefer for your gaming laptop? Feel free to also share Screen Size, Brand",
+    "score": 0.8281405619482186,
+    "passed": true,
+    "details": {
+      "reason": "The response is on-topic and asks a relevant clarifying question about minimum RAM, which is important for gaming laptops. It also invites the user to share preferences for screen size and brand, which are useful for tailoring recommendations. However, the question could be more focused by asking only one clarifying question as suggested in the expected output, rather than listing multiple preferences at once. No specific laptop recommendations are given, but the approach aligns well with the evaluation steps.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_26",
+    "user_query": "Looking for a lightweight 2-in-1 tablet-style Windows/Android device under $400 in the US (refurb/used OK) for on-the-go reading, writing, and photo/video editing. Must support touchscreen + pen and preferably have a removable keyboard, with better performance and higher RAM than a Surface Go to avoid lag when multitasking.",
+    "agent_message": "What screen size do you prefer for a lightweight 2-in-1 device under $400? Feel free to also share Brand.",
+    "score": 0.7947952108959715,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about screen size, which is appropriate given the user's detailed requirements and helps tailor future recommendations. It also invites the user to specify a brand preference, which is useful. However, it does not provide any immediate recommendations or address other key requirements (like pen support, removable keyboard, or performance needs), so it misses an opportunity to be more helpful. The response is on-topic, coherent, and suitable for a recommendation assistant.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_27",
+    "user_query": "Looking for a basic, cheap laptop under $350 (USD) for web browsing, Microsoft Office, and reading PDFs. Performance and battery life are the top priorities, and lighter/smaller is preferred. Must have a backlit keyboard, a USB port for a flash drive, and a trackpad; open to refurbished/used if from a reputable seller and under warranty.",
+    "agent_message": "What will you primarily use the laptop for? Feel free to also share minimum RAM, screen size, and brand preferences.",
+    "score": 0.7679178692681615,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output is on-topic and asks relevant clarifying questions about RAM, screen size, and brand preferences, which aligns with the evaluation steps. However, it misses an opportunity to acknowledge or reference the user's already detailed requirements (budget, use case, backlit keyboard, USB port, etc.), making it slightly less tailored and helpful than it could be. It does not provide recommendations but fulfills the criteria for a valid clarifying question.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_28",
+    "user_query": "Looking for a $1200 laptop in the US for a finance major that can handle Excel-heavy schoolwork and gaming (Minecraft, Roblox, Valorant) at medium\u2013high settings around 60\u2013120 FPS. Prioritizes performance first, then build quality and battery life, with moderate portability and a 14\u201316 inch screen. Needs a good keyboard, reliable build, at least 16GB RAM, and 512GB+ SSD; open to certified refurbished with warranty and wants it to last 4+ years.",
+    "agent_message": "Which brand do you prefer for your 14\u201316 inch gaming/finance laptop? Feel free to also share Brand.",
+    "score": 0.564583807340992,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about brand preference, which is appropriate for tailoring laptop recommendations and aligns with the evaluation steps. However, the question is somewhat redundant and awkwardly phrased ('Feel free to also share Brand'), and it does not address any of the user's other detailed requirements or offer any recommendations. The response is on-topic and coherent, but could be more helpful by either providing initial suggestions or asking about other key preferences.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_29",
+    "user_query": "Looking for a used/refurb traditional 14\u201316\" laptop in the US for under $1,000 with reliable build quality. Wants to game modern titles (indie to AAA) at medium settings around 60 FPS and also do music recording. Can reuse a 1TB drive and 32GB DDR5-4800 RAM from a prior laptop, so low storage/16GB configs are acceptable.",
+    "agent_message": "What brand do you prefer for a used/refurb 14\u201316\" gaming laptop?",
+    "score": 0.8196320895344407,
+    "passed": true,
+    "details": {
+      "reason": "The output asks a relevant clarifying question about brand preference, which is appropriate given the user's request for a used/refurbished laptop and helps tailor future recommendations. However, it could be improved by either providing initial recommendations or asking about other key factors (such as GPU preference or music recording needs). The response is on-topic, coherent, and suitable for a recommendation assistant.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_30",
+    "user_query": "Need a laptop for electrical engineering within a $1500 budget (used is OK). Primary use is CAD and programming; no gaming. Prefer quiet operation for library use and a decent keyboard.",
+    "agent_message": "What minimum RAM (in GB) would you like on your laptop? Feel free to also share Screen Size, Brand",
+    "score": 0.8414898845796769,
+    "passed": true,
+    "details": {
+      "reason": "The output is on-topic and asks a relevant clarifying question about RAM, which is important for CAD and programming tasks. It also invites the user to specify screen size and brand preferences, which are useful for tailoring recommendations. However, the question could be more focused by prioritizing the most critical specs (e.g., RAM and keyboard quality) and omitting the incomplete sentence at the end. Overall, it aligns well with the evaluation steps but lacks a bit of polish.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_31",
+    "user_query": "Need a new laptop under $1000 for work and gaming/creative use, including Minecraft (possibly hosting a server), Roblox/Roblox Studio, and Blender. Prefer good performance, good battery life, and solid keyboard/touchpad with durable build quality. Wants a normal/professional look (no flashy RGB).",
+    "agent_message": "What is your minimum RAM (in GB) for the laptop?",
+    "score": 0.7679840529804541,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about minimum RAM, which is important for the user's stated use cases (gaming, creative work, hosting servers). This aligns with the evaluation steps, as asking about RAM helps tailor future recommendations. However, the response could be improved by either providing an initial recommendation or asking a slightly broader clarifying question (e.g., about GPU or screen size), but it remains on-topic, coherent, and suitable for a recommendation assistant.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_32",
+    "user_query": "Looking for a new lightweight 12\u201313\" 2-in-1 with excellent pen support (palm rejection, color accuracy) for drawing and creative apps, plus enough performance to game. Budget is $2,000\u2013$2,400 and battery life should support ~8 hours of productivity use. Wants to run Photoshop/CSP/Illustrator (possibly Blender) and play Warframe at high/max settings around 60+ FPS.",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_33",
+    "user_query": "Need a portable college laptop (14in preferred, max 15in; under ~2.0kg) with strong performance and decent all-day battery life on a $1,200\u2013$1,500 USD budget. Primary use is competitive FPS gaming on an external 1080p monitor (Apex/OW/Valorant) targeting ~200+ FPS, plus occasional light photo/video editing. Good keyboard is a must; open to used/refurb but cautious about scams.",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_34",
+    "user_query": "Looking for a reliable, long-lasting laptop in the US with strong battery life for lectures and note-taking. Main use is multitasking for school/professional work: research with multiple tabs/windows, writing papers, creating presentations, and virtual meetings. Open to refurbished/used but prefers reliability; interested in repairable/upgradeable options like Framework.",
+    "agent_message": "What\u2019s your budget range for a reliable, upgradeable laptop with long battery life for school and professional work? Feel free to also share any budget constraints or flexibility.",
+    "score": 0.8847967752614723,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output directly addresses the user's request by asking a relevant clarifying question about budget, which is important for tailoring laptop recommendations. It is on-topic, coherent, and suitable for a recommendation assistant. However, it could be slightly improved by also acknowledging the user's interest in repairable/upgradeable options or mentioning Framework, as stated in the input.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_35",
+    "user_query": "Need a reliable, long-battery-life laptop for an incoming US electrical engineering student, with enough performance for CAD and creative work (Blender, Onshape/SolidWorks, light video editing) plus some gaming. Prefers a portable 14-inch-ish laptop with good display for outdoor use, USB-C charging, and a microSD card slot, under $2000. Wants at least ~1TB fast storage and strong specs that will stay relevant for 4+ years.",
+    "agent_message": "What minimum RAMGB would you consider for your laptop to handle CAD, Blender, and light video editing alongside gaming? Feel free to also share Brand",
+    "score": 0.7581021226522873,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about minimum RAM, which is important for the user's stated use cases (CAD, Blender, gaming, video editing). It also invites the user to specify a preferred brand, which can help tailor recommendations. However, the question is somewhat awkwardly phrased ('RAMGB'), and it could have been more focused by asking only one clarifying question or by providing an initial recommendation. Overall, it aligns well with the evaluation steps but lacks polish and specificity.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_36",
+    "user_query": "Need the cheapest possible laptop around $250 (can go a bit higher), open to used/refurb. Main use is running a Roblox macro for Bee Swarm Simulator nearly 24/7 while plugged in, targeting ~60 FPS at lowest settings. Performance and thermals matter; size/weight/build quality do not, and Windows debloat or Linux is acceptable.",
+    "agent_message": "What\u2019s your minimum RAM requirement for this laptop? Feel free to also share Screen Size, Brand.",
+    "score": 0.7725798618779631,
+    "passed": true,
+    "details": {
+      "reason": "The output is on-topic and asks a relevant clarifying question about RAM, which is important for performance in the user's use case. It also invites the user to share preferences on screen size and brand, which could help tailor recommendations. However, it could be improved by focusing more on the most critical specs (like CPU/GPU) for running Roblox at 60 FPS, or by providing an initial recommendation or more targeted follow-up questions. Overall, it aligns well with the evaluation steps but lacks some specificity.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_37",
+    "user_query": "Looking for a Windows laptop in the US around $1,500 (new only) for Photoshop/Illustrator and light-to-moderate Steam gaming (cozy games, modded Minecraft). Priorities are performance and reliable build, lighter weight than an XPS 15, ~15-inch screen with high color accuracy, and support for 2\u20133 external monitors while mostly plugged in. Prefer a normal-looking clamshell (no 2-in-1/gamer styling) and wants Nvidia graphics with at least 16GB RAM.",
+    "agent_message": "Which laptop brand do you prefer for a reliable, color-accurate 15-inch Windows laptop in your price range? Feel free to also share Storage Type",
+    "score": 0.579424360545032,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about brand preference, which aligns with the evaluation steps. However, it is somewhat incomplete: it does not address other key priorities from the input (such as Nvidia graphics, RAM, or external monitor support), and the mention of 'Storage Type' is abrupt and unclear. The response is on-topic and coherent, but could be more focused and comprehensive in its clarifying questions.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_38",
+    "user_query": "Looking for a ~$1500 laptop (can go slightly over; refurb/used OK from reputable sellers) prioritized for performance for CAD (SolidWorks/Autodesk), slicers, and some 1080p gaming (~60 FPS). Should be portable enough for school and support docking for peripherals, power delivery, and multiple external monitors.",
+    "agent_message": "What will you primarily use the laptop for?",
+    "score": 0.415461118417601,
+    "passed": false,
+    "details": {
+      "reason": "The Actual Output asks a clarifying question, which aligns with the evaluation steps, but it is too generic given the user's detailed input. The user already specified primary uses (CAD, slicers, gaming), budget, portability, and docking needs. The response misses an opportunity to ask a more targeted follow-up or provide recommendations, making it only partially relevant and helpful.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_39",
+    "user_query": "Need a lightweight, quiet, well-built laptop for work (Python, frequent Docker builds, Slack) with good battery life and strong Linux compatibility. Planning dual-boot Windows + Linux (Debian/Ubuntu/Arch), prefers x86 (not ARM), 14\u201316\" (12\" acceptable), and wants 16GB+ RAM. Prefer USB4/Thunderbolt and HDMI; budget up to $2500 and open to used/refurbished.",
+    "agent_message": "Which brand do you prefer for a lightweight, Linux-friendly work laptop?",
+    "score": 0.7912436941182385,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about brand preference, which is appropriate for tailoring laptop recommendations and aligns with the evaluation steps. However, the question could be more specific or address other key requirements from the input, such as Linux compatibility, RAM, or ports. It does not provide recommendations yet, but it is on-topic, coherent, and suitable for a recommendation assistant.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_40",
+    "user_query": "Need a Windows laptop for music production with some casual gaming. Prioritize overall performance and reliability to stay useful for around 5 years. Requesting a couple of recommendations.",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_41",
+    "user_query": "Need a well-built laptop with great battery life for a Mechanical Engineering BCS, budget $1500\u2013$2000, open to used/refurb. It should handle potential SolidWorks use and Lightroom for photo editing. Considering MacBook vs Lenovo ThinkPad or similar alternatives, and should be comfortable to carry in a backpack.",
+    "agent_message": "",
+    "score": 0.0,
+    "passed": false,
+    "details": {
+      "error": "empty agent response; cannot evaluate relevance"
+    },
+    "recommendations_summary": null,
+    "response_type": null
+  },
+  {
+    "test_id": "laptop_42",
+    "user_query": "Looking for a portable 11\u201313\" Windows 2-in-1 that can replace an iPad Pro as a tablet-first device, with excellent battery life and strong performance for creative work. Must support reliable, high-quality pen input/pressure for drawing and run programs like Adobe Suite, Toon Boom Harmony, and DaVinci Resolve. Budget is up to $1500 and open to refurbished/used.",
+    "agent_message": "What is the minimum RAM you require for smooth creative work on an 11\u201313\" Windows 2-in-1 with pen input?",
+    "score": 0.8793105946293881,
+    "passed": true,
+    "details": {
+      "reason": "The input is a detailed request for a laptop recommendation, specifying size, OS, pen input, creative software, and budget. The actual output asks a relevant clarifying question about RAM, which is important for creative work and aligns with the user's needs. While it does not provide recommendations, asking about RAM is a focused and appropriate follow-up to tailor future suggestions. The response is on-topic, coherent, and suitable for a recommendation assistant, closely matching the expected output criteria.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_43",
+    "user_query": "Looking for a new Windows 11 laptop around $1200 that\u2019s portable for frequent travel with a 14\u201315 inch screen. Needs strong performance and good battery life for PhD work using SAS, R, and large Excel datasets plus feed formulation software. Prefers good keyboard, build quality, and input devices; coming from a MacBook Air that can\u2019t run required programs.",
+    "agent_message": "What minimum RAM (in GB) do you want for your Windows 11 laptop? Feel free to also share Brand",
+    "score": 0.8060655725278266,
+    "passed": true,
+    "details": {
+      "reason": "The input is a clear request for a Windows 11 laptop recommendation with detailed requirements. The actual output responds with a relevant clarifying question about RAM, which is important for the user's use case (SAS, R, large datasets), and invites the user to specify a brand preference. This aligns well with the evaluation steps, as asking for RAM and brand helps tailor recommendations. However, the output could be improved by referencing the user's stated needs more directly or by asking a more targeted question (e.g., confirming if 16GB or 32GB RAM is preferred given the workload).",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_44",
+    "user_query": "Need a non-ASUS 14-inch (max) laptop under $3000 for frequent travel, with at least 32GB RAM, dedicated GPU, and low noise during office use. Main uses are large office spreadsheets/files, video editing/processing, and secondary gaming while traveling.",
+    "agent_message": "What's your preferred brand for a non-ASUS 14-inch laptop under $3000 with 32GB RAM and a dedicated GPU? Feel free to also share Storage Type.",
+    "score": 0.8348645148869667,
+    "passed": true,
+    "details": {
+      "reason": "The output is on-topic and asks a relevant clarifying question about brand preference, which is appropriate since the user specified 'non-ASUS' but did not indicate any other brand preferences. It also invites the user to specify storage type, which is helpful for tailoring recommendations. However, it could be improved by acknowledging the user's detailed requirements (14-inch max, $3000 budget, 32GB RAM, dedicated GPU, low noise, travel use, office/video/gaming tasks) and perhaps asking a more targeted follow-up about usage priorities or noise tolerance. Overall, it aligns well with the evaluation steps but lacks some specificity.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_45",
+    "user_query": "Need a new laptop under $750 focused on strong performance for video editing (DaVinci Resolve/Adobe Premiere) plus schoolwork and multitasking. Prefer reliable build quality, SSD storage, and at least 16GB RAM, with battery life moderately important. Screen size ideally 15 inches or larger, weight/thinness not a priority.",
+    "agent_message": "Which brand do you prefer for your new laptop? Feel free to also share Brand",
+    "score": 0.40037171096084423,
+    "passed": false,
+    "details": {
+      "reason": "The Actual Output asks a clarifying question about brand preference, which is relevant and on-topic for a laptop recommendation assistant. However, the question is awkwardly phrased and partially redundant ('Feel free to also share Brand'), which reduces coherence. It does not provide any recommendations or further clarifying questions about other important criteria (e.g., RAM, screen size, budget), missing an opportunity to be more helpful and aligned with the user's detailed requirements.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_46",
+    "user_query": "Need a small, lightweight travel laptop to play Riot\u2019s 2XKO at low settings with a stable 60 FPS. Budget is up to $600 (cheaper preferred) and refurbished/used is acceptable but reliability is a concern. Preferred screen size is around 10\u201313 inches with performance prioritized over battery life.",
+    "agent_message": "What\u2019s the minimum RAM you\u2019d require for stable 60 FPS on Riot\u2019s 2XKO at low settings on a 10\u201313 inch travel laptop? Feel free to also share Brand",
+    "score": 0.7983937890398544,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about RAM, which is important for ensuring stable 60 FPS performance in games like Riot\u2019s 2XKO. It also invites the user to specify a brand preference, which can help tailor recommendations. However, the question about RAM could have been more confidently addressed by suggesting a typical minimum (e.g., 8GB), and the brand question is less critical than other factors like GPU or CPU. The response is on-topic, coherent, and suitable for a recommendation assistant, but it could be improved by providing a preliminary recommendation or more targeted clarifying questions.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_47",
+    "user_query": "Looking for a well-built 15-inch laptop under $900 (US), preferably new (not refurb/used). Must support USB-C charging and ideally have an Intel CPU. Preferred brands are Lenovo or HP; shopping near Costco or Micro Center.",
+    "agent_message": "What will you primarily use the laptop for? Feel free to also share Minimum RAM",
+    "score": 0.698601705567036,
+    "passed": true,
+    "details": {
+      "reason": "The output asks a relevant clarifying question about the primary use of the laptop, which aligns with the evaluation steps. It also prompts for minimum RAM, which is helpful for tailoring recommendations. However, the question about RAM is incomplete ('Feel free to also share Minimum RAM'), making the output less clear and polished. No specific recommendations are given, but asking clarifying questions is acceptable per the expected output. The response is on-topic and suitable for a recommendation assistant, but the incomplete sentence and lack of direct recommendations prevent a higher score.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_48",
+    "user_query": "Need an inexpensive laptop ($500\u2013600, USA) that can connect to a Dell WD15 USB-C dock and extend the desktop to two Dell U2412Mc external monitors. It will mostly be used plugged in for tax software plus basic web and Office apps. Must have a 10-key numeric keypad; touchscreen is a nice-to-have.",
+    "agent_message": "What minimum RAM (in GB) do you want for this laptop?",
+    "score": 0.8318016313969597,
+    "passed": true,
+    "details": {
+      "reason": "The input is a clear request for laptop recommendations with specific requirements. The actual output asks a relevant clarifying question about RAM, which is appropriate for tailoring recommendations and aligns with the expected output criteria. However, it could be improved by acknowledging the user's other requirements or asking a more targeted question related to compatibility with the dock or numeric keypad, so it is not a perfect response.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_49",
+    "user_query": "Need a laptop for college plus gaming under $1700 (preferably less), open to refurbished. Wants strong performance and good battery life, with good cooling, at least 24\u201332GB RAM and 1TB storage, and at least 2 USB ports. Should run Helldivers 2 and War Thunder around 100\u2013120 FPS on medium, and future games ~80+ FPS on medium.",
+    "agent_message": "What screen size do you prefer for college and gaming use?",
+    "score": 0.8980180704338888,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about screen size, which is appropriate given the user's detailed requirements and aligns with the Expected Output's criteria for a helpful response. The question is on-topic, coherent, and suitable for a recommendation assistant. However, it could be slightly improved by referencing the user's specific needs or acknowledging the provided details before asking the question.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  },
+  {
+    "test_id": "laptop_50",
+    "user_query": "Looking for a 15\u201317\" laptop under $1000 in the US (California), preferably from Best Buy or Costco, and open to refurbished/used. Needs good battery life and to be reasonably future-proof for office work and basic photo editing (e.g., making Christmas cards). Touchscreen is not needed; a full number pad is nice to have but not required.",
+    "agent_message": "What\u2019s your minimum RAM requirement for the laptop?",
+    "score": 0.8600103151707273,
+    "passed": true,
+    "details": {
+      "reason": "The Actual Output asks a relevant clarifying question about RAM, which is important for office work and photo editing, aligning with the user's needs. This approach is on-topic, coherent, and suitable for a recommendation assistant. While it does not provide recommendations directly, it fulfills the Expected Output criteria by seeking necessary information to tailor future suggestions. The only minor shortcoming is that it could have addressed other preferences (e.g., number pad, battery life), but the question is still highly relevant.",
+      "threshold": 0.5
+    },
+    "recommendations_summary": null,
+    "response_type": "question"
+  }
+]

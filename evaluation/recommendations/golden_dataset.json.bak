@@ -1,0 +1,80 @@
+[
+  {
+    "query_id": "q1",
+    "user_query": "I need a gaming laptop under $2000",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "q2",
+    "user_query": "MacBook for coding and web development, budget around $1500",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "brand": "Apple",
+      "price_max_cents": 150000,
+      "good_for_web_dev": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "q3",
+    "user_query": "Cheap laptop for students under $600",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 60000
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "q4",
+    "user_query": "Dell XPS or similar, 16GB RAM, for work",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "brand": "Dell",
+      "min_ram_gb": 16,
+      "good_for_web_dev": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "q5",
+    "user_query": "Lightweight laptop, 14 inch screen, under $1200",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 120000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "q6",
+    "user_query": "Laptop for video editing and creative work",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "q7",
+    "user_query": "Best value laptop with 32GB RAM for machine learning",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "min_ram_gb": 32,
+      "good_for_ml": true
+    },
+    "ground_truth_product_ids": []
+  }
+]

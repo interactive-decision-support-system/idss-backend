@@ -1,0 +1,112 @@
+[
+  {
+    "query_id": "q1",
+    "user_query": "I need a gaming laptop under $2000",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": [
+      "00d7d336-f17a-472b-8f0a-02f6b2cbbd25"
+    ]
+  },
+  {
+    "query_id": "q2",
+    "user_query": "MacBook for coding and web development, budget around $1500",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "brand": "Apple",
+      "price_max_cents": 150000,
+      "good_for_web_dev": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "q3",
+    "user_query": "Cheap laptop for students under $600",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 60000
+    },
+    "ground_truth_product_ids": [
+      "bd14b5b1-4fe5-4557-81f6-bddfc6abe622",
+      "eaf5cc40-d7b0-4d74-824a-d5b86af58ddd",
+      "586b9f87-71d5-4531-883a-c9050a52bd01",
+      "f0e10701-99c7-4249-b117-886b006a5ff2",
+      "0952af0b-ff19-4310-80a3-788cfcfae4c3",
+      "e1cdce3e-3266-4146-8b3a-739fe6d9a549",
+      "4bec11aa-b5d3-48ce-9b7f-6aa559cdd2b3",
+      "742fe38b-0065-4006-b7b5-6106c62a69a8",
+      "0d8c8a1c-2364-4328-b313-2357f623dafd",
+      "1d34d53e-3345-4451-8412-9946397fa1c4"
+    ]
+  },
+  {
+    "query_id": "q4",
+    "user_query": "Dell XPS or similar, 16GB RAM, for work",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "brand": "Dell",
+      "min_ram_gb": 16,
+      "good_for_web_dev": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "q5",
+    "user_query": "Lightweight laptop, 14 inch screen, under $1200",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 120000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5
+    },
+    "ground_truth_product_ids": [
+      "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "eedce8ed-7314-49de-b73c-0433047b305b",
+      "dbb1901e-5bee-4c5d-b4f4-f31649809de7",
+      "995c709e-1d98-4832-b216-9a1cbf64222b",
+      "01634bd5-56bd-422e-982f-8113dd3c391e",
+      "a27e9dec-95f6-4b22-b697-2201254b0827",
+      "0952af0b-ff19-4310-80a3-788cfcfae4c3",
+      "e9e8a652-6bbf-4912-92a6-45a537387a5c",
+      "b2cf21b8-e40a-431d-ac7f-ec6f36f98d1a",
+      "43c81cd9-80dc-42b2-8520-f4dd32e368a3"
+    ]
+  },
+  {
+    "query_id": "q6",
+    "user_query": "Laptop for video editing and creative work",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": [
+      "398a53ff-da8b-4955-92ad-c4d8eb9c31a9",
+      "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
+      "5d213ac7-dfb5-4bab-a972-78adb494adc5",
+      "6ba261e8-800b-4750-b19a-3e2a576a5c2a",
+      "406a9be0-2aa4-47b0-b49f-e4c3b7faa4e4",
+      "25f6ed92-2db4-444c-a7a5-eddbc0349ca4",
+      "6a7d51d9-78d9-4c90-a002-7b89cc7a894c"
+    ]
+  },
+  {
+    "query_id": "q7",
+    "user_query": "Best value laptop with 32GB RAM for machine learning",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "min_ram_gb": 32,
+      "good_for_ml": true
+    },
+    "ground_truth_product_ids": []
+  }
+]

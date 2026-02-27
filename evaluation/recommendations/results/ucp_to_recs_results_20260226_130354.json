@@ -1,0 +1,130 @@
+[
+  {
+    "query_id": "q1",
+    "query": "I need a gaming laptop under $2000",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "recommended_ids": [
+      "865f2bba-bb8c-4c7f-84a0-8bd46da9692f",
+      "8d5d33fa-c092-45e6-a9a8-097ff701019d",
+      "feda27b7-24d0-4db1-ae2c-0cd6500710cb",
+      "0cbc3a44-1367-4111-938e-61185379aa07",
+      "6bd36557-6169-44ed-992a-4ff6dc3753ca",
+      "3755a524-457f-4e4e-adcc-bf8b94c94ecf",
+      "c767d1c4-72de-4087-9699-0dc2ed4d499d",
+      "9d43bd58-fcfe-4f86-baf4-323e433f463a",
+      "d03d1290-a46c-4958-92ef-e29729d5793c",
+      "d9259c21-bf1b-4db1-a791-2c2d868b7d90"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "q2",
+    "query": "MacBook for coding and web development, budget around $1500",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "recommended_ids": [
+      "6a7d51d9-78d9-4c90-a002-7b89cc7a894c",
+      "8fb635ae-31cf-46ca-894d-81b9a899911e",
+      "5134c58c-c643-473a-8a65-94ad30d360dd",
+      "c9b8dd40-b057-4c19-92a5-d01c10b145d7",
+      "3ca33f4e-7060-419c-9297-5709df175b17"
+    ],
+    "recommended_count": 5
+  },
+  {
+    "query_id": "q3",
+    "query": "Cheap laptop for students under $600",
+    "hard_pass_rate": 1.0,
+    "mean_soft_similarity": 0.0,
+    "recommended_ids": [
+      "920fe874-2ed1-47a1-91ad-8e7841128dd9",
+      "6054fc10-c44e-4b33-9024-4a850d2e66ca",
+      "43bcc47e-e446-473c-83f0-1481a4badd05",
+      "ec4ac67a-020d-4b01-9a7a-673be09d2ffd",
+      "351bd20b-6248-4519-8938-365b8f02a5e1",
+      "bdd492e8-8b86-401b-ab01-f0c52629c66d",
+      "34fc54bf-6c8b-464a-ad37-b769a95f5899",
+      "b99db874-c6de-43de-8617-8572eb940d36",
+      "2825fa62-ad9a-46bc-907a-b7b8ee4ee0a0",
+      "fe9a4e0f-c753-486b-bfd7-d296ac9aec53"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "q4",
+    "query": "Dell XPS or similar, 16GB RAM, for work",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "recommended_ids": [
+      "f526e802-ca3b-4ceb-a321-e3b27ab02c6e",
+      "d593f31c-9894-4567-ad4e-1d77cfc02e46",
+      "18efcc52-48cd-48f6-8e7d-509b46cb3622",
+      "1a93d3a6-338f-4407-b82f-0f35505d5767",
+      "53c2bf2c-f6f4-4d21-b49f-b74a9f425d92",
+      "91163293-df78-4a0c-88d0-da2672f03cc0",
+      "ee5058fa-2a24-4787-ac8f-87fdd22c128e",
+      "fefb2b69-8244-40b7-b343-5c92f756743b",
+      "7b321eee-6666-474a-a063-1a30f8f585f1",
+      "7d6576b4-191d-4a1b-aea0-d4b767303e2e"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "q5",
+    "query": "Lightweight laptop, 14 inch screen, under $1200",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "recommended_ids": [
+      "5265ade5-2d6d-469f-ae06-f51316d12e46",
+      "1772860f-ae3f-481f-acf9-a1859705f828",
+      "4825c5d6-5072-478c-9878-a93e0f04e2f6",
+      "3fc30156-18eb-4385-ba3f-4b4a4a1c6564",
+      "388221a6-a7e7-4c2d-958b-1f072f1682de",
+      "b8fda231-8a5d-42a2-b629-cd7d0f442096",
+      "a35f289c-9b61-42d8-819d-126d138893e4",
+      "d7b66f1a-553f-48ec-a8fe-fa5c4f3ecbb9",
+      "1d7cd782-2402-4a46-9008-480e58fb39e5",
+      "375528a8-50ac-4090-bd37-28469c99a970"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "q6",
+    "query": "Laptop for video editing and creative work",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "recommended_ids": [
+      "9d43bd58-fcfe-4f86-baf4-323e433f463a",
+      "8144e1ac-38aa-4f7e-92b4-5e153d7f800b",
+      "793a0284-1d84-48a1-8eb7-d9c4a6f2cd73",
+      "8ef81975-a79d-4978-bb92-d1449eadf23c",
+      "6648697a-20fb-40ee-a248-c4f395730a22",
+      "fdc8b186-f826-43b2-8030-13c419caf1ab",
+      "f753cfcd-e60c-4a12-8341-e5f30ccdf912",
+      "6ba8c947-c5ea-4bd5-987e-b955472e4959",
+      "ccfbf0f9-6823-4083-90bc-bc5448bf5d48",
+      "15d04cde-f9e7-4b15-86c9-951898477edf"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "q7",
+    "query": "Best value laptop with 32GB RAM for machine learning",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "recommended_ids": [
+      "6db701b3-433c-4b8d-9064-500b8fefa3c7",
+      "d1665266-3643-49aa-bfab-000e1449a5da",
+      "e36a1a0f-eeeb-46fc-8d02-77c0302c2ca2",
+      "75034873-5588-4d00-80c4-94d35ea8c413",
+      "ad3db0ba-a102-49fa-9382-ed1a5cf6e945",
+      "6ebd8635-93e9-4f34-b2a2-b55c93ca6aa8",
+      "6530ee6d-c3ac-4edf-964a-86dd49be5146",
+      "b8fda231-8a5d-42a2-b629-cd7d0f442096",
+      "a914ec19-932d-41aa-8f1d-8627bb905554",
+      "b7f7eca0-e3a5-4961-8a33-bfb2fee9c1e9"
+    ],
+    "recommended_count": 10
+  }
+]

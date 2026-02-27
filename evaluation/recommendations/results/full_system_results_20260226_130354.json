@@ -1,0 +1,124 @@
+[
+  {
+    "query_id": "q1",
+    "query": "I need a gaming laptop under $2000",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "expected_ucp_match": 1.0,
+    "recommended_ids": [
+      "92513846-fa20-4821-8f26-ed14a0e5aa97",
+      "ce5a5bad-ebca-44a2-800b-eab63afe71aa",
+      "5395e14d-2bcf-471c-9bc4-a8536596647a",
+      "2bde6107-fbb5-474f-b193-fd294aa8d96a",
+      "9a59c536-5964-4ab3-8fc7-055766ec6925",
+      "05add37b-6b6b-431e-9b17-67297457d110",
+      "32bee745-64bb-4642-ba50-56de879bf4b4",
+      "178c6713-af1c-4a12-93de-b1a12ea073ac",
+      "8232936e-6e91-4b60-8d83-513992a41dd6",
+      "b7cf16c0-f1f0-4c7f-ae7b-7b66035041f8"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "q2",
+    "query": "MacBook for coding and web development, budget around $1500",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "expected_ucp_match": 1.0,
+    "recommended_ids": [
+      "8fb635ae-31cf-46ca-894d-81b9a899911e",
+      "c9b8dd40-b057-4c19-92a5-d01c10b145d7",
+      "3ca33f4e-7060-419c-9297-5709df175b17",
+      "6a7d51d9-78d9-4c90-a002-7b89cc7a894c",
+      "5134c58c-c643-473a-8a65-94ad30d360dd"
+    ],
+    "recommended_count": 5
+  },
+  {
+    "query_id": "q3",
+    "query": "Cheap laptop for students under $600",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "expected_ucp_match": 1.0,
+    "recommended_ids": [
+      "a13699a3-e147-4bca-8d2a-fae0ad46fadf",
+      "9bd8a545-01dd-4b5c-a4ec-ccdea4e1a7c1",
+      "fee0decc-ab7d-4e51-937a-776d3170975c",
+      "72648261-469f-4064-a06f-e90a5510cbb9",
+      "4151d2ec-ca8a-4e37-b59a-d1b43a33826f",
+      "64e72fbc-51f7-4478-8dde-19b641ae06b1",
+      "1fd6773f-7917-4505-bcb2-a3726232b76a",
+      "8bacc827-6799-45ee-964e-7b832f9fd787",
+      "2497df8b-5528-4e75-a61f-37bdcc2a003f",
+      "bc2bca51-57e9-4606-8fa2-bdceac231ccf"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "q4",
+    "query": "Dell XPS or similar, 16GB RAM, for work",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "expected_ucp_match": 0.8,
+    "recommended_ids": [
+      "a6f7eea8-6016-4ad7-986c-a4a1a91a50c4",
+      "fe3df476-8f99-4169-98f2-8e9e51fec2d2",
+      "757c5a31-6d28-4243-b09c-df744f532ec1",
+      "33a7001d-821a-435b-affd-9e1252c187f9",
+      "07788f5a-f835-425d-a881-f85e55aa0a71",
+      "1322c452-85bc-495e-8936-2ef258ea2cf6"
+    ],
+    "recommended_count": 6
+  },
+  {
+    "query_id": "q5",
+    "query": "Lightweight laptop, 14 inch screen, under $1200",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "expected_ucp_match": 1.0,
+    "recommended_ids": [
+      "5265ade5-2d6d-469f-ae06-f51316d12e46",
+      "940e7ce4-1dcc-4b05-a653-e843efab0d8c",
+      "df5e2b27-9131-44e4-813d-99399ea5e0f4",
+      "b8933144-ed99-402a-b1b1-0cbf4fee74f1",
+      "375528a8-50ac-4090-bd37-28469c99a970",
+      "72eb5f34-72ec-474b-b552-87223cf90def",
+      "0dfc36c1-04bb-42f1-a710-466740a8861c",
+      "cb1f4751-fcf0-41f8-9764-9586db37245c",
+      "718b5c6b-a1d5-435c-ae9d-9c84c38c5f06",
+      "a98ae40d-d675-4313-a4a0-d3e54643b6d7"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "q6",
+    "query": "Laptop for video editing and creative work",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "expected_ucp_match": 1.0,
+    "recommended_ids": [
+      "6a7d51d9-78d9-4c90-a002-7b89cc7a894c"
+    ],
+    "recommended_count": 1
+  },
+  {
+    "query_id": "q7",
+    "query": "Best value laptop with 32GB RAM for machine learning",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.0,
+    "expected_ucp_match": 0.75,
+    "recommended_ids": [
+      "988d24e4-b13d-4b0e-8fbb-3d5008740f98",
+      "189d56f7-c070-445e-9ad4-8c05094df24f",
+      "2bc341ac-50f7-4bbe-b71b-106098de3435",
+      "e8f07894-4db1-46dd-8e1e-bb9aec6eb2ed",
+      "1472c0ac-6069-468b-b75b-44cd0a417f14",
+      "01bc5fcd-0ddd-4b82-8b30-b4d3034fbbaf",
+      "ffa857b4-f38b-40be-85d4-89c9a8663f59",
+      "25bf5030-98ee-41ec-9e7c-09b078cb5b6b",
+      "6305690d-a53d-4313-9fa0-32d78798ccf5",
+      "df4a971e-72f7-4e9e-a9eb-578c94d9d56d"
+    ],
+    "recommended_count": 10
+  }
+]

@@ -1,0 +1,27 @@
+[
+  {
+    "test_id": "greeting_1",
+    "user_query": "Hi",
+    "expected_topic_or_criteria": "Agent should greet and ask what the user is looking for (vehicles, laptops, books, etc.)."
+  },
+  {
+    "test_id": "vehicles_intent_1",
+    "user_query": "I'm looking for a used car under $15,000",
+    "expected_topic_or_criteria": "Response should acknowledge vehicles/cars and either ask a clarifying question or acknowledge budget."
+  },
+  {
+    "test_id": "laptops_intent_1",
+    "user_query": "I need a laptop for programming",
+    "expected_topic_or_criteria": "Response should acknowledge laptops and use case (programming), and be helpful for recommendation."
+  },
+  {
+    "test_id": "books_intent_1",
+    "user_query": "Recommend me some sci-fi books",
+    "expected_topic_or_criteria": "Response should acknowledge books and genre (sci-fi), and be relevant to book recommendations."
+  },
+  {
+    "test_id": "reset_1",
+    "user_query": "Start over",
+    "expected_topic_or_criteria": "Agent should reset and ask what the user is looking for today."
+  }
+]

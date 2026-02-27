@@ -1,0 +1,22 @@
+{
+  "timestamp": "20260226_130354",
+  "golden_path": "/Users/hannahclay/Desktop/Stanford/LDR/idss-backend/evaluation/recommendations/golden_dataset.json",
+  "num_queries": 7,
+  "aggregates": {
+    "query_to_ucp": {
+      "run": "query_to_ucp",
+      "mean_ucp_match_rate": 0.9357142857142857
+    },
+    "ucp_to_recs": {
+      "run": "ucp_to_recs",
+      "mean_hard_pass_rate": 0.14285714285714285,
+      "mean_soft_similarity": 0.0
+    },
+    "full_system": {
+      "run": "full_system",
+      "mean_hard_pass_rate": 0.0,
+      "mean_soft_similarity": 0.0
+    },
+    "baseline": null
+  }
+}

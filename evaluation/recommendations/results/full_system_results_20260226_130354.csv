@@ -1,0 +1,8 @@
+query_id,query,hard_pass_rate,mean_soft_similarity,expected_ucp_match,recommended_count
+q1,I need a gaming laptop under $2000,0.0,0.0,1.0,10
+q2,"MacBook for coding and web development, budget around $1500",0.0,0.0,1.0,5
+q3,Cheap laptop for students under $600,0.0,0.0,1.0,10
+q4,"Dell XPS or similar, 16GB RAM, for work",0.0,0.0,0.8,6
+q5,"Lightweight laptop, 14 inch screen, under $1200",0.0,0.0,1.0,10
+q6,Laptop for video editing and creative work,0.0,0.0,1.0,1
+q7,Best value laptop with 32GB RAM for machine learning,0.0,0.0,0.75,10

@@ -27,3 +27,8 @@ python-dotenv>=1.0.0
 rich>=13.0.0
 
 neo4j
+
+# Evaluation
+deepeval>=1.0.0
+pytest>=7.0.0
+python-dotenv>=1.0.0
