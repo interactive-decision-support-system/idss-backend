@@ -45,21 +45,29 @@ _REFINE_KEYWORDS = {
 async def detect_post_rec_intent(message: str) -> str:
     """
     LLM-based intent detection for post-recommendation messages.
-    Returns: 'compare' | 'refine'
+    Returns: 'compare' | 'refine' | 'new_search'
     """
     try:
         from openai import AsyncOpenAI
         client = AsyncOpenAI()
-        
+
         system_prompt = (
-            "You are an intent routing assistant. The user is looking at a list of product recommendations.\n"
-            "Classify their follow-up message into one of two categories:\n"
-            "1. 'refine': The user explicitly wants to CHANGE the search filters and run a new search (e.g., 'show me cheaper ones', 'I want an Apple instead', 'different brand', 'at least 16in screen', 'more ram'). ANY request to add, change, or relax a specification MUST route to 'refine'.\n"
-            "2. 'compare': The user is asking a follow-up question about the CURRENT recommendations, comparing them, or asking for details/justification (e.g., 'why is Lenovo better?', 'which has better battery?', 'are you sure?').\n\n"
-            "CRITICAL: Default to 'compare' UNLESS there is an explicit request to add, change, or relax any product preference/specification, in which case you must output 'refine'.\n"
-            "Return valid JSON with a single key 'intent' mapping to the category string."
+            "You are an intent routing assistant. The user is viewing a list of product recommendations.\n"
+            "Classify their follow-up message into one of three categories:\n"
+            "1. 'new_search': The user is starting COMPLETELY FRESH with a self-contained query unrelated to the shown products. "
+            "Signals: detailed spec list from scratch, entirely different use case, no anaphoric references to 'these'/'them'/'those' products, "
+            "e.g. 'I want to play [game] and need RTX 4070, 32GB RAM, a 165Hz display, budget $2000-$2500'. "
+            "Key: the message could stand alone as a brand-new search with no context from the current results.\n"
+            "2. 'refine': The user wants to CHANGE or ADD to the current search filters (references current context implicitly). "
+            "e.g. 'show me cheaper ones', 'I want Apple instead', 'at least 16in screen', 'more RAM'.\n"
+            "3. 'compare': The user is asking a follow-up about the CURRENT shown products. "
+            "e.g. 'why is Lenovo better?', 'which has better battery?', 'are you sure?'.\n\n"
+            "CRITICAL: Use 'new_search' only when the message is a fully self-contained product query with specific new requirements "
+            "that does NOT reference the currently shown products. Use 'refine' for adjustments to the existing search. "
+            "Default to 'compare' for questions about current results.\n"
+            "Return valid JSON with a single key 'intent'."
         )
-        
+
         completion = await client.chat.completions.create(
             model=OPENAI_MODEL,
             **_REASONING_KWARGS,
@@ -69,22 +77,28 @@ async def detect_post_rec_intent(message: str) -> str:
                 {"role": "user", "content": message},
             ],
         )
-        
+
         data = json.loads(completion.choices[0].message.content)
         intent = data.get("intent", "compare")
-        
+
         # Guard against weird LLM outputs
-        if intent not in ("compare", "refine"):
+        if intent not in ("compare", "refine", "new_search"):
             intent = "compare"
-            
+
         return intent
-        
+
     except Exception as e:
         logger.error(f"Intent router failed: {e}")
         # Ultra-fast keyword fallback
         lower = message.lower()
         if any(kw in lower for kw in _REFINE_KEYWORDS):
             return "refine"
+        # Detect self-contained new search: explicit spec combo + no current-product references
+        _no_anaphora = not any(ref in lower for ref in ("these", " them", "those", "current", "shown"))
+        _has_specs = any(sig in lower for sig in ("rtx ", "gtx ", "ryzen", "i7", "i9", "i5", "32gb", "16gb", "ram", "budget"))
+        _has_new_intent = any(sig in lower for sig in ("i want to play", "i need a laptop for", "looking for a laptop that", "need rtx", "gaming laptop with"))
+        if _no_anaphora and (_has_new_intent or (_has_specs and ("$" in lower or "budget" in lower))):
+            return "new_search"
         return "compare"  # Default to discussion on failure
 
 
@@ -226,19 +240,18 @@ async def generate_comparison_narrative(
                     spec_context += f"\n    Description: {desc}"
 
                 sys_p = (
-                    "You are a knowledgeable product advisor. Write a clear, useful feature overview for this ONE product.\n"
+                    "You are a knowledgeable product advisor. Write a brief, scannable overview for this ONE product.\n"
                     "Format exactly:\n"
-                    "- [key spec or strength — reference real numbers/names when available]\n"
-                    "- [second key feature]\n"
-                    "- [third key feature]\n"
-                    "Great for: [use case 1], [use case 2], [use case 3]\n"
-                    "Pros: [2-3 sentence analysis of strengths — be specific, reference specs]. "
-                    "Cons: [2-3 sentence honest critique — mention trade-offs or limitations].\n\n"
+                    "- [key spec or strength — reference real numbers/names, max 12 words]\n"
+                    "- [second key feature — max 12 words]\n"
+                    "Great for: [use case 1], [use case 2]\n"
+                    "Pros: [one sharp sentence — most important strength, reference a real spec]. "
+                    "Cons: [one honest sentence — key trade-off or limitation].\n\n"
                     "Rules:\n"
-                    "- Reference actual specs when present (e.g. 'AMD Ryzen 7 5800H — great for heavy multitasking and gaming').\n"
+                    "- Reference actual specs when present (e.g. 'AMD Ryzen 7 5800H — ideal for multitasking and gaming').\n"
                     "- If specs are missing, INFER from product name, price, and brand "
                     "(e.g. '$298 Chromebook — cloud-first, lightweight, not for heavy apps').\n"
-                    "- Pros and Cons must be 2-3 sentences each, specific and useful — not just one word.\n"
+                    "- Pros and Cons must each be ONE concise sentence — specific and honest, not generic.\n"
                     "- Start immediately with the first '- '. No intro sentence, no product name header."
                 )
                 usr_p = (
@@ -251,7 +264,7 @@ async def generate_comparison_narrative(
                     comp = await client.chat.completions.create(
                         model=OPENAI_MODEL,
                         **_REASONING_KWARGS,
-                        max_completion_tokens=600,  # 3 bullets + Great for + 2-3 sentence Pros + 2-3 sentence Cons
+                        max_completion_tokens=300,  # 2 bullets + Great for + 1-sentence Pros + 1-sentence Cons
                         messages=[
                             {"role": "system", "content": sys_p},
                             {"role": "user", "content": usr_p},
