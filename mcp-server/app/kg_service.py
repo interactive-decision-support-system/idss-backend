@@ -57,7 +57,10 @@ class KnowledgeGraphService:
             logger.warning("NEO4J_PASSWORD not set - KG disabled. Set in .env (do not commit .env).")
             return
         try:
-            self.driver = GraphDatabase.driver(uri, auth=(user, password))
+            # connection_timeout=2 caps cold-start TCP hang to 2 s instead of 30 s.
+            self.driver = GraphDatabase.driver(
+                uri, auth=(user, password), connection_timeout=2
+            )
             # Test connection
             with self.driver.session() as session:
                 session.run("RETURN 1")
