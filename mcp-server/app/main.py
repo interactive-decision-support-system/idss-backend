@@ -215,6 +215,11 @@ class ProtocolHeaderMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if path.startswith("/acp/"):
             response.headers["X-Commerce-Protocol"] = "acp"
+            # Echo ACP spec headers back so agents can correlate requests
+            if "api-version" in request.headers:
+                response.headers["API-Version"] = request.headers["api-version"]
+            if "idempotency-key" in request.headers:
+                response.headers["Idempotency-Key"] = request.headers["idempotency-key"]
         elif path.startswith("/ucp/"):
             response.headers["X-Commerce-Protocol"] = "ucp"
         return response
@@ -959,7 +964,7 @@ async def acp_get_session_endpoint(session_id: str):
     return session
 
 
-@app.put("/acp/checkout-sessions/{session_id}", response_model=ACPCheckoutSession, tags=["ACP"])
+@app.post("/acp/checkout-sessions/{session_id}", response_model=ACPCheckoutSession, tags=["ACP"])
 async def acp_update_session_endpoint(
     session_id: str,
     request: ACPUpdateSessionRequest,
@@ -968,7 +973,9 @@ async def acp_update_session_endpoint(
     """
     ACP — Update checkout session (buyer info, shipping address, shipping method).
 
+    Per ACP spec 2026-01-30: POST /checkout-sessions/{id} (not PUT).
     Recalculates shipping + tax on every update.
+    Transitions status to ready_for_payment.
     """
     session = await _acp_update(session_id, request, db)
     if not session:
@@ -1143,7 +1150,7 @@ async def action_checkout(request: CheckoutActionRequest, db: Session = Depends(
         # In a real deployment, the session_id would be stored per-user.
         # Here we look for a pending session and complete it.
         from app.acp_endpoints import _acp_sessions
-        pending = [s for s in _acp_sessions.values() if s.status in ("pending", "confirmed")]
+        pending = [s for s in _acp_sessions.values() if s.status in ("incomplete", "ready_for_payment")]
         if not pending:
             return {"status": "error", "error": "No active ACP checkout session"}
         # Complete the most-recently created session

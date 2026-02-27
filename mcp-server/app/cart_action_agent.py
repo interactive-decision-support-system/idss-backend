@@ -100,13 +100,16 @@ def build_acp_create_session(
 
     ACP uses a checkout session model rather than a persistent cart.
     Each add-to-cart action creates (or appends to) a checkout session.
+
+    price_dollars is accepted in dollars and converted to cents (unit_amount)
+    to match the ACP 2026-01-30 spec which uses cents for all monetary values.
     """
     return ACPCreateSessionRequest(
         line_items=[
             ACPLineItemInput(
                 product_id=product_id,
-                title=title,
-                price_dollars=price_dollars,
+                name=title,
+                unit_amount=int(round(price_dollars * 100)),
                 quantity=quantity,
                 image_url=image_url,
             )

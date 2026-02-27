@@ -1,12 +1,10 @@
 """
-ACP (Agentic Commerce Protocol) Endpoints.
+ACP (Agentic Commerce Protocol) Endpoints — spec version 2026-01-30.
 
 Thin adapter layer that wraps internal MCP operations with ACP-compatible
 request/response format (agenticcommerce.dev spec).
 
-Session lifecycle: pending → confirmed → completed | canceled
-
-In-memory session store (_acp_sessions) mirrors the UCP pattern in ucp_checkout.py.
+Session lifecycle: incomplete → ready_for_payment → completed | canceled
 """
 
 import uuid
@@ -17,7 +15,8 @@ from sqlalchemy.orm import Session
 from app.acp_schemas import (
     ACPCheckoutSession, ACPCreateSessionRequest, ACPUpdateSessionRequest,
     ACPCompleteSessionRequest, ACPLineItem, ACPTotals, ACPProductFeedItem,
-    ACP_SHIPPING_RATES_CENTS, ACP_TAX_RATE,
+    ACPBuyer, ACPMessage,
+    ACP_SHIPPING_RATES_CENTS, ACP_TAX_RATE, ACP_FULFILLMENT_OPTIONS,
 )
 from app.schemas import GetProductRequest
 from app.endpoints import get_product
@@ -31,18 +30,15 @@ _acp_sessions: Dict[str, ACPCheckoutSession] = {}
 # Internal Helpers
 # ============================================================================
 
-def _cents(dollars: float) -> int:
-    """Convert dollars (float) to cents (int), rounding up."""
-    return math.ceil(dollars * 100)
-
-
 def _recalc_totals(session: ACPCheckoutSession) -> ACPTotals:
     """
     Recalculate order totals from line items + shipping method + tax rate.
     Called on create and on every update.
     """
-    subtotal = sum(li.subtotal_cents for li in session.line_items)
-    shipping = ACP_SHIPPING_RATES_CENTS.get(session.shipping_method, ACP_SHIPPING_RATES_CENTS["standard"])
+    subtotal = sum(li.amount_total for li in session.line_items)
+    shipping = ACP_SHIPPING_RATES_CENTS.get(
+        session.shipping_method, ACP_SHIPPING_RATES_CENTS["standard"]
+    )
     tax = math.ceil(subtotal * ACP_TAX_RATE)
     return ACPTotals(
         subtotal_cents=subtotal,
@@ -64,48 +60,70 @@ async def acp_create_checkout_session(
     POST /acp/checkout-sessions
 
     Validates each product exists (via get_product), builds line items,
-    calculates totals, stores session with status='pending'.
+    calculates totals, stores session with status='incomplete'.
+
+    line_items[].unit_amount is already in cents (spec 2026-01-30).
     Does NOT require inventory check to succeed — will proceed even if
-    get_product returns NOT_FOUND (records error in session.error).
+    get_product returns NOT_FOUND (records message in session.messages).
     """
     session_id = f"acp-session-{uuid.uuid4().hex}"
     line_items: List[ACPLineItem] = []
-    errors = []
+    messages: List[ACPMessage] = []
 
-    for idx, item_in in enumerate(request.line_items):
-        unit_price_cents = _cents(item_in.price_dollars)
-        subtotal_cents = unit_price_cents * item_in.quantity
+    for item_in in request.line_items:
+        amount_total = item_in.unit_amount * item_in.quantity
 
         # Validate product exists in DB (optional enrichment — don't fail hard)
         mcp_req = GetProductRequest(product_id=item_in.product_id)
         mcp_resp = get_product(mcp_req, db)
         if mcp_resp.status != "OK":
-            errors.append(f"Product {item_in.product_id} not found")
+            messages.append(ACPMessage(
+                code="PRODUCT_NOT_FOUND",
+                message=f"Product {item_in.product_id} not found in catalog",
+                severity="warning",
+            ))
 
         line_items.append(ACPLineItem(
             id=f"li-{uuid.uuid4().hex[:8]}",
             product_id=item_in.product_id,
-            title=item_in.title,
+            name=item_in.name,
             quantity=item_in.quantity,
-            unit_price_cents=unit_price_cents,
-            subtotal_cents=subtotal_cents,
+            unit_amount=item_in.unit_amount,
+            amount_total=amount_total,
         ))
+
+    # Resolve buyer from either buyer object or buyer_email shorthand
+    buyer: Optional[ACPBuyer] = request.buyer
+    if buyer is None and request.buyer_email:
+        buyer = ACPBuyer(email=request.buyer_email)
+
+    # Resolve shipping address from fulfillment_details if provided
+    shipping_address = None
+    if request.fulfillment_details and request.fulfillment_details.address:
+        shipping_address = request.fulfillment_details.address
+        # Merge contact into buyer if not already set
+        if buyer is None and request.fulfillment_details.email:
+            buyer = ACPBuyer(
+                email=request.fulfillment_details.email,
+                name=request.fulfillment_details.name,
+                phone=request.fulfillment_details.phone,
+            )
 
     session = ACPCheckoutSession(
         id=session_id,
-        status="pending",
+        status="incomplete",
         line_items=line_items,
-        totals=ACPTotals(subtotal_cents=0, total_cents=0),  # placeholder; recalc below
+        totals=ACPTotals(subtotal_cents=0, total_cents=0),  # recalculated below
         currency=request.currency,
-        buyer=None,
+        buyer=buyer,
+        shipping_address=shipping_address,
         shipping_method="standard",
-        error="; ".join(errors) if errors else None,
+        fulfillment_options=ACP_FULFILLMENT_OPTIONS,
+        selected_fulfillment_options=["standard"],
+        messages=messages,
+        error="; ".join(m.message for m in messages) if messages else None,
     )
     session.totals = _recalc_totals(session)
-
-    if request.buyer_email:
-        from app.acp_schemas import ACPBuyer
-        session.buyer = ACPBuyer(email=request.buyer_email)
 
     _acp_sessions[session_id] = session
     return session
@@ -122,10 +140,11 @@ async def acp_update_checkout_session(
     db: Session,
 ) -> Optional[ACPCheckoutSession]:
     """
-    PUT /acp/checkout-sessions/{session_id}
+    POST /acp/checkout-sessions/{session_id} (update)
 
     Update buyer info, shipping address, and/or shipping method.
     Recalculates totals (shipping + tax) on every update.
+    Transitions status to ready_for_payment.
     Returns None if session not found.
     """
     session = _acp_sessions.get(session_id)
@@ -134,13 +153,25 @@ async def acp_update_checkout_session(
 
     if request.buyer is not None:
         session.buyer = request.buyer
+
+    # shipping_address can come from request.shipping_address or request.fulfillment_details
     if request.shipping_address is not None:
         session.shipping_address = request.shipping_address
+    elif request.fulfillment_details and request.fulfillment_details.address:
+        session.shipping_address = request.fulfillment_details.address
+
     if request.shipping_method is not None:
         session.shipping_method = request.shipping_method
 
+    # Update selected fulfillment options
+    if request.selected_fulfillment_options is not None:
+        session.selected_fulfillment_options = request.selected_fulfillment_options
+    else:
+        # Default: reflect the chosen shipping_method
+        session.selected_fulfillment_options = [session.shipping_method]
+
     session.totals = _recalc_totals(session)
-    session.status = "confirmed"
+    session.status = "ready_for_payment"
     _acp_sessions[session_id] = session
     return session
 
@@ -153,7 +184,7 @@ async def acp_complete_checkout_session(
     """
     POST /acp/checkout-sessions/{session_id}/complete
 
-    Validates session is pending/confirmed, then places the order.
+    Validates session is incomplete/ready_for_payment, then places the order.
     In production this would call Stripe with the delegated payment token.
     Sets status='completed' and assigns an order_id.
     Returns None if session not found.
@@ -162,18 +193,34 @@ async def acp_complete_checkout_session(
     if session is None:
         return None
 
-    if session.status not in ("pending", "confirmed"):
-        session.error = f"Cannot complete session with status '{session.status}'"
+    if session.status not in ("incomplete", "ready_for_payment"):
+        msg = f"Cannot complete session with status '{session.status}'"
+        session.error = msg
+        session.messages = [ACPMessage(code="INVALID_STATUS", message=msg)]
         return session
 
-    # Generate order ID (in production: call Stripe with request.payment_token)
+    # Resolve payment token from either payment_data (spec) or legacy fields
+    payment_token_provided = False
+    if request.payment_data and request.payment_data.instrument.credential_token:
+        payment_token_provided = True
+    elif request.payment_token:
+        payment_token_provided = True
+
+    payment_method = "card"
+    if request.payment_data:
+        payment_method = request.payment_data.instrument.type
+    elif request.payment_method:
+        payment_method = request.payment_method
+
+    # Generate order ID (in production: call Stripe with the credential_token)
     order_id = f"acp-order-{uuid.uuid4().hex[:12]}"
     session.status = "completed"
     session.order_id = order_id
     session.error = None
+    session.messages = []
     session.metadata = {
-        "payment_method": request.payment_method,
-        "payment_token_provided": bool(request.payment_token),
+        "payment_method": payment_method,
+        "payment_token_provided": payment_token_provided,
     }
     _acp_sessions[session_id] = session
     return session
@@ -191,6 +238,7 @@ async def acp_cancel_checkout_session(session_id: str) -> Optional[ACPCheckoutSe
 
     session.status = "canceled"
     session.error = None
+    session.messages = []
     _acp_sessions[session_id] = session
     return session
 
