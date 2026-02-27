@@ -153,9 +153,11 @@ class UniversalAgent:
         self.max_questions = max_questions
         self.questions_asked: List[str] = []  # Slot names we've asked about
 
-        # Initialize OpenAI client
-        # Relies on OPENAI_API_KEY environment variable
-        self.client = OpenAI()
+        # Initialize OpenAI client.
+        # timeout=10s: fail fast if OpenAI is slow rather than blocking for 600s.
+        # max_retries=0: don't auto-retry on 429 (Retry-After can be 30s+);
+        #   the except blocks fall back to regex immediately instead.
+        self.client = OpenAI(timeout=10.0, max_retries=0)
 
     @classmethod
     def restore_from_session(cls, session_id: str, session_state) -> "UniversalAgent":
@@ -274,7 +276,13 @@ class UniversalAgent:
                 nums = [float(n) for n in re.findall(r'\d+\.?\d*', raw)]
 
                 if not nums:
-                    pass  # couldn't parse — skip
+                    # No digits: check for size-implying words and use canonical defaults.
+                    # e.g. "small", "compact", "portable", "travel" → max 14"
+                    if any(w in raw for w in ("small", "compact", "portable", "travel", "mini", "ultrabook")):
+                        search_filters["max_screen_size"] = 14.0
+                    elif any(w in raw for w in ("large", "big", "wide", "17")):
+                        search_filters["min_screen_size"] = 15.0
+                    # else: truly unparseable — skip
                 elif any(w in raw for w in ("under", "less", "small", "compact", "below", "max", "up to", "at most")):
                     # User wants a small/compact screen — apply as maximum
                     search_filters["max_screen_size"] = nums[0]
@@ -496,6 +504,7 @@ class UniversalAgent:
             completion = self.client.beta.chat.completions.parse(
                 model=OPENAI_MODEL,
                 **_REASONING_KWARGS,
+                max_completion_tokens=64,   # domain + confidence only — tiny JSON
                 messages=[
                     {"role": "system", "content": DOMAIN_DETECTION_PROMPT},
                     {"role": "user", "content": message}
@@ -613,6 +622,7 @@ class UniversalAgent:
             completion = self.client.beta.chat.completions.parse(
                 model=OPENAI_MODEL,
                 **_REASONING_KWARGS,
+                max_completion_tokens=512,  # criteria list JSON — never needs more than ~100 tokens
                 messages=[
                     {"role": "system", "content": system_prompt},
                     *history_msgs,
@@ -1009,6 +1019,7 @@ class UniversalAgent:
             completion = self.client.beta.chat.completions.parse(
                 model=OPENAI_MODEL,
                 **_REASONING_KWARGS,
+                max_completion_tokens=256,  # one question + 4 quick replies — never large
                 messages=[
                     {"role": "system", "content": system_prompt},
                     # Include recent history for conversational flow context
