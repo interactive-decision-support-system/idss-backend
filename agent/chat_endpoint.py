@@ -128,6 +128,9 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
         post_rec_response = await _handle_post_recommendation(request, session, session_id, session_manager)
         if post_rec_response:
             return post_rec_response
+        # Handler may have reset the session (e.g. new_search intent) — re-fetch so
+        # the UniversalAgent block below sees the updated state (cleared domain, stage).
+        session = session_manager.get_session(session_id)
 
     # --- Reset / greeting check ---
     reset_keywords = ['reset', 'restart', 'start over', 'new search', 'clear', 'different category']
@@ -524,16 +527,40 @@ async def _handle_post_recommendation(
         "which is better", "which should i buy",
     )
     _FAST_REFINE_KWS = ("refine my search", "refine search", "change my criteria")
+    # "See similar items" button sends this text — always route to the see-similar
+    # handler (intent="refine"), never to compare.  Must come BEFORE the LLM call.
+    _FAST_SEE_SIMILAR_KWS = (
+        "see similar", "similar items", "show me similar",
+        "similar laptops", "similar products",
+    )
     if any(kw in msg_lower for kw in _FAST_BEST_VALUE_KWS):
         intent = "best_value"
     elif any(kw in msg_lower for kw in _FAST_PROS_CONS_KWS):
         intent = "pros_cons"
     elif any(kw in msg_lower for kw in _FAST_COMPARE_KWS):
         intent = "compare"
+    elif any(kw in msg_lower for kw in _FAST_SEE_SIMILAR_KWS):
+        intent = "refine"   # see-similar is handled inside the refine branch
     elif any(kw in msg_lower for kw in _FAST_REFINE_KWS):
         intent = "refine"
     else:
         intent = await detect_post_rec_intent(clean_message)
+
+    # -----------------------------------------------------------------------
+    # New-search intent: user sent a completely fresh product query unrelated
+    # to the current recommendations (e.g. switching from school laptops to
+    # a gaming rig with RTX 4070, 32GB RAM, $2000-$2500 budget).
+    # Reset session to blank state and return None so the caller falls through
+    # to UniversalAgent, which will process the message as a new search.
+    # -----------------------------------------------------------------------
+    if intent == "new_search":
+        logger.info(
+            "new_search_detected",
+            "User sent a self-contained fresh search query; resetting session",
+            {"session_id": session_id, "msg_preview": clean_message[:80]},
+        )
+        session_manager.reset_session(session_id)
+        return None  # Falls through to UniversalAgent in process_chat
 
     if intent == "best_value":
         session_manager.add_message(session_id, "user", request.message)
@@ -610,8 +637,8 @@ async def _handle_post_recommendation(
             _sorted_pid_str = ":".join(sorted(
                 str(p.get("id") or p.get("product_id", "")) for p in products
             ))
-            # v2: bumped to invalidate sparse 1-bullet entries cached when LLM was quota-exhausted
-            _narr_cache_key = f"narrative:v2:{_hashlib.md5(_sorted_pid_str.encode()).hexdigest()}"
+            # v3: bumped to invalidate old verbose 2-3 sentence Pros/Cons entries (now 1 sentence each)
+            _narr_cache_key = f"narrative:v3:{_hashlib.md5(_sorted_pid_str.encode()).hexdigest()}"
             narrative: str = ""
             try:
                 from app.cache import cache_client as _cc_narr
@@ -824,12 +851,31 @@ async def _handle_post_recommendation(
     # UniversalAgent handle the message normally.
     if "see similar" in msg_lower or "similar items" in msg_lower:
         session_manager.add_message(session_id, "user", request.message)
-        # Directly show diverse results (drop brand filter to fix brand overfitting)
+        # Directly show diverse results.
+        # IMPORTANT: only keep the price range — drop all strict spec filters
+        # (min_ram_gb, min_storage_gb, os, gpu_tier, etc.) so the search pool
+        # is wide enough to return 6 genuinely different laptops.
+        # Spec-heavy filters are the main reason see-similar was returning 1 product.
+        _PRICE_KEYS = {"price_max_cents", "price_min_cents"}
+        _SPEC_DROP_KEYS = {
+            "min_ram_gb", "min_storage_gb", "min_screen_size", "min_screen_inches",
+            "max_screen_size", "min_battery_hours", "os", "gpu_tier", "use_case",
+            "excluded_brands", "brand",
+        }
         if active_domain in ("laptops", "books", "phones"):
             category = _domain_to_category(active_domain)
             exclude_ids = list(session.last_recommendation_ids or [])
-            diversified_filters = dict(session.explicit_filters)
-            diversified_filters.pop("brand", None)
+            # Start from price range only; expand ceiling 30% for more variety
+            diversified_filters = {
+                k: v for k, v in session.explicit_filters.items()
+                if k in _PRICE_KEYS
+            }
+            if diversified_filters.get("price_max_cents"):
+                diversified_filters["price_max_cents"] = int(
+                    diversified_filters["price_max_cents"] * 1.3
+                )
+            # Drop strict price floor — "similar" means nearby, not identical range
+            diversified_filters.pop("price_min_cents", None)
             recs, labels = await _search_ecommerce_products(
                 diversified_filters, category, n_rows=2, n_per_row=3,
                 exclude_ids=exclude_ids if exclude_ids else None,
