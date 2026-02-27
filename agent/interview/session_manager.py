@@ -90,6 +90,8 @@ class InterviewSessionState:
     agent_filters: Dict[str, Any] = field(default_factory=dict)  # Slot values gathered by agent
     agent_questions_asked: List[str] = field(default_factory=list)  # Slot names already asked
     agent_history: List[Dict[str, str]] = field(default_factory=list)  # Conversation history for LLM context
+    # Products highlighted in the last followup_qa answer (for smart compare scoping)
+    last_discussed_product_ids: List[str] = field(default_factory=list)
 
 
 class InterviewSessionManager:
@@ -136,6 +138,7 @@ class InterviewSessionManager:
             "agent_filters": getattr(state, "agent_filters", {}),
             "agent_questions_asked": getattr(state, "agent_questions_asked", []),
             "agent_history": getattr(state, "agent_history", [])[-10:],
+            "last_discussed_product_ids": getattr(state, "last_discussed_product_ids", []),
         }
 
     def _dict_to_state(self, d: Dict[str, Any]) -> InterviewSessionState:
@@ -157,6 +160,7 @@ class InterviewSessionManager:
             agent_filters=d.get("agent_filters", {}),
             agent_questions_asked=d.get("agent_questions_asked", []),
             agent_history=d.get("agent_history", []),
+            last_discussed_product_ids=d.get("last_discussed_product_ids", []),
         )
 
     def add_favorite(self, session_id: str, product_id: str) -> None:
@@ -242,6 +246,16 @@ class InterviewSessionManager:
             }
             slim.append({k: v for k, v in item.items() if v is not None})
         session.last_recommendation_data = slim
+        self._persist(session_id)
+
+    def set_last_discussed_products(self, session_id: str, product_ids: List[str]) -> None:
+        """Store IDs of products highlighted in the last followup_qa response.
+
+        Used by the compare handler to auto-scope the comparison when the user says
+        "which one is better?" after a followup_qa answer that only discussed a subset.
+        """
+        session = self.get_session(session_id)
+        session.last_discussed_product_ids = list(product_ids)
         self._persist(session_id)
 
     def recall_session_memory(self, session_id: str) -> Optional[Dict[str, Any]]:

@@ -688,6 +688,22 @@ async def _handle_post_recommendation(
         # If the session data was overwritten (e.g. user compared an older
         # recommendation after "see similar items" replaced session state),
         # fall back to fetching directly from the DB by the specific IDs.
+        #
+        # Smart scope: when no explicit [ctx:] tag was provided (user typed freely),
+        # check if the previous followup_qa response highlighted specific products.
+        # If so, automatically scope to those — e.g. "which one is best between these two?"
+        # after a followup_qa answer that only discussed two products.
+        if not context_product_ids:
+            _last_discussed = list(getattr(session, "last_discussed_product_ids", []))
+            if _last_discussed:
+                _discussed_filtered = [
+                    p for p in products
+                    if str(p.get("id") or p.get("product_id", "")) in set(_last_discussed)
+                ]
+                if len(_discussed_filtered) >= 2:
+                    products = _discussed_filtered
+                    logger.info("compare_smart_scope", f"Auto-scoped compare to {len(products)} last-discussed products", {})
+
         if context_product_ids:
             _ctx_filtered = [
                 p for p in products
@@ -791,6 +807,9 @@ async def _handle_post_recommendation(
                 for p in selected_products
             ]
                 
+            # Clear the last_discussed context — it has been consumed by this comparison
+            session_manager.set_last_discussed_products(session_id, [])
+
             return ChatResponse(
                 response_type="recommendations",
                 message=narrative,
@@ -859,6 +878,24 @@ async def _handle_post_recommendation(
             except Exception as _fqe:
                 logger.error("followup_qa_failed", str(_fqe), {})
                 answer = "Sorry, I had trouble answering that question. Try asking again or rephrase it."
+
+        # Detect which products from the pool were actually mentioned in the answer.
+        # Store those IDs so a subsequent "compare these two" naturally scopes to them.
+        _discussed_ids: List[str] = []
+        if products and answer:
+            answer_lower = answer.lower()
+            for _prod in products:
+                _pname = str(_prod.get("name") or "")
+                if not _pname:
+                    continue
+                # Match if at least 3 consecutive words of the product name appear in the answer
+                _words = [w for w in _pname.lower().split() if len(w) > 2]
+                _match_count = sum(1 for _w in _words if _w in answer_lower)
+                if _match_count >= min(3, len(_words)):
+                    _pid = str(_prod.get("id") or _prod.get("product_id", ""))
+                    if _pid:
+                        _discussed_ids.append(_pid)
+        session_manager.set_last_discussed_products(session_id, _discussed_ids)
 
         session_manager.add_message(session_id, "assistant", answer)
         return ChatResponse(
