@@ -610,7 +610,8 @@ async def _handle_post_recommendation(
             _sorted_pid_str = ":".join(sorted(
                 str(p.get("id") or p.get("product_id", "")) for p in products
             ))
-            _narr_cache_key = f"narrative:{_hashlib.md5(_sorted_pid_str.encode()).hexdigest()}"
+            # v2: bumped to invalidate sparse 1-bullet entries cached when LLM was quota-exhausted
+            _narr_cache_key = f"narrative:v2:{_hashlib.md5(_sorted_pid_str.encode()).hexdigest()}"
             narrative: str = ""
             try:
                 from app.cache import cache_client as _cc_narr
@@ -626,12 +627,27 @@ async def _handle_post_recommendation(
                     narrative, _, _ = await generate_comparison_narrative(
                         products, clean_message, active_domain or "laptops", mode="features"
                     )
-                    # Store in Redis so repeat clicks are instant
-                    try:
-                        from app.cache import cache_client as _cc_narr
-                        _cc_narr.client.setex(_cc_narr._key(_narr_cache_key), 600, narrative)
-                    except Exception:
-                        pass
+                    # Only cache if the narrative is genuinely LLM-generated.
+                    # Fallback spec-bullet output (produced when LLM quota is exhausted)
+                    # lacks these signatures and must NOT be cached — doing so poisons
+                    # the cache and serves degraded 1-line responses for 10 minutes
+                    # even after the API key is restored.
+                    _is_llm_narrative = any(
+                        marker in narrative
+                        for marker in ("Pros:", "Great for:", "Best pick:", "Cons:")
+                    )
+                    if _is_llm_narrative:
+                        try:
+                            from app.cache import cache_client as _cc_narr
+                            _cc_narr.client.setex(_cc_narr._key(_narr_cache_key), 600, narrative)
+                        except Exception:
+                            pass
+                    else:
+                        logger.warning(
+                            "narrative_cache_skip",
+                            "Narrative appears to be LLM fallback — skipping cache write to prevent poisoning",
+                            {"narrative_len": len(narrative)},
+                        )
                 except Exception as e:
                     logger.error("pros_cons_failed", str(e), {})
                     narrative = "Sorry, I had trouble analyzing these products. Try asking again."
@@ -1422,6 +1438,104 @@ def _diversify_by_brand(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return result
 
 
+def _generate_why_picked(product: Dict[str, Any], tier: str, position: int, bucket_size: int) -> List[str]:
+    """
+    Generate 2-3 short "Why we picked this" bullet strings for a product card.
+    Rule-based — no LLM. Runs inline during bucketing so zero latency cost.
+
+    Format mirrors the UI design:
+      "✓ Good battery life"          ← spec strength
+      "✓ Modular & repairable"       ← brand/category trait
+      "↳ Best value in tier"         ← tier/position context
+    """
+    bullets: List[str] = []
+    name_lower = (product.get("name") or "").lower()
+    brand_lower = (product.get("brand") or "").lower()
+    price = float(product.get("price") or 0)
+    battery = product.get("battery_life") or ""
+    ram = product.get("ram") or ""
+    gpu = product.get("gpu") or ""
+    rating = product.get("rating")
+    storage_type = (product.get("storage_type") or "").lower()
+
+    # ── Spec-based highlights ────────────────────────────────────────────────
+    # Battery
+    try:
+        battery_hrs = int(str(battery).split()[0]) if battery else 0
+    except (ValueError, IndexError):
+        battery_hrs = 0
+    if battery_hrs >= 10:
+        bullets.append("✓ Exceptional battery life (10+ hrs)")
+    elif battery_hrs >= 8:
+        bullets.append("✓ Good battery life (8+ hrs)")
+    elif battery_hrs > 0:
+        bullets.append(f"✓ Battery: {battery}")
+
+    # RAM
+    try:
+        ram_gb = int(str(ram).split()[0]) if ram else 0
+    except (ValueError, IndexError):
+        ram_gb = 0
+    if ram_gb >= 32:
+        bullets.append(f"✓ {ram_gb} GB RAM — handles heavy multitasking & ML")
+    elif ram_gb >= 16:
+        bullets.append(f"✓ {ram_gb} GB RAM — solid for everyday + dev work")
+    elif ram_gb > 0:
+        bullets.append(f"✓ {ram_gb} GB RAM")
+
+    # GPU
+    if gpu:
+        gpu_lower = gpu.lower()
+        if any(k in gpu_lower for k in ("rtx", "rx 7", "rx 6", "arc")):
+            bullets.append(f"✓ Dedicated GPU ({gpu}) — great for gaming & ML")
+        elif "intel" not in gpu_lower and "integrated" not in gpu_lower:
+            bullets.append(f"✓ GPU: {gpu}")
+
+    # Storage type
+    if "nvme" in storage_type or "ssd" in storage_type:
+        bullets.append("✓ Fast NVMe SSD storage")
+
+    # Rating
+    if rating and float(rating) >= 4.5:
+        bullets.append(f"✓ Highly rated ({float(rating):.1f} ★)")
+
+    # ── Brand/category traits ────────────────────────────────────────────────
+    if "framework" in brand_lower or "framework" in name_lower:
+        bullets.append("✓ Modular & fully repairable")
+    if "macbook" in name_lower or "apple" in brand_lower:
+        bullets.append("✓ Apple Silicon — top perf/watt ratio")
+    if "thinkpad" in name_lower or "lenovo" in brand_lower:
+        if "thinkpad" in name_lower:
+            bullets.append("✓ ThinkPad build quality & keyboard")
+    if any(k in name_lower for k in ("gaming", "rog", "strix", "legion", "raider")):
+        bullets.append("✓ Gaming-grade performance")
+    if "chromebook" in name_lower:
+        bullets.append("✓ Lightweight ChromeOS — cloud-first")
+    if "2-in-1" in name_lower or "flip" in name_lower:
+        bullets.append("✓ Flexible 2-in-1 form factor")
+
+    # ── Tier / position context (↳ prefix) ─────────────────────────────────
+    if position == 0 and tier == "budget":
+        bullets.append("↳ Cheapest option in this tier")
+    elif position == bucket_size - 1 and tier == "premium":
+        bullets.append("↳ Top-tier performance pick")
+    elif position == 0:
+        bullets.append("↳ Best value in this tier")
+    elif position == bucket_size - 1:
+        bullets.append("↳ Premium pick in this group")
+
+    # Ensure at least 2 bullets — add price context as fallback
+    if len(bullets) < 2:
+        if price >= 1500:
+            bullets.append("✓ Premium build & components")
+        elif price >= 800:
+            bullets.append("✓ Strong mid-range value")
+        else:
+            bullets.append("✓ Budget-friendly entry point")
+
+    return bullets[:4]  # cap at 4 so the card stays compact
+
+
 async def _search_ecommerce_products(
     filters: Dict[str, Any],
     category: str,
@@ -1521,31 +1635,38 @@ async def _search_ecommerce_products(
         except Exception:
             pass
 
-        # Bucket into rows
-        total = len(product_dicts)
-        bucket_size = max(1, total // n_rows)
+        # Bucket into rows — stride by n_per_row so no product appears in two buckets.
+        # Bug fixed: old code used bucket_size=total//n_rows as stride but took n_per_row
+        # items per bucket, causing overlap (e.g. product at index 1 appeared in both
+        # bucket-0[0:3] and bucket-1[1:2] when total=2, n_rows=2, n_per_row=3).
         buckets = []
         bucket_labels = []
         fmt_domain = "books" if category.lower() == "books" else "laptops"
 
         for i in range(n_rows):
-            start = i * bucket_size
-            end = start + n_per_row if i < n_rows - 1 else min(start + n_per_row, total)
-            bucket_products = product_dicts[start:end]
-            if bucket_products:
-                formatted_bucket = [
-                    format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True)
-                    for p in bucket_products
-                ]
-                buckets.append(formatted_bucket)
-                min_price = min(float(p.get("price", 0) or 0) for p in bucket_products)
-                max_price = max(float(p.get("price", 0) or 0) for p in bucket_products)
-                if i == 0:
-                    bucket_labels.append(f"Budget-Friendly (${min_price:.0f}-${max_price:.0f})")
-                elif i == n_rows - 1:
-                    bucket_labels.append(f"Premium (${min_price:.0f}-${max_price:.0f})")
-                else:
-                    bucket_labels.append(f"Mid-Range (${min_price:.0f}-${max_price:.0f})")
+            start = i * n_per_row          # non-overlapping stride
+            bucket_products = product_dicts[start:start + n_per_row]
+            if not bucket_products:
+                break                      # fewer products than buckets → stop early
+            min_price = min(float(p.get("price", 0) or 0) for p in bucket_products)
+            max_price = max(float(p.get("price", 0) or 0) for p in bucket_products)
+            tier = "budget" if i == 0 else ("premium" if i == n_rows - 1 else "mid")
+
+            formatted_bucket = []
+            for j, p in enumerate(bucket_products):
+                fp = format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True)
+                # Inject "Why we picked this" bullets — rule-based, no LLM needed.
+                fp["why_picked"] = _generate_why_picked(p, tier=tier, position=j,
+                                                         bucket_size=len(bucket_products))
+                formatted_bucket.append(fp)
+
+            buckets.append(formatted_bucket)
+            if i == 0:
+                bucket_labels.append(f"Budget-Friendly (${min_price:.0f}-${max_price:.0f})")
+            elif i == n_rows - 1:
+                bucket_labels.append(f"Premium (${min_price:.0f}-${max_price:.0f})")
+            else:
+                bucket_labels.append(f"Mid-Range (${min_price:.0f}-${max_price:.0f})")
 
         return buckets, bucket_labels
 

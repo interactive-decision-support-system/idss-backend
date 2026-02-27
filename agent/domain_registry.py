@@ -211,6 +211,32 @@ LAPTOP_SCHEMA = DomainSchema(
             filter_key="storage_type",
             allowed_values=["SSD", "HDD"]
         ),
+        PreferenceSlot(
+            name="excluded_brands",
+            display_name="Excluded Brands",
+            priority=SlotPriority.LOW,
+            description=(
+                "Brands the user explicitly does NOT want. Extract when user says 'no HP', 'not Acer', "
+                "'refuse HP', 'avoid Dell', 'anything but HP', etc. "
+                "Store as comma-separated string, e.g. 'HP,Acer'. "
+                "NEVER ask the user for this — only extract when user explicitly states exclusions."
+            ),
+            example_question="Are there any brands you want to avoid?",
+            example_replies=["No preference", "No HP", "No Acer", "No HP or Acer"],
+        ),
+        PreferenceSlot(
+            name="os",
+            display_name="Operating System",
+            priority=SlotPriority.LOW,
+            description=(
+                "Required operating system. Extract when user explicitly states OS needs like "
+                "'must have Linux', 'Windows 10 only', 'no Windows 11', 'must come with macOS'. "
+                "NEVER ask the user for this — only extract when explicitly stated."
+            ),
+            example_question="Do you have an OS preference?",
+            example_replies=["Windows 11", "Windows 10", "Linux", "macOS", "No preference"],
+            allowed_values=["Windows 10", "Windows 11", "Linux", "macOS", "Chrome OS"],
+        ),
     ]
 )
 

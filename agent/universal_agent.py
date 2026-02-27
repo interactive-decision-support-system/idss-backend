@@ -40,6 +40,60 @@ from .prompts import (
 
 logger = logging.getLogger("mcp.universal_agent")
 
+# ---------------------------------------------------------------------------
+# Slot-name normalisation: map common LLM alias → canonical schema slot name.
+# The LLM may return "ram" instead of "min_ram_gb", "price" instead of "budget",
+# etc. Without normalisation those end up in self.filters under wrong keys and
+# _get_next_missing_slot() still sees them as missing, re-asking the user.
+# ---------------------------------------------------------------------------
+_SLOT_NAME_ALIASES: Dict[str, Dict[str, str]] = {
+    "laptops": {
+        "ram": "min_ram_gb",
+        "ram_gb": "min_ram_gb",
+        "min_ram": "min_ram_gb",
+        "memory": "min_ram_gb",
+        "min_memory": "min_ram_gb",
+        "min_memory_gb": "min_ram_gb",
+        "memory_gb": "min_ram_gb",
+        "price": "budget",
+        "price_range": "budget",
+        "max_price": "budget",
+        "cost": "budget",
+        "price_max": "budget",
+        "screen": "screen_size",
+        "display": "screen_size",
+        "display_size": "screen_size",
+        "screen_inches": "screen_size",
+        "monitor_size": "screen_size",
+        "storage": "storage_type",
+        "disk_type": "storage_type",
+        "drive_type": "storage_type",
+        "excluded_brand": "excluded_brands",
+        "excluded_brand_list": "excluded_brands",
+        "brands_to_exclude": "excluded_brands",
+        "avoid_brands": "excluded_brands",
+        "operating_system": "os",
+        "preferred_os": "os",
+    },
+    "vehicles": {
+        "price": "budget",
+        "price_range": "budget",
+        "max_price": "budget",
+        "make": "brand",
+        "manufacturer": "brand",
+        "style": "body_style",
+        "car_type": "body_style",
+        "fuel": "fuel_type",
+        "engine_type": "fuel_type",
+    },
+    "books": {
+        "price": "budget",
+        "category": "genre",
+        "type": "genre",
+        "book_type": "format",
+    },
+}
+
 # Model configuration — single model for all LLM calls, set via environment
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 # Default is "" (disabled). Set OPENAI_REASONING_EFFORT=low in .env only if using an o-series model.
@@ -260,7 +314,18 @@ class UniversalAgent:
             elif slot_name == "features":
                 search_filters["_soft_preferences"] = {"liked_features": [value] if isinstance(value, str) else value}
 
-            elif slot_name in ("fuel_type", "condition", "os", "screen_size", "color", "material"):
+            elif slot_name == "excluded_brands":
+                # Comma-separated list of brands to EXCLUDE, e.g. "HP,Acer"
+                raw = str(value).strip()
+                brands = [b.strip() for b in re.split(r"[,;/|]", raw) if b.strip()]
+                if brands:
+                    search_filters["excluded_brands"] = brands
+                    logger.info(f"Excluded brands: {brands}")
+
+            elif slot_name == "os":
+                search_filters["os"] = value
+
+            elif slot_name in ("fuel_type", "condition", "screen_size", "color", "material"):
                 search_filters[slot_name] = value
 
         return search_filters
@@ -289,8 +354,11 @@ class UniversalAgent:
                     break
         else:
             if self.history and len(self.history) > 1:
-                # Recover domain from prior conversation context
-                self.domain = self._detect_domain_from_message(history=self.history)
+                # Multi-turn session with no domain set: recover from history keyword scan,
+                # then re-run detection on the current message if still unknown.
+                self.domain = self._detect_domain_from_history()
+                if not self.domain:
+                    self.domain = self._detect_domain_from_message(message=message)
             else:
                 self.domain = self._detect_domain_from_message(message=message)
         timings["domain_detection_ms"] = (time.perf_counter() - t1) * 1000
@@ -363,31 +431,67 @@ class UniversalAgent:
         resp["timings_ms"] = timings
         return resp
 
-    # Fast lookup for UI quick-reply buttons — avoids an LLM call for obvious one-word inputs
+    # Fast keyword lookup — any word in the user's message matched here skips the LLM call.
+    # Keys are lowercased single tokens; values are domain names.
     _FAST_DOMAIN_MAP = {
+        # ── Vehicles ───────────────────────────────────────────────────────────
         "cars": "vehicles", "car": "vehicles", "vehicle": "vehicles", "vehicles": "vehicles",
         "autos": "vehicles", "auto": "vehicles", "truck": "vehicles", "trucks": "vehicles",
+        "suv": "vehicles", "sedan": "vehicles", "van": "vehicles", "minivan": "vehicles",
+        "pickup": "vehicles", "hatchback": "vehicles", "coupe": "vehicles", "convertible": "vehicles",
+        "horsepower": "vehicles", "mpg": "vehicles", "dealership": "vehicles", "ev": "vehicles",
+        # ── Laptops / Electronics ──────────────────────────────────────────────
         "laptops": "laptops", "laptop": "laptops", "electronics": "laptops",
         "computers": "laptops", "computer": "laptops", "desktop": "laptops", "desktops": "laptops",
-        # phones map to "laptops" domain (same electronics category in DB)
+        "notebook": "laptops", "chromebook": "laptops", "ultrabook": "laptops",
+        # Common typos
+        "latop": "laptops", "labtop": "laptops", "lapop": "laptops", "lpatop": "laptops",
+        # Gaming titles clearly imply a computer
+        "minecraft": "laptops", "roblox": "laptops", "fortnite": "laptops",
+        # Apple / brand model names
+        "macbook": "laptops", "mac": "laptops", "imac": "laptops",
+        "thinkpad": "laptops", "surface": "laptops", "xps": "laptops",
+        # OS names clearly signal a computer query
+        "windows": "laptops", "linux": "laptops", "ubuntu": "laptops", "macos": "laptops",
+        # Hardware specs that only appear in computer queries
+        "ram": "laptops", "ssd": "laptops", "nvme": "laptops", "hdd": "laptops",
+        "gpu": "laptops", "cpu": "laptops", "processor": "laptops",
+        "nvidia": "laptops", "rtx": "laptops", "gtx": "laptops", "radeon": "laptops",
+        "intel": "laptops", "amd": "laptops", "ryzen": "laptops",
+        "monitor": "laptops", "display": "laptops",
+        "pytorch": "laptops", "tensorflow": "laptops", "cuda": "laptops",
+        # Phones (map to laptops domain — same electronics DB)
         "phones": "laptops", "phone": "laptops", "smartphone": "laptops", "smartphones": "laptops",
         "mobile": "laptops", "mobiles": "laptops",
-        "books": "books", "book": "books", "reading": "books",
+        "iphone": "laptops", "android": "laptops", "pixel": "laptops",
+        # ── Books ──────────────────────────────────────────────────────────────
+        "books": "books", "book": "books", "reading": "books", "novel": "books",
+        "author": "books", "fiction": "books", "nonfiction": "books", "paperback": "books",
+        "audiobook": "books", "kindle": "books", "genre": "books",
     }
 
     def _detect_domain_from_message(self, message: str) -> Optional[str]:
         """
-        Uses LLM (Basic Model) to classify intent.
-        Quick-reply one-word hits are resolved via _FAST_DOMAIN_MAP without an LLM call.
-        """
-        # Fast path: exact match on known quick-reply keywords (no LLM needed)
-        fast = self._FAST_DOMAIN_MAP.get(message.strip().lower())
-        if fast:
-            logger.info(f"Fast domain match: '{message.strip()}' → {fast}")
-            return fast
+        Classify the user's message into a domain.
 
+        Detection order (fastest → most accurate):
+        1. Word-scan the message against _FAST_DOMAIN_MAP (no LLM, ~0 ms).
+        2. LLM structured-output parse (most accurate, ~300 ms).
+        3. If LLM fails: keyword scan of the full message text as final fallback.
+        """
+        # ── 1. Word-scan fast path ──────────────────────────────────────────────
+        # Scan EACH word in the message, not the whole string. This catches
+        # multi-word queries like "i want a macbook" and "windows 10 laptop".
+        cleaned = re.sub(r"[^a-z0-9]", " ", message.lower())
+        for word in cleaned.split():
+            fast = self._FAST_DOMAIN_MAP.get(word)
+            if fast:
+                logger.info(f"Fast domain keyword: '{word}' → {fast}")
+                return fast
+
+        # ── 2. LLM classification ───────────────────────────────────────────────
         try:
-            logger.info(f"Detecting domain for message: {message[:50]}...")
+            logger.info(f"Detecting domain via LLM for: {message[:60]}...")
 
             completion = self.client.beta.chat.completions.parse(
                 model=OPENAI_MODEL,
@@ -400,17 +504,35 @@ class UniversalAgent:
             )
             result = completion.choices[0].message.parsed
             if not result:
-                logger.warning("Domain detection returned None (parsing failed)")
-                return None
-            logger.info(f"Domain detected: {result.domain} (conf: {result.confidence})")
-
-            if result.domain == "unknown":
-                return None
-            return result.domain
+                logger.warning("Domain detection: LLM returned None (parsing failed)")
+            elif result.domain and result.domain != "unknown":
+                logger.info(f"Domain detected via LLM: {result.domain} (conf: {result.confidence})")
+                return result.domain
 
         except Exception as e:
-            logger.error(f"Intent detection failed: {e}")
-            return None
+            logger.error(f"Domain detection LLM call failed: {e}")
+
+        # ── 3. Fallback: broader keyword scan over raw text ─────────────────────
+        text = message.lower()
+        vehicle_kws = ("car", "truck", "suv", "sedan", "van", "vehicle", "driving", "mpg", "horsepower", "dealership")
+        laptop_kws  = ("laptop", "computer", "macbook", "notebook", "windows", "linux", "macos",
+                       "ram", "ssd", "gpu", "cpu", "processor", "nvidia", "intel", "amd", "ryzen",
+                       "pytorch", "tensorflow", "coding", "programming", "phone", "tablet", "ipad",
+                       "data science", "machine learning", "minecraft", "gaming", "rugged",
+                       "latop", "labtop", "student", "school", "college", "class")
+        book_kws    = ("book", "novel", "fiction", "author", "read", "genre", "paperback", "kindle")
+
+        v_hits = sum(1 for k in vehicle_kws if k in text)
+        l_hits = sum(1 for k in laptop_kws  if k in text)
+        b_hits = sum(1 for k in book_kws    if k in text)
+
+        best = max(v_hits, l_hits, b_hits)
+        if best > 0:
+            domain = "vehicles" if v_hits == best else "laptops" if l_hits == best else "books"
+            logger.info(f"Domain detected via keyword fallback: {domain} (v={v_hits} l={l_hits} b={b_hits})")
+            return domain
+
+        return None
 
     def _detect_domain_from_history(self) -> Optional[str]:
         """
@@ -423,9 +545,20 @@ class UniversalAgent:
             m.get("content", "") for m in self.history if m.get("role") == "user"
         ).lower()
 
-        vehicle_hits = sum(history_text.count(k) for k in ("car", "truck", "suv", "vehicle", "auto", "driving", "mpg", "vin"))
-        laptop_hits  = sum(history_text.count(k) for k in ("laptop", "computer", "gpu", "ram", "pytorch", "coding", "phone", "tablet"))
-        book_hits    = sum(history_text.count(k) for k in ("book", "novel", "read", "author", "fiction", "genre"))
+        vehicle_hits = sum(history_text.count(k) for k in (
+            "car", "truck", "suv", "sedan", "van", "vehicle", "auto", "driving", "mpg", "vin", "horsepower",
+        ))
+        laptop_hits  = sum(history_text.count(k) for k in (
+            "laptop", "computer", "macbook", "notebook", "chromebook", "desktop",
+            "windows", "linux", "macos", "ubuntu",
+            "gpu", "ram", "ssd", "nvme", "cpu", "processor",
+            "nvidia", "intel", "amd", "ryzen", "rtx", "gtx",
+            "pytorch", "tensorflow", "cuda", "coding", "programming",
+            "phone", "smartphone", "tablet", "ipad", "iphone", "android",
+        ))
+        book_hits    = sum(history_text.count(k) for k in (
+            "book", "novel", "read", "author", "fiction", "genre", "paperback", "kindle",
+        ))
 
         best = max(vehicle_hits, laptop_hits, book_hits)
         if best == 0:
@@ -469,11 +602,20 @@ class UniversalAgent:
 
             logger.info(f"Extracting criteria for domain: {schema.domain}")
 
+            # Include recent conversation history so the LLM can pick up criteria
+            # mentioned in earlier turns (e.g. budget stated on turn 1 is still
+            # visible when processing the user's answer to Q1 on turn 2).
+            history_msgs = [
+                m for m in self.history[-6:]
+                if m.get("role") in ("user", "assistant") and m.get("content") != message
+            ]
+
             completion = self.client.beta.chat.completions.parse(
                 model=OPENAI_MODEL,
                 **_REASONING_KWARGS,
                 messages=[
                     {"role": "system", "content": system_prompt},
+                    *history_msgs,
                     {"role": "user", "content": message}
                 ],
                 response_format=ExtractedCriteria,
@@ -483,10 +625,37 @@ class UniversalAgent:
                 logger.warning("Criteria extraction returned None")
                 return None
 
-            # Merge extracted filters into state
+            # Merge extracted filters into state — normalise slot names first.
+            # The LLM sometimes returns "ram" / "price" instead of the canonical
+            # schema slot names "min_ram_gb" / "budget".  Map them back so that
+            # _get_next_missing_slot() correctly sees them as already filled.
             if result.criteria:
-                new_filters = {item.slot_name: item.value for item in result.criteria}
-                logger.info(f"Extracted filters: {new_filters}")
+                domain_aliases = _SLOT_NAME_ALIASES.get(schema.domain, {})
+                # Build valid slot name set from schema — prevents spurious slots like
+                # min_year=2024 (from "best laptop 2024") from polluting the filters.
+                _schema_slot_names = {s.name for s in schema.slots}
+                # Extra slots that are valid but not in the schema definition.
+                _ALWAYS_ALLOW = {
+                    "excluded_brands", "_soft_preferences",
+                    "good_for_gaming", "good_for_creative",
+                    "good_for_web_dev", "good_for_ml",
+                    "use_case",
+                }
+                new_filters: Dict[str, Any] = {}
+                for item in result.criteria:
+                    canonical = domain_aliases.get(item.slot_name, item.slot_name)
+                    if (
+                        canonical in _schema_slot_names
+                        or canonical in _ALWAYS_ALLOW
+                        or canonical.startswith("good_for_")
+                    ):
+                        new_filters[canonical] = item.value
+                    else:
+                        logger.info(
+                            f"Dropping unknown slot '{item.slot_name}' "
+                            f"(canonical='{canonical}') — not in schema for domain '{schema.domain}'"
+                        )
+                logger.info(f"Extracted filters (normalised): {new_filters}")
                 self.filters.update(new_filters)
 
             # Log IDSS signals
@@ -498,8 +667,198 @@ class UniversalAgent:
             return result
 
         except Exception as e:
-            logger.error(f"Criteria extraction failed: {e}")
-            return None
+            logger.error(f"Criteria extraction failed: {e} — falling back to regex extractor")
+            return self._regex_extract_criteria(message, schema)
+
+    # ------------------------------------------------------------------
+    # Regex-based fallback extractor.
+    # Used when the LLM call fails (quota exhausted, network error, etc.).
+    # Handles the most common slot patterns for all domains.
+    # ------------------------------------------------------------------
+    def _regex_extract_criteria(self, message: str, schema: DomainSchema) -> Optional[ExtractedCriteria]:
+        """
+        Rule-based extraction for the most common slot patterns.
+        This is a resilience fallback — the LLM produces richer results.
+        """
+        text = message.lower()
+        criteria: List[SlotValue] = []
+        domain = schema.domain
+
+        # ── Budget ───────────────────────────────────────────────────────────
+        # Patterns: "$900", "under $900", "budget $900", "$800-$1,500", "500 bucks"
+        budget_val: Optional[str] = None
+        _b_range = re.search(r'\$(\d[\d,]*)\s*[-–to]+\s*\$?(\d[\d,]*k?)', text, re.IGNORECASE)
+        _b_under = re.search(
+            r'(?:under|below|less than|at most|up to|max|budget[:\s]+)\s*\$\s*(\d[\d,]*)',
+            text, re.IGNORECASE
+        )
+        _b_plain = re.search(r'\$\s*(\d[\d,]+)', text)
+        # "500 bucks", "500 dollars", "500 usd" (without dollar sign)
+        _b_bucks = re.search(
+            r'(?:^|[\s,])(\d{2,5})\s*(?:bucks?|dollars?|usd)\b',
+            text, re.IGNORECASE
+        )
+        if _b_range:
+            lo = _b_range.group(1).replace(",", "")
+            hi = _b_range.group(2).replace(",", "").rstrip("k")
+            if "k" in _b_range.group(2):
+                hi = str(int(hi) * 1000)
+            budget_val = f"${lo}-${hi}"
+        elif _b_under:
+            budget_val = f"${_b_under.group(1).replace(',', '')}"
+        elif _b_plain:
+            budget_val = f"${_b_plain.group(1).replace(',', '')}"
+        elif _b_bucks:
+            budget_val = f"${_b_bucks.group(1)}"
+        if budget_val:
+            criteria.append(SlotValue(slot_name="budget", value=budget_val))
+
+        # ── RAM (laptops / phones) ────────────────────────────────────────────
+        _ram = re.search(
+            r'(?:at\s+least\s+)?(\d{1,3})\s*(?:gb|g)\s*(?:of\s+)?(?:ram|memory)',
+            text, re.IGNORECASE
+        )
+        if not _ram:
+            _ram = re.search(r'(\d{1,3})\s*(?:gigs?)\s*(?:of\s+)?(?:ram|memory)?', text, re.IGNORECASE)
+        if _ram:
+            val_gb = int(_ram.group(1))
+            if 2 <= val_gb <= 256:
+                criteria.append(SlotValue(slot_name="min_ram_gb", value=str(val_gb)))
+
+        # ── Brand exclusions ─────────────────────────────────────────────────
+        # Matches: "no HP", "not HP", "anything but HP", "avoid HP", "hate HP",
+        #          "no HP or Acer", "no HP, no Acer"
+        _known_brands = [
+            "HP", "Acer", "Dell", "Lenovo", "Apple", "ASUS", "Asus",
+            "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
+            "Framework", "System76", "ROG", "Alienware",
+        ]
+        _excl_kw_pat = re.compile(
+            r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|skip)\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
+            re.IGNORECASE
+        )
+        excl_brands: List[str] = []
+        for _m in _excl_kw_pat.finditer(message):
+            # Group can be "HP or Acer" or "HP, no Acer" — split on or/and/, to get each brand
+            raw_group = _m.group(1).strip()
+            parts = re.split(r'\s+(?:or|and)\s+|[,;]\s*', raw_group)
+            for part in parts:
+                candidate = part.strip().split()[0]  # first word of each part
+                for brand in _known_brands:
+                    if brand.lower() == candidate.lower():
+                        if brand not in excl_brands:
+                            excl_brands.append(brand)
+        if excl_brands:
+            criteria.append(SlotValue(slot_name="excluded_brands", value=",".join(excl_brands)))
+
+        # ── OS ───────────────────────────────────────────────────────────────
+        _os_map = [
+            (re.compile(r'\bwindows\s*10\b', re.I), "Windows 10"),
+            (re.compile(r'\bwindows\s*11\b', re.I), "Windows 11"),
+            (re.compile(r'\bwindows\b', re.I),      "Windows 11"),
+            (re.compile(r'\blinux\b|\bubuntu\b|\bdebian\b|\bfedora\b', re.I), "Linux"),
+            (re.compile(r'\bmacos\b|\bos\s*x\b|\bapple\s+os\b', re.I), "macOS"),
+            (re.compile(r'\bchrome\s*os\b|\bchromebook\b', re.I), "Chrome OS"),
+        ]
+        for _pat, _os_val in _os_map:
+            if _pat.search(message):
+                criteria.append(SlotValue(slot_name="os", value=_os_val))
+                break
+
+        # ── Screen size ───────────────────────────────────────────────────────
+        _scr = re.search(
+            r'(\d{2}(?:\.\d)?)\s*(?:"|″|inch(?:es)?|-inch)(?:\s+(?:screen|display|laptop))?',
+            text, re.IGNORECASE
+        )
+        if _scr:
+            criteria.append(SlotValue(slot_name="screen_size", value=_scr.group(1)))
+
+        # ── Storage type ──────────────────────────────────────────────────────
+        if re.search(r'\bssd\b', text):
+            criteria.append(SlotValue(slot_name="storage_type", value="SSD"))
+        elif re.search(r'\bhdd\b|\bhard\s+drive\b', text):
+            criteria.append(SlotValue(slot_name="storage_type", value="HDD"))
+
+        # ── Use-case (laptops) ────────────────────────────────────────────────
+        if domain == "laptops":
+            _use_map = [
+                (r'\bgaming\b', "gaming"),
+                (r'\bml\b|\bmachine\s+learning\b|\bai\b|\bdeep\s+learning\b|\bpytorch\b|\btensorflow\b', "machine_learning"),
+                (r'\bcreative\b|\bdesign\b|\bvideo\s+edit\b|\bphoto\s+edit\b|\bfigma\b', "creative"),
+                (r'\bweb\s*dev\b|\bprogramm\b|\bcod(e|ing)\b|\bsoftware\s+dev\b', "web_dev"),
+                (r'\bschool\b|\bstudent\b|\bcollege\b|\bstud(y|ying)\b', "school"),
+                (r'\bwork\b|\bbusiness\b|\boffice\b|\bprofessional\b', "business"),
+            ]
+            for _uc_pat, _uc_val in _use_map:
+                if re.search(_uc_pat, text, re.IGNORECASE):
+                    criteria.append(SlotValue(slot_name="use_case", value=_uc_val))
+                    break
+
+        # ── Preferred brand ───────────────────────────────────────────────────
+        # Only extract if NOT negated (i.e., not in excl_brands)
+        _brand_phrases = [
+            (r'\b(?:apple|macbook|mac\s+air|mac\s+pro)\b', "Apple"),
+            (r'\bdell\b|\bxps\b|\binspiron\b|\blatitude\b', "Dell"),
+            (r'\blenovo\b|\bthinkpad\b|\bideapad\b', "Lenovo"),
+            (r'\basus\b|\brog\b', "ASUS"),
+            (r'\bmsi\b', "MSI"),
+            (r'\brazer\b', "Razer"),
+            (r'\bmicrosoft\b|\bsurface\b', "Microsoft"),
+            (r'\bsamsung\b', "Samsung"),
+            (r'\bframework\b', "Framework"),
+            (r'\bsystem76\b', "System76"),
+            (r'\bhp\b|\bhewlett\b', "HP"),
+            (r'\bacer\b|\baspire\b|\bswift\b', "Acer"),
+            (r'\bgigabyte\b|\baorus\b', "Gigabyte"),
+            (r'\btoshiba\b|\bdynabook\b', "Toshiba"),
+        ]
+        # Only set if user is NOT excluding the brand
+        for _bp, _bv in _brand_phrases:
+            if re.search(_bp, text, re.IGNORECASE) and _bv not in excl_brands:
+                # Check not in an exclusion context
+                _mctx = re.search(
+                    r'(?:no|not|avoid|hate)\s+' + re.escape(_bv.lower()),
+                    text, re.IGNORECASE
+                )
+                if not _mctx:
+                    criteria.append(SlotValue(slot_name="brand", value=_bv))
+                    break
+
+        # ── Intent signals ────────────────────────────────────────────────────
+        _impatient_kws = (
+            "just show", "show me results", "skip", "don't care", "doesn't matter",
+            "whatever", "anything works", "surprise me",
+        )
+        _rec_kws = (
+            "show me options", "show me some", "what do you recommend",
+            "give me recommendations", "show me laptop", "show me the best",
+            "let's see", "let me see", "find me",
+        )
+        is_impatient = any(kw in text for kw in _impatient_kws)
+        wants_recs = any(kw in text for kw in _rec_kws)
+        # Heuristic: if ≥2 substantive criteria extracted and no question mark,
+        # the user is giving us their requirements — recommend without more questions.
+        substantive = [c for c in criteria if c.slot_name not in ("os",)]
+        if not wants_recs and len(substantive) >= 2 and "?" not in message:
+            wants_recs = True
+
+        if criteria:
+            domain_aliases = _SLOT_NAME_ALIASES.get(domain, {})
+            new_filters: Dict[str, Any] = {}
+            for item in criteria:
+                canonical = domain_aliases.get(item.slot_name, item.slot_name)
+                new_filters[canonical] = item.value
+            logger.info(f"Regex fallback extracted (normalised): {new_filters}")
+            self.filters.update(new_filters)
+        else:
+            logger.info("Regex fallback: no criteria found")
+
+        return ExtractedCriteria(
+            criteria=criteria,
+            reasoning="regex fallback (LLM unavailable)",
+            is_impatient=is_impatient,
+            wants_recommendations=wants_recs,
+        )
 
     def _should_recommend(self, extraction_result: Optional[ExtractedCriteria], schema: DomainSchema) -> bool:
         """
@@ -530,20 +889,29 @@ class UniversalAgent:
         # Don't stop early - let the interview continue with MEDIUM priority questions
         return False
 
+    # Slots that are EXTRACT-ONLY — never ask the user about them.
+    # They are populated only when the user explicitly states them.
+    _EXTRACT_ONLY_SLOTS = frozenset({"excluded_brands", "os"})
+
     def _get_next_missing_slot(self, schema: DomainSchema) -> Optional[PreferenceSlot]:
         """
         Determines the next question to ask based on Priority.
         HIGH -> MEDIUM -> LOW (but respects questions already asked).
+        Extract-only slots (excluded_brands, os) are never returned here.
         """
         slots_by_priority = schema.get_slots_by_priority()
 
         # Check HIGH priority first
         for slot in slots_by_priority[SlotPriority.HIGH]:
+            if slot.name in self._EXTRACT_ONLY_SLOTS:
+                continue
             if slot.name not in self.filters and slot.name not in self.questions_asked:
                 return slot
 
         # Check MEDIUM priority
         for slot in slots_by_priority[SlotPriority.MEDIUM]:
+            if slot.name in self._EXTRACT_ONLY_SLOTS:
+                continue
             if slot.name not in self.filters and slot.name not in self.questions_asked:
                 return slot
 
@@ -737,7 +1105,10 @@ Write the recommendation message."""}
                 ],
                 max_completion_tokens=2000,
             )
-            message = completion.choices[0].message.content.strip()
+            message = (completion.choices[0].message.content or "").strip()
+            if not message:
+                # gpt-5-nano occasionally returns empty content; use fallback
+                return f"Here are top {domain} recommendations based on your preferences. What would you like to do next?"
             logger.info(f"Generated recommendation explanation: {message[:80]}...")
             return message
         except Exception as e:

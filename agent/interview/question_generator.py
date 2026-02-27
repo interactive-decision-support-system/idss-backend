@@ -154,7 +154,7 @@ def generate_question(
             **({"reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT")} if os.getenv("OPENAI_REASONING_EFFORT") else {}),
             messages=messages,
             response_format=QuestionResponse,
-            temperature=0.7  # Slightly higher for variety
+            temperature=0.7,
         )
 
         result = response.choices[0].message.parsed

@@ -219,19 +219,30 @@ async def generate_comparison_narrative(
                 price_str = f"${price:,.0f}" if price else ""
                 one_spec = _build_spec_sheet([p], domain).strip()
 
+                # Provide product description as extra context when specs are sparse.
+                desc = (p.get("description") or "")[:250].strip()
+                spec_context = one_spec
+                if desc:
+                    spec_context += f"\n    Description: {desc}"
+
                 sys_p = (
-                    "You are a product advisor. Write a SHORT, specific feature overview for this ONE product.\n"
+                    "You are a knowledgeable product advisor. Write a clear, useful feature overview for this ONE product.\n"
                     "Format exactly:\n"
-                    "- [key feature — ≤8 words, reference real specs]\n"
-                    "- [key feature — ≤8 words]\n"
-                    "- [key feature — ≤8 words]\n"
+                    "- [key spec or strength — reference real numbers/names when available]\n"
+                    "- [second key feature]\n"
+                    "- [third key feature]\n"
                     "Great for: [use case 1], [use case 2], [use case 3]\n"
-                    "Pros: [1 clear strength]. Cons: [1 honest weakness].\n\n"
-                    "Rules: Be specific (e.g. 'Apple M4 — up to 18-hr battery', not 'good performance'). "
-                    "Start immediately with '- '. No intro sentence."
+                    "Pros: [2-3 sentence analysis of strengths — be specific, reference specs]. "
+                    "Cons: [2-3 sentence honest critique — mention trade-offs or limitations].\n\n"
+                    "Rules:\n"
+                    "- Reference actual specs when present (e.g. 'AMD Ryzen 7 5800H — great for heavy multitasking and gaming').\n"
+                    "- If specs are missing, INFER from product name, price, and brand "
+                    "(e.g. '$298 Chromebook — cloud-first, lightweight, not for heavy apps').\n"
+                    "- Pros and Cons must be 2-3 sentences each, specific and useful — not just one word.\n"
+                    "- Start immediately with the first '- '. No intro sentence, no product name header."
                 )
                 usr_p = (
-                    f"Product:\n{one_spec}\n\n"
+                    f"Product:\n{spec_context}\n\n"
                     f"User question: \"{user_message}\"\n"
                     f"{domain_focus}"
                 )
@@ -240,7 +251,7 @@ async def generate_comparison_narrative(
                     comp = await client.chat.completions.create(
                         model=OPENAI_MODEL,
                         **_REASONING_KWARGS,
-                        max_tokens=160,
+                        max_completion_tokens=600,  # 3 bullets + Great for + 2-3 sentence Pros + 2-3 sentence Cons
                         messages=[
                             {"role": "system", "content": sys_p},
                             {"role": "user", "content": usr_p},
@@ -249,14 +260,45 @@ async def generate_comparison_narrative(
                     body = comp.choices[0].message.content.strip()
                 except Exception as ex:
                     logger.error(f"Feature gen failed for {name}: {ex}")
-                    # Spec-based fallback so one failure doesn't blank the card
-                    spec_lines = []
+                    # Inference-based fallback — always produce 3-4 useful bullets even
+                    # when the DB has no specs (e.g. modular/niche laptops like Framework).
+                    fallback_lines: List[str] = []
                     for lbl, k in [("CPU", "processor"), ("RAM", "ram"),
                                    ("Storage", "storage"), ("GPU", "gpu"),
-                                   ("Battery", "battery_life"), ("Rating", "rating")]:
+                                   ("Battery", "battery_life")]:
                         if p.get(k):
-                            spec_lines.append(f"{lbl}: {p[k]}")
-                    body = "\n".join(f"- {s}" for s in spec_lines) or "- No spec data available"
+                            fallback_lines.append(f"{lbl}: {p[k]}")
+                    # Always add price context
+                    if price_str:
+                        fallback_lines.append(f"Price: {price_str}")
+                    # Infer from product name keywords when specs are empty
+                    name_lower = name.lower()
+                    if not any(k in ("processor", "ram") and p.get(k) for k in ("processor", "ram")):
+                        if "framework" in name_lower:
+                            fallback_lines += [
+                                "Modular & fully repairable — swap any component",
+                                "Right-to-repair friendly design",
+                            ]
+                        if "gaming" in name_lower or "rog" in name_lower or "strix" in name_lower:
+                            fallback_lines.append("Gaming-grade GPU for high-frame-rate play")
+                        if "chromebook" in name_lower:
+                            fallback_lines += ["ChromeOS — lightweight and cloud-first",
+                                               "Long battery life, fanless design"]
+                        if "macbook" in name_lower or "apple" in (p.get("brand") or "").lower():
+                            fallback_lines += ["Apple Silicon — exceptional perf/watt",
+                                               "Tight hardware-software integration"]
+                    # Pad to at least 3 bullets
+                    if len(fallback_lines) < 3:
+                        if price and price < 700:
+                            fallback_lines.append("Budget-friendly entry-level option")
+                        elif price and price >= 1500:
+                            fallback_lines.append("Premium build quality and performance tier")
+                        else:
+                            fallback_lines.append("Mid-range value with capable everyday performance")
+                    rating = p.get("rating")
+                    if rating:
+                        fallback_lines.append(f"User rating: {float(rating):.1f} ★")
+                    body = "\n".join(f"- {s}" for s in fallback_lines[:5])
 
                 header = f"**{name}**" + (f" ({price_str})" if price_str else "")
                 return f"{header}\n{body}"

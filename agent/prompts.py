@@ -52,21 +52,39 @@ Always include the dollar sign in budget values.""",
 }
 
 CRITERIA_EXTRACTION_PROMPT = """You are a smart extraction agent for the '{domain}' domain.
-Your goal is to extract specific criteria from the user's message based on the available slots:
+
+Extract ALL criteria from the user's message into the EXACT slot names listed below.
+
+AVAILABLE SLOTS (use these EXACT slot_name strings — never invent new ones):
 {schema_text}
 
 {price_context}
 
-Also detect user intent signals:
-- is_impatient: Set to true if user wants to skip questions or seems eager to see results.
-  Examples: "just show me options", "I don't care about details", "whatever works", "skip"
-- wants_recommendations: Set to true if user explicitly asks for recommendations.
-  Examples: "show me what you have", "what do you recommend", "let's see some options"
+EXTRACTION RULES:
+1. Use EXACTLY the slot names shown above. Never use aliases:
+   - CORRECT: slot_name="min_ram_gb"  (NOT "ram", "ram_gb", "memory")
+   - CORRECT: slot_name="budget"       (NOT "price", "max_price", "price_range")
+   - CORRECT: slot_name="screen_size"  (NOT "display", "screen", "display_size")
 
-Return a list of extracted criteria (slot names and values).
-Only include slots that are explicitly mentioned or clearly inferred.
-Do NOT guess. If a slot is not mentioned, do not include it.
-For slots with ALLOWED VALUES, always use the exact allowed value string.
+2. Extract from the ENTIRE message — scan every phrase, not just the first sentence.
+   A message like "16GB RAM, SSD, under $1,000" contains THREE slots to extract.
+
+3. Brand EXCLUSIONS (user says "no X", "not X", "refuse X", "hate X", "avoid X", "anything but X"):
+   → slot_name="excluded_brands", value="Brand1" or "Brand1,Brand2" for multiple.
+   Examples: "no HP" → excluded_brands="HP" | "no HP and no Acer" → excluded_brands="HP,Acer"
+
+4. OS requirements ("Windows 10", "Linux only", "must have macOS"):
+   → slot_name="os", value="Windows 10" etc.
+
+5. For slots with ALLOWED VALUES, map the user's words to the closest allowed value exactly.
+
+6. Only extract what is explicitly stated or clearly inferable. Do NOT guess.
+
+Also detect user intent signals:
+- is_impatient: true if user wants to skip questions ("just show me", "whatever", "skip", "I don't care")
+- wants_recommendations: true if user explicitly asks for recommendations ("show me options", "what do you recommend")
+
+Return ALL matching slots from a single message. A message with 4 criteria → return 4 SlotValues.
 """
 
 # ============================================================================
