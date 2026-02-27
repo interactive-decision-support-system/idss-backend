@@ -164,7 +164,9 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
         agent.max_questions = 0
 
     previous_domain = session.active_domain
-    agent_response = agent.process_message(msg)
+    # process_message makes synchronous OpenAI calls; run in a thread so the
+    # asyncio event loop stays free to serve other requests while waiting.
+    agent_response = await asyncio.to_thread(agent.process_message, msg)
     timings["agent_total_ms"] = (time.perf_counter() - t_agent) * 1000
 
     # Detect domain switch: if domain changed, reset old filters
@@ -849,6 +851,25 @@ async def _handle_post_recommendation(
     # intent == 'refine' or None → fall through to the keyword handlers below,
     # which will either catch a specific keyword or return None to let the
     # UniversalAgent handle the message normally.
+
+    # -----------------------------------------------------------------------
+    # "Refine search" button — ask the user what they want to change.
+    # Without this, the message falls through to UniversalAgent which extracts
+    # nothing useful and just re-runs the existing search unchanged.
+    # -----------------------------------------------------------------------
+    if any(kw in msg_lower for kw in ("refine my search", "refine search", "change my criteria")):
+        session_manager.add_message(session_id, "user", request.message)
+        return ChatResponse(
+            response_type="question",
+            message="What would you like to change about your search? You can update your budget, preferred screen size, brand, or any other requirement.",
+            session_id=session_id,
+            quick_replies=["Change budget", "Different screen size", "Different brand", "Add a requirement"],
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
+
     if "see similar" in msg_lower or "similar items" in msg_lower:
         session_manager.add_message(session_id, "user", request.message)
         # Directly show diverse results.
