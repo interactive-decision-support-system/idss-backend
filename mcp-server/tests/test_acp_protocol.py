@@ -379,10 +379,17 @@ def client():
     def override_get_db():
         yield mock_db
 
+    # Save existing override so we can restore it after this module's tests finish.
+    # Without this, .pop() would remove the key entirely, breaking subsequent modules
+    # that rely on app.dependency_overrides[get_db] being set.
+    _prev_override = app.dependency_overrides.get(get_db)
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
-    app.dependency_overrides.pop(get_db, None)
+    if _prev_override is not None:
+        app.dependency_overrides[get_db] = _prev_override
+    else:
+        app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture(autouse=True)
