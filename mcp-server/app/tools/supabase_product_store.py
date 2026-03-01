@@ -274,18 +274,18 @@ class SupabaseProductStore:
         if genre and str(genre).lower() not in ("no preference", "any", ""):
             params.append(("attributes->>genre", f"ilike.*{genre}*"))
 
-        # OS filter — applied when user explicitly requires a specific OS.
-        # Stored in attributes->>'os' or attributes->>'operating_system'.
-        os_filter = filters.get("os")
-        if os_filter and str(os_filter).lower() not in ("no preference", "any", ""):
-            params.append(("attributes->>os", f"ilike.*{os_filter}*"))
-
         if price_min is not None:
             params.append(("price", f"gte.{price_min:.2f}"))
         if price_max is not None:
             params.append(("price", f"lte.{price_max:.2f}"))
 
         if not drop_specs:
+            # OS filter — only applied at step 1 (full constraints).
+            # Moving it inside drop_specs ensures it is relaxed along with RAM/screen/battery
+            # so queries for rare OS combinations (e.g. Linux) still fall back to results.
+            os_filter = filters.get("os")
+            if os_filter and str(os_filter).lower() not in ("no preference", "any", ""):
+                params.append(("attributes->>os", f"ilike.*{os_filter}*"))
             min_ram = filters.get("min_ram_gb")
             if min_ram:
                 params.append(("attributes->>ram_gb", f"gte.{min_ram}"))
@@ -661,10 +661,13 @@ class _SQLAlchemyProductStore:
             brand = None
 
         steps = [
-            dict(drop_price_min=False, drop_brand=False),
-            dict(drop_price_min=True,  drop_brand=False),
-            dict(drop_price_min=False, drop_brand=True),
-            dict(drop_price_min=True,  drop_brand=True),
+            dict(drop_price_min=False, drop_brand=False, drop_os=False),
+            dict(drop_price_min=True,  drop_brand=False, drop_os=False),
+            dict(drop_price_min=False, drop_brand=True,  drop_os=False),
+            dict(drop_price_min=True,  drop_brand=True,  drop_os=False),
+            # Last resort: drop OS too — rare OS requirements (e.g. Linux) must not
+            # permanently block results when no products have that attribute in the DB.
+            dict(drop_price_min=True,  drop_brand=True,  drop_os=True),
         ]
         for step in steps:
             rows = self._sql_fetch(
@@ -674,6 +677,7 @@ class _SQLAlchemyProductStore:
                 brand=None if step["drop_brand"] else brand,
                 limit=limit,
                 exclude_ids=exclude_ids,
+                drop_os=step["drop_os"],
             )
             if rows:
                 logger.info(
@@ -691,6 +695,7 @@ class _SQLAlchemyProductStore:
         brand: Optional[str],
         limit: int,
         exclude_ids: Optional[List[str]],
+        drop_os: bool = False,
     ) -> List[Dict[str, Any]]:
         """Execute one SQL query + Python-side spec filtering pass."""
         import json as _json
@@ -733,9 +738,11 @@ class _SQLAlchemyProductStore:
             conditions.append("attributes->>'genre' ILIKE :genre")
             params["genre"] = f"%{genre}%"
 
-        # OS filter — never relaxed, user explicitly requires it.
+        # OS filter — relaxed only at the last resort step (drop_os=True).
+        # Rare OS values like "Linux" are rarely present in product attributes,
+        # so we must drop this filter before giving up entirely.
         os_filter = filters.get("os")
-        if os_filter and str(os_filter).lower() not in ("no preference", "any", ""):
+        if os_filter and not drop_os and str(os_filter).lower() not in ("no preference", "any", ""):
             conditions.append("(attributes->>'os' ILIKE :os_filter OR attributes->>'operating_system' ILIKE :os_filter)")
             params["os_filter"] = f"%{os_filter}%"
 
