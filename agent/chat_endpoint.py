@@ -28,6 +28,33 @@ logger = StructuredLogger("chat_endpoint")
 
 
 # ============================================================================
+# Adversarial Input Guard — prompt injection / jailbreak detection
+# ============================================================================
+
+_INJECTION_RE = re.compile(
+    r"ignore\s+(all\s+)?previous\s+instructions"
+    r"|forget\s+(all\s+)?your\s+instructions"
+    r"|you\s+are\s+now\s+"
+    r"|disregard\s+(all\s+)?training"
+    r"|act\s+as\s+(?:a\s+)?(?:different|new|evil|unlimited|unfiltered|unrestricted)"
+    r"|\[\s*system\s*\]\s*:"
+    r"|</?(prompt|instruction|system)>"
+    r"|(?:os\.system|subprocess\.run|exec\s*\(|eval\s*\()"
+    r"|ignore\s+your\s+programming"
+    r"|pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?!customer|shopper|buyer|user|student|teacher|expert)"
+    r"|repeat\s+(?:the|your)\s+(?:system|original)\s+prompt"
+    r"|\bDAN\s+mode\b|\bjailbreak\b"
+    r"|override\s+(?:your\s+)?(?:safety|guidelines|restrictions)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _is_prompt_injection(message: str) -> bool:
+    """Return True if the message appears to be a prompt injection attempt."""
+    return bool(_INJECTION_RE.search(message))
+
+
+# ============================================================================
 # Request/Response Models (compatible with IDSS)
 # ============================================================================
 
@@ -518,6 +545,23 @@ async def _handle_post_recommendation(
         context_product_ids = _validated if _validated else None
     # Message with the hidden tag removed — used for LLM calls and msg_lower
     clean_message: str = re.sub(r'\s*\[ctx:[^\]]*\]', '', request.message).strip()
+
+    # -----------------------------------------------------------------------
+    # Adversarial guard — reject prompt injection / jailbreak attempts early
+    # -----------------------------------------------------------------------
+    if _is_prompt_injection(clean_message):
+        logger.warning("prompt_injection_detected", "Blocked prompt injection attempt",
+                       {"session_id": session_id, "preview": clean_message[:120]})
+        return ChatResponse(
+            response_type="question",
+            message="I'm here to help you find the right product. What are you looking for today?",
+            session_id=session_id,
+            quick_replies=["Laptops", "Vehicles", "Books"],
+            filters={},
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
 
     msg_lower = clean_message.lower()
 
@@ -1556,6 +1600,34 @@ async def _search_and_respond_vehicles(
             formatted_recs.append(formatted_bucket)
             
         session_manager.set_last_recommendation_data(session_id, flat_data)
+
+        # ------------------------------------------------------------------
+        # Auto-surface Best Pick for vehicles too
+        # ------------------------------------------------------------------
+        vehicle_labels = list(result.bucket_labels) if result.bucket_labels else []
+        try:
+            best_v = _pick_best_value(flat_data)
+            if best_v:
+                best_v_id = best_v.get("id")
+                explanation_v = _explain_best_value(best_v, "vehicles", flat_data)
+                message = explanation_v + "\n\n" + message
+                if best_v_id:
+                    for row_idx, row in enumerate(formatted_recs):
+                        for col_idx, item in enumerate(row):
+                            if item.get("id") == best_v_id and (row_idx, col_idx) != (0, 0):
+                                formatted_recs[row_idx].pop(col_idx)
+                                formatted_recs[0].insert(0, item)
+                                break
+                        else:
+                            continue
+                        break
+                if vehicle_labels:
+                    vehicle_labels[0] = "Best Pick for You"
+                else:
+                    vehicle_labels = ["Best Pick for You"]
+        except Exception as e:
+            logger.error("best_pick_auto_failed", f"Could not auto-select best vehicle pick: {e}", {})
+
         timings["vehicle_formatting_ms"] = (time.perf_counter() - t_format) * 1000
         return ChatResponse(
             response_type="recommendations",
@@ -1563,7 +1635,7 @@ async def _search_and_respond_vehicles(
             session_id=session_id,
             domain="vehicles",
             recommendations=formatted_recs,
-            bucket_labels=result.bucket_labels,
+            bucket_labels=vehicle_labels,
             diversification_dimension=result.diversification_dimension,
             filters=search_filters,
             preferences={},
@@ -1654,6 +1726,37 @@ async def _search_and_respond_ecommerce(
             message = await asyncio.to_thread(agent.generate_recommendation_explanation, recs, domain)
         except Exception as e:
             logger.error("rec_explanation_failed", f"Failed to generate explanation: {e}", {})
+
+    # ------------------------------------------------------------------
+    # Auto-surface Best Pick: score all results, explain the top choice,
+    # and move it to recs[0][0] so the frontend hero renders it first.
+    # ------------------------------------------------------------------
+    try:
+        best = _pick_best_value(flat_data)
+        if best:
+            best_id = best.get("product_id") or best.get("id")
+            explanation = _explain_best_value(best, domain, flat_data)
+            message = explanation + "\n\n" + message
+            # Promote the best pick to pole position in the first row
+            if best_id:
+                for row_idx, row in enumerate(recs):
+                    for col_idx, item in enumerate(row):
+                        item_id = item.get("product_id") or item.get("id")
+                        if item_id == best_id and (row_idx, col_idx) != (0, 0):
+                            recs[row_idx].pop(col_idx)
+                            recs[0].insert(0, item)
+                            break
+                    else:
+                        continue
+                    break
+            # Label the first bucket so the frontend knows it's the best pick
+            if labels:
+                labels[0] = "Best Pick for You"
+            else:
+                labels = ["Best Pick for You"]
+    except Exception as e:
+        logger.error("best_pick_auto_failed", f"Could not auto-select best pick: {e}", {})
+
     timings["ecommerce_formatting_ms"] = (time.perf_counter() - t_format) * 1000
     return ChatResponse(
         response_type="recommendations",
