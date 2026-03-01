@@ -391,6 +391,39 @@ class UniversalAgent:
             self.domain = None
             return response
 
+        # ── Accessory / subtype ambiguity check ─────────────────────────────────
+        # If the user mentions a domain keyword AND an accessory keyword in the
+        # same message, they may mean a peripheral rather than the main product.
+        # Ask a clarifying question rather than silently routing to the main domain.
+        msg_words = set(re.sub(r"[^a-z0-9 ]", " ", message.lower()).split())
+        accessory_hit = msg_words & self._ACCESSORY_KEYWORDS
+        if accessory_hit and self.question_count == 0:
+            domain_label = {
+                "laptops": "laptop", "vehicles": "vehicle", "books": "book"
+            }.get(self.domain, self.domain)
+            accessory_example = next(iter(accessory_hit))
+            clarify_msg = (
+                f"Are you looking for a **{domain_label}** itself, or a "
+                f"**{domain_label} accessory** (like a {accessory_example})?"
+            )
+            logger.info(
+                f"Accessory ambiguity: domain={self.domain}, "
+                f"accessory_hit={accessory_hit} — asking clarification"
+            )
+            response = {
+                "response_type": "question",
+                "message": clarify_msg,
+                "quick_replies": [
+                    f"The {domain_label} itself",
+                    f"A {domain_label} accessory",
+                ],
+                "session_id": self.session_id,
+                "domain": self.domain,
+                "timings_ms": timings,
+            }
+            self.history.append({"role": "assistant", "content": clarify_msg})
+            return response
+
         # 2. Extract Criteria (Schema-Driven) with IDSS signals
         schema = get_domain_schema(self.domain)
         if not schema:
@@ -485,6 +518,15 @@ class UniversalAgent:
         "audiobook": "books", "kindle": "books", "genre": "books",
     }
 
+    # Accessory keywords: if a domain word co-occurs with one of these, the
+    # user may mean a peripheral/accessory rather than the main product.
+    _ACCESSORY_KEYWORDS: frozenset = frozenset({
+        "bag", "sleeve", "stand", "dock", "docking", "charger", "adapter",
+        "cable", "mouse", "keyboard", "webcam", "monitor", "display",
+        "upgrade", "parts", "peripheral", "accessories", "case", "cover",
+        "hub", "port", "hdmi", "usb", "ssd upgrade", "ram upgrade",
+    })
+
     def _detect_domain_from_message(self, message: str) -> Optional[str]:
         """
         Classify the user's message into a domain.
@@ -493,6 +535,9 @@ class UniversalAgent:
         1. Word-scan the message against _FAST_DOMAIN_MAP (no LLM, ~0 ms).
         2. LLM structured-output parse (most accurate, ~300 ms).
         3. If LLM fails: keyword scan of the full message text as final fallback.
+
+        Returns None when the domain is ambiguous so the caller asks the user
+        for clarification rather than guessing silently.
         """
         # ── 1. Word-scan fast path ──────────────────────────────────────────────
         # Scan EACH word in the message, not the whole string. This catches
@@ -522,6 +567,14 @@ class UniversalAgent:
             if not result:
                 logger.warning("Domain detection: LLM returned None (parsing failed)")
             elif result.domain and result.domain != "unknown":
+                # Treat low-confidence LLM results as ambiguous — ask the user
+                # rather than silently guessing.
+                if result.confidence < 0.55:
+                    logger.info(
+                        f"Domain detection: low confidence {result.confidence:.2f} "
+                        f"for '{result.domain}' — treating as ambiguous"
+                    )
+                    return None
                 logger.info(f"Domain detected via LLM: {result.domain} (conf: {result.confidence})")
                 return result.domain
 
@@ -544,7 +597,19 @@ class UniversalAgent:
 
         best = max(v_hits, l_hits, b_hits)
         if best > 0:
-            domain = "vehicles" if v_hits == best else "laptops" if l_hits == best else "books"
+            # When two or more domains tie, return None to trigger clarification
+            # rather than picking arbitrarily.
+            winners = [
+                d for d, hits in (("vehicles", v_hits), ("laptops", l_hits), ("books", b_hits))
+                if hits == best
+            ]
+            if len(winners) > 1:
+                logger.info(
+                    f"Domain fallback: ambiguous tie {winners} "
+                    f"(v={v_hits} l={l_hits} b={b_hits}) — asking user"
+                )
+                return None
+            domain = winners[0]
             logger.info(f"Domain detected via keyword fallback: {domain} (v={v_hits} l={l_hits} b={b_hits})")
             return domain
 
