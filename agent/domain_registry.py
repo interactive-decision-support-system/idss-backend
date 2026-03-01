@@ -237,6 +237,24 @@ LAPTOP_SCHEMA = DomainSchema(
             example_replies=["Windows 11", "Windows 10", "Linux", "macOS", "No preference"],
             allowed_values=["Windows 10", "Windows 11", "Linux", "macOS", "Chrome OS"],
         ),
+        PreferenceSlot(
+            name="product_subtype",
+            display_name="Product Subtype",
+            priority=SlotPriority.LOW,
+            description=(
+                "The specific product class the user wants within the laptop domain. "
+                "Extract ONLY when user phrasing is unambiguous: "
+                "'laptop bag' or 'laptop case' → 'laptop_bag'; "
+                "'laptop charger', 'power adapter', 'accessories', 'peripheral' → 'laptop_peripheral'; "
+                "'RAM upgrade', 'laptop memory', 'SSD upgrade' → 'laptop_peripheral'; "
+                "'laptop stand', 'laptop riser' → 'laptop_stand'. "
+                "When user just says 'laptop', 'computer', 'notebook' → do NOT extract this slot at all. "
+                "NEVER ask the user for this — only extract when intent is explicit."
+            ),
+            example_question="",  # never asked
+            example_replies=[],
+            allowed_values=["laptop", "laptop_bag", "laptop_peripheral", "laptop_stand"],
+        ),
     ]
 )
 

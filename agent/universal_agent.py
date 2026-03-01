@@ -333,6 +333,13 @@ class UniversalAgent:
             elif slot_name == "os":
                 search_filters["os"] = value
 
+            elif slot_name == "product_subtype":
+                # Override product_type with the more-specific user-stated subtype.
+                # e.g. "laptop_bag" → search for bags, not laptops.
+                val_str = str(value).strip().lower()
+                if val_str:
+                    search_filters["product_subtype"] = val_str
+
             elif slot_name in ("fuel_type", "condition", "screen_size", "color", "material"):
                 search_filters[slot_name] = value
 
@@ -901,7 +908,7 @@ class UniversalAgent:
 
     # Slots that are EXTRACT-ONLY — never ask the user about them.
     # They are populated only when the user explicitly states them.
-    _EXTRACT_ONLY_SLOTS = frozenset({"excluded_brands", "os"})
+    _EXTRACT_ONLY_SLOTS = frozenset({"excluded_brands", "os", "product_subtype"})
 
     def _get_next_missing_slot(self, schema: DomainSchema) -> Optional[PreferenceSlot]:
         """

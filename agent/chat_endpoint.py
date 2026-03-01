@@ -33,7 +33,7 @@ logger = StructuredLogger("chat_endpoint")
 
 class ChatRequest(BaseModel):
     """Request model for chat endpoint - matches IDSS format."""
-    message: str = Field(description="User's message")
+    message: str = Field(description="User's message", max_length=2000)
     session_id: Optional[str] = Field(default=None, description="Session ID (auto-generated if not provided)")
 
     # Per-request config overrides
@@ -503,9 +503,19 @@ async def _handle_post_recommendation(
     # The tag is stripped before any LLM call so the model never sees it.
     # -----------------------------------------------------------------------
     _ctx_match = re.search(r'\[ctx:([^\]]*)\]', request.message)
-    context_product_ids: Optional[set] = (
-        set(filter(None, _ctx_match.group(1).split(','))) if _ctx_match else None
-    )
+    context_product_ids: Optional[set] = None
+    if _ctx_match:
+        # Validate each extracted ID is a proper UUID before it reaches the DB.
+        # Silently drop malformed IDs — never let raw frontend strings hit Supabase.
+        _raw_ctx_ids = filter(None, _ctx_match.group(1).split(','))
+        _validated: set = set()
+        for _raw_id in _raw_ctx_ids:
+            try:
+                uuid.UUID(_raw_id.strip())
+                _validated.add(_raw_id.strip())
+            except ValueError:
+                pass
+        context_product_ids = _validated if _validated else None
     # Message with the hidden tag removed — used for LLM calls and msg_lower
     clean_message: str = re.sub(r'\s*\[ctx:[^\]]*\]', '', request.message).strip()
 

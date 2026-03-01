@@ -250,7 +250,9 @@ class SupabaseProductStore:
             # Supabase column is title-cased ('Electronics', 'Books') — normalise
             params.append(("category", f"ilike.{category}"))
 
-        product_type = filters.get("product_type")
+        # product_subtype (user-stated specific class, e.g. "laptop_bag") takes
+        # precedence over the domain default product_type ("laptop").
+        product_type = filters.get("product_subtype") or filters.get("product_type")
         if product_type:
             params.append(("product_type", f"eq.{product_type}"))
 
@@ -713,7 +715,8 @@ class _SQLAlchemyProductStore:
             conditions.append("LOWER(category) = LOWER(:category)")
             params["category"] = category
 
-        product_type = filters.get("product_type")
+        # product_subtype (user-stated specific class) takes precedence over domain default.
+        product_type = filters.get("product_subtype") or filters.get("product_type")
         if product_type:
             conditions.append("product_type = :product_type")
             params["product_type"] = product_type
