@@ -534,7 +534,21 @@ async def _handle_post_recommendation(
         # "refine" directly to avoid the LLM intent call misclassifying them
         # as "new_search" (which would wipe the session) or "other".
         "change budget", "different screen size", "different brand", "add a requirement",
+        # "N inch" screen-size quick-replies ("13 inch", "15.6 inch", etc.)
+        # must be treated as refine, not compare/new_search.
+        "inch",
+        # No-results recovery quick-reply buttons — must route to refine so the
+        # explicit handlers below can act on them without an LLM call.
+        "increase my budget", "try a different brand",
+        "show me all laptops", "show me all books",
     )
+    # Exact brand names that can come in as standalone quick-reply selections
+    # (e.g. user chose "Acer" from the brand picker). Use exact equality —
+    # NOT substring — to avoid false matches like "hp" inside other words.
+    _QUICK_REPLY_BRAND_EXACT = {
+        "hp", "dell", "asus", "lenovo", "acer",
+        "apple", "samsung", "microsoft", "razer", "lg",
+    }
     # "See similar items" button sends this text — always route to the see-similar
     # handler (intent="refine"), never to compare.  Must come BEFORE the LLM call.
     _FAST_SEE_SIMILAR_KWS = (
@@ -550,6 +564,10 @@ async def _handle_post_recommendation(
     elif any(kw in msg_lower for kw in _FAST_SEE_SIMILAR_KWS):
         intent = "refine"   # see-similar is handled inside the refine branch
     elif any(kw in msg_lower for kw in _FAST_REFINE_KWS):
+        intent = "refine"
+    elif msg_lower.strip() in _QUICK_REPLY_BRAND_EXACT:
+        # Bare brand name (e.g. "Acer", "HP") from the brand-picker quick-reply.
+        # Must be treated as "refine" — NOT compare/new_search.
         intent = "refine"
     else:
         intent = await detect_post_rec_intent(clean_message)
@@ -944,6 +962,165 @@ async def _handle_post_recommendation(
             preferences={},
             question_count=session.question_count,
             domain=active_domain,
+        )
+
+    # -----------------------------------------------------------------------
+    # "N inch" screen-size handler — user selected "13 inch", "15.6 inch", etc.
+    # from the screen-size quick-reply menu.  Bypass process_refinement (which
+    # may fail on quota exhaustion) and directly set the filter then re-search.
+    # -----------------------------------------------------------------------
+    _size_m = re.match(r'^(\d+\.?\d*)\s*(?:["\u201d]|inch(?:es?)?)$', msg_lower.strip())
+    if _size_m:
+        size_val = float(_size_m.group(1))
+        if 10.0 <= size_val <= 20.0:  # sanity: laptop screens are 10–20 inches
+            session_manager.add_message(session_id, "user", request.message)
+            agent = UniversalAgent.restore_from_session(session_id, session)
+            agent.filters["screen_size"] = str(size_val)
+            search_filters = agent.get_search_filters()
+            agent_state = agent.get_state()
+            session.agent_filters = agent_state["filters"]
+            session_manager.update_filters(session_id, search_filters)
+            session_manager._persist(session_id)
+            if active_domain in ("laptops", "books"):
+                category = _domain_to_category(active_domain)
+                search_filters["category"] = category
+                search_filters["product_type"] = "laptop" if active_domain == "laptops" else "book"
+                return await _search_and_respond_ecommerce(
+                    search_filters, category, active_domain, session_id, session, session_manager,
+                    n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
+                    question_count=session.question_count,
+                    agent=agent,
+                )
+
+    # -----------------------------------------------------------------------
+    # Exact brand-name handler — user selected "Acer", "HP", "Dell", etc.
+    # from the brand quick-reply menu.  Directly set brand filter + re-search.
+    # This bypasses process_refinement so quota exhaustion cannot silently
+    # ignore the user's brand selection.
+    # -----------------------------------------------------------------------
+    _BRAND_DISPLAY = {
+        "hp": "HP", "dell": "Dell", "asus": "ASUS", "lenovo": "Lenovo",
+        "acer": "Acer", "apple": "Apple", "samsung": "Samsung",
+        "microsoft": "Microsoft", "razer": "Razer", "lg": "LG",
+    }
+    if msg_lower.strip() in _BRAND_DISPLAY:
+        session_manager.add_message(session_id, "user", request.message)
+        brand_name = _BRAND_DISPLAY[msg_lower.strip()]
+        agent = UniversalAgent.restore_from_session(session_id, session)
+        agent.filters["brand"] = brand_name
+        search_filters = agent.get_search_filters()
+        agent_state = agent.get_state()
+        session.agent_filters = agent_state["filters"]
+        session_manager.update_filters(session_id, search_filters)
+        session_manager._persist(session_id)
+        if active_domain == "vehicles":
+            return await _search_and_respond_vehicles(
+                search_filters, session_id, session, session_manager,
+                n_rows=request.n_rows or 3, n_per_row=request.n_per_row or 3,
+                method=request.method or "embedding_similarity",
+                question_count=session.question_count,
+                agent=agent,
+            )
+        category = _domain_to_category(active_domain)
+        search_filters["category"] = category
+        search_filters["product_type"] = "laptop" if active_domain == "laptops" else "book"
+        return await _search_and_respond_ecommerce(
+            search_filters, category, active_domain, session_id, session, session_manager,
+            n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
+            question_count=session.question_count,
+            agent=agent,
+        )
+
+    # -----------------------------------------------------------------------
+    # "Increase my budget" — shown after a no-results response.
+    # Raises price_max_cents by 50 % and re-searches so the user gets actual
+    # products instead of being stuck in the same failing loop.
+    # -----------------------------------------------------------------------
+    if msg_lower == "increase my budget":
+        session_manager.add_message(session_id, "user", request.message)
+        current_max = session.explicit_filters.get("price_max_cents")
+        new_filters = dict(session.explicit_filters)
+        if current_max:
+            new_max_cents = int(current_max * 1.5)
+            new_filters["price_max_cents"] = new_max_cents
+            new_filters.pop("price_min_cents", None)  # let store recalculate quality floor
+        else:
+            new_filters["price_max_cents"] = 200000  # default $2 000 if no prior ceiling
+        agent = UniversalAgent.restore_from_session(session_id, session)
+        if current_max:
+            new_budget_str = f"under ${int(new_filters['price_max_cents'] / 100)}"
+            agent.filters["budget"] = new_budget_str
+        agent_state = agent.get_state()
+        session.agent_filters = agent_state["filters"]
+        session_manager.update_filters(session_id, new_filters)
+        session_manager._persist(session_id)
+        if active_domain == "vehicles":
+            return await _search_and_respond_vehicles(
+                new_filters, session_id, session, session_manager,
+                n_rows=request.n_rows or 3, n_per_row=request.n_per_row or 3,
+                method=request.method or "embedding_similarity",
+                question_count=session.question_count, agent=agent,
+            )
+        category = _domain_to_category(active_domain)
+        new_filters["category"] = category
+        new_filters["product_type"] = "laptop" if active_domain == "laptops" else "book"
+        return await _search_and_respond_ecommerce(
+            new_filters, category, active_domain, session_id, session, session_manager,
+            n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
+            question_count=session.question_count, agent=agent,
+        )
+
+    # -----------------------------------------------------------------------
+    # "Try a different brand" — shown after a no-results response.
+    # Drops the brand constraint so any brand is shown, keeping other filters.
+    # -----------------------------------------------------------------------
+    if msg_lower == "try a different brand":
+        session_manager.add_message(session_id, "user", request.message)
+        new_filters = {k: v for k, v in session.explicit_filters.items() if k != "brand"}
+        agent = UniversalAgent.restore_from_session(session_id, session)
+        agent.filters.pop("brand", None)
+        agent_state = agent.get_state()
+        session.agent_filters = agent_state["filters"]
+        session_manager.update_filters(session_id, new_filters)
+        session_manager._persist(session_id)
+        if active_domain == "vehicles":
+            return await _search_and_respond_vehicles(
+                new_filters, session_id, session, session_manager,
+                n_rows=request.n_rows or 3, n_per_row=request.n_per_row or 3,
+                method=request.method or "embedding_similarity",
+                question_count=session.question_count, agent=agent,
+            )
+        category = _domain_to_category(active_domain)
+        new_filters["category"] = category
+        new_filters["product_type"] = "laptop" if active_domain == "laptops" else "book"
+        return await _search_and_respond_ecommerce(
+            new_filters, category, active_domain, session_id, session, session_manager,
+            n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
+            question_count=session.question_count, agent=agent,
+        )
+
+    # -----------------------------------------------------------------------
+    # "Show me all laptops" / "Show me all books" — last-resort after repeated
+    # no-results.  Drop ALL restrictive filters (brand, OS, price, specs) and
+    # return a broad sample from the category so the user gets SOMETHING.
+    # -----------------------------------------------------------------------
+    if msg_lower in ("show me all laptops", "show me all books"):
+        session_manager.add_message(session_id, "user", request.message)
+        category = _domain_to_category(active_domain)
+        bare_filters = {
+            "category": category,
+            "product_type": "laptop" if active_domain == "laptops" else "book",
+        }
+        agent = UniversalAgent.restore_from_session(session_id, session)
+        agent.filters = {}  # clear all constraints for subsequent turns
+        agent_state = agent.get_state()
+        session.agent_filters = agent_state["filters"]
+        session_manager.update_filters(session_id, bare_filters)
+        session_manager._persist(session_id)
+        return await _search_and_respond_ecommerce(
+            bare_filters, category, active_domain, session_id, session, session_manager,
+            n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
+            question_count=session.question_count, agent=agent,
         )
 
     if "see similar" in msg_lower or "similar items" in msg_lower:
