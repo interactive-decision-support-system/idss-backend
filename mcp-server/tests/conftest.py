@@ -5,6 +5,29 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
+# Cart isolation — _CARTS is a module-level dict in app.endpoints that
+# persists across test modules within a single pytest session.  Clear it
+# before AND after every test so state from one test never bleeds into the
+# next, regardless of execution order.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="function", autouse=True)
+def _isolate_carts():
+    """Wipe in-memory cart store before and after every test."""
+    try:
+        from app.endpoints import _CARTS  # noqa: PLC0415
+        _CARTS.clear()
+    except ImportError:
+        pass
+    yield
+    try:
+        from app.endpoints import _CARTS  # noqa: PLC0415
+        _CARTS.clear()
+    except ImportError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Postgres availability check (runs once at collection time)
 # ---------------------------------------------------------------------------
 
