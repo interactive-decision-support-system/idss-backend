@@ -646,7 +646,7 @@ async def _handle_post_recommendation(
         session_manager.add_message(session_id, "user", request.message)
         products = list(getattr(session, "last_recommendation_data", []))
         if not products and getattr(session, "last_recommendation_ids", None):
-            products = _fetch_products_by_ids(session.last_recommendation_ids[:12])
+            products = _fetch_products_by_ids(session.last_recommendation_ids[:12], session_id=session_id)
         # Deduplicate
         _seen_bv: set = set()
         _deduped_bv = []
@@ -692,7 +692,7 @@ async def _handle_post_recommendation(
         session_manager.add_message(session_id, "user", clean_message)
         products = list(getattr(session, "last_recommendation_data", []))
         if not products and getattr(session, "last_recommendation_ids", None):
-            products = _fetch_products_by_ids(session.last_recommendation_ids[:12])
+            products = _fetch_products_by_ids(session.last_recommendation_ids[:12], session_id=session_id)
         _seen_pc: set = set()
         _deduped_pc = []
         for _p in products:
@@ -782,8 +782,8 @@ async def _handle_post_recommendation(
         # Use in-session product data first (no DB round-trip)
         products = list(getattr(session, "last_recommendation_data", []))
         if not products and getattr(session, "last_recommendation_ids", None):
-            # Fallback: re-fetch from DB if session data not yet populated
-            products = _fetch_products_by_ids(session.last_recommendation_ids[:6])
+            # Fallback: re-fetch from DB (or session cache) if session data not yet populated
+            products = _fetch_products_by_ids(session.last_recommendation_ids[:6], session_id=session_id)
         # Deduplicate by product ID — same product can appear in multiple buckets
         _seen_pids: set = set()
         _deduped = []
@@ -1370,7 +1370,7 @@ async def _handle_post_recommendation(
                 question_count=session.question_count,
                 domain=active_domain,
             )
-        products = _fetch_products_by_ids(product_ids[:1])
+        products = _fetch_products_by_ids(product_ids[:1], session_id=session_id)
         if not products:
             return ChatResponse(
                 response_type="question",
@@ -1408,7 +1408,7 @@ async def _handle_post_recommendation(
         session_manager.add_message(session_id, "user", request.message)
         fav_ids = list(session.favorite_product_ids or [])
         if fav_ids:
-            fav_products = _fetch_products_by_ids(fav_ids)
+            fav_products = _fetch_products_by_ids(fav_ids, session_id=session_id)
             total = sum(p.get("price", 0) for p in fav_products)
             item_names = [p.get("name", "item")[:30] for p in fav_products[:5]]
             msg = (
@@ -1793,47 +1793,89 @@ def _domain_to_category(active_domain: Optional[str]) -> str:
     return m.get(active_domain, "electronics")
 
 
-def _fetch_products_by_ids(product_ids: List[str]) -> List[Dict[str, Any]]:
-    """Fetch product dicts by IDs."""
+def _fetch_products_by_ids(
+    product_ids: List[str],
+    session_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch product dicts by IDs, consulting the session product cache first.
+
+    If session_id is provided, products already seen in this session are returned
+    directly from the in-memory _product_cache without any SQL query.  Only IDs
+    that are not cached trigger a DB round-trip, and the results are stored back
+    into the cache for subsequent calls.
+
+    Preserves the caller-specified ordering via product_ids.
+    """
     if not product_ids:
         return []
-    from app.database import SessionLocal
-    from app.models import Product
-    db = SessionLocal()
-    try:
-        products = db.query(Product).filter(Product.product_id.in_(product_ids)).all()
-        id_order = {pid: i for i, pid in enumerate(product_ids)}
-        products = sorted(products, key=lambda p: id_order.get(str(p.product_id), 999))
-        result = []
-        for product in products:
-            price_dollars = float(product.price_value) if product.price_value else 0
-            p_dict = {
-                "id": str(product.product_id),
-                "product_id": str(product.product_id),
-                "name": product.name,
-                "description": product.description,
-                "category": product.category,
-                "subcategory": getattr(product, "subcategory", None),
-                "brand": product.brand,
-                "price": round(price_dollars, 2),
-                "price_cents": int(price_dollars * 100),
-                "image_url": getattr(product, "image_url", None),
-                "product_type": product.product_type,
-                "gpu_vendor": getattr(product, "gpu_vendor", None),
-                "gpu_model": getattr(product, "gpu_model", None),
-                "color": getattr(product, "color", None),
-                "tags": getattr(product, "tags", None),
-                "reviews": getattr(product, "reviews", None),
-                "warranty": getattr(product, "warranty", None),
-                "return_policy": getattr(product, "return_policy", None),
-                "available_qty": product.inventory or 0,
-                "rating": float(product.rating) if product.rating else None,
-                "rating_count": product.rating_count,
-            }
-            result.append(p_dict)
-        return result
-    finally:
-        db.close()
+
+    # --- 1. Separate cache hits from DB misses ---
+    cache_hits: List[Dict[str, Any]] = []
+    db_miss_ids: List[str] = list(product_ids)
+
+    if session_id:
+        try:
+            cache_hits, db_miss_ids = session_manager.get_cached_products(session_id, product_ids)
+            if cache_hits and not db_miss_ids:
+                logger.info(
+                    "product_cache_full_hit",
+                    f"All {len(product_ids)} products served from session cache",
+                    {"session_id": session_id, "count": len(product_ids)},
+                )
+        except Exception:
+            db_miss_ids = list(product_ids)
+            cache_hits = []
+
+    # --- 2. DB fetch for misses ---
+    db_results: List[Dict[str, Any]] = []
+    if db_miss_ids:
+        from app.database import SessionLocal
+        from app.models import Product
+        db = SessionLocal()
+        try:
+            products = db.query(Product).filter(Product.product_id.in_(db_miss_ids)).all()
+            id_order = {pid: i for i, pid in enumerate(db_miss_ids)}
+            products = sorted(products, key=lambda p: id_order.get(str(p.product_id), 999))
+            for product in products:
+                price_dollars = float(product.price_value) if product.price_value else 0
+                p_dict = {
+                    "id": str(product.product_id),
+                    "product_id": str(product.product_id),
+                    "name": product.name,
+                    "description": product.description,
+                    "category": product.category,
+                    "subcategory": getattr(product, "subcategory", None),
+                    "brand": product.brand,
+                    "price": round(price_dollars, 2),
+                    "price_cents": int(price_dollars * 100),
+                    "image_url": getattr(product, "image_url", None),
+                    "product_type": product.product_type,
+                    "gpu_vendor": getattr(product, "gpu_vendor", None),
+                    "gpu_model": getattr(product, "gpu_model", None),
+                    "color": getattr(product, "color", None),
+                    "tags": getattr(product, "tags", None),
+                    "reviews": getattr(product, "reviews", None),
+                    "warranty": getattr(product, "warranty", None),
+                    "return_policy": getattr(product, "return_policy", None),
+                    "available_qty": product.inventory or 0,
+                    "rating": float(product.rating) if product.rating else None,
+                    "rating_count": product.rating_count,
+                }
+                db_results.append(p_dict)
+        finally:
+            db.close()
+
+        # Store newly fetched products in session cache for next call
+        if session_id and db_results:
+            try:
+                session_manager.update_product_cache(session_id, db_results)
+            except Exception:
+                pass
+
+    # --- 3. Merge and restore caller-specified ordering ---
+    all_results = {p["id"]: p for p in (cache_hits + db_results)}
+    ordered = [all_results[pid] for pid in product_ids if pid in all_results]
+    return ordered
 
 
 def _build_kg_search_query(filters: Dict[str, Any], category: str) -> str:
