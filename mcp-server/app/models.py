@@ -68,9 +68,17 @@ class Product(Base):
     # Compatibility properties for code that expects old field names
     @property
     def description(self):
-        """Extract description from attributes JSON if available."""
+        """Return the best available description from attributes JSON.
+
+        Prefers LLM-normalized text (normalized_description) when available
+        so that callers automatically get the clean, concise version set by
+        the catalog ingestion layer. Falls back to the raw scraped description.
+        """
         if self.attributes and isinstance(self.attributes, dict):
-            return self.attributes.get("description")
+            return (
+                self.attributes.get("normalized_description")
+                or self.attributes.get("description")
+            )
         return None
 
     @property
