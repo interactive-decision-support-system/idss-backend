@@ -1397,7 +1397,15 @@ async def search_products(
                     "brands": brand,
                     "count": len(brand)
                 })
-                brand_conditions = [Product.brand == b for b in brand]
+                brand_conditions = [
+                    or_(
+                        Product.brand.ilike(b),
+                        Product.name.ilike(f"{b} %"),
+                        Product.name.ilike(f"% {b} %"),
+                        Product.name.ilike(f"% {b}"),
+                    )
+                    for b in brand
+                ]
                 db_query = db_query.filter(or_(*brand_conditions))
             elif isinstance(brand, str):
                 # Single brand filter logic
@@ -1480,11 +1488,19 @@ async def search_products(
                         )
                     )
             else:
-                # When user explicitly asked for a brand (e.g. "dell laptop"), require that brand only.
-                # Do NOT include NULL/empty brand — otherwise "dell laptop" would show MacBook (brand=NULL).
-                # Lenient (include NULL) was only for "pink mac laptop" when MacBook has no brand set; for
-                # explicit brand queries we must be strict so "Dell" returns only Dell.
-                db_query = db_query.filter(Product.brand == brand)
+                # When user explicitly asked for a brand (e.g. "HP laptop"), match against:
+                #  1. brand column (case-insensitive) — handles exact brand metadata
+                #  2. product title — handles marketplace products where brand="New"/"Recertified"
+                #     but the manufacturer name appears in the title (e.g. "HP Pavilion 15...")
+                # Using ILIKE so "hp" matches "HP", "Hp" etc.
+                db_query = db_query.filter(
+                    or_(
+                        Product.brand.ilike(brand),
+                        Product.name.ilike(f"{brand} %"),          # title starts with brand
+                        Product.name.ilike(f"% {brand} %"),        # brand in middle of title
+                        Product.name.ilike(f"% {brand}"),          # title ends with brand
+                    )
+                )
         
         # Handle use_case/subcategory filter (from follow-up questions or extracted attributes)
         # Maps to product subcategory column (Gaming, Work, School, Creative for laptops)
@@ -1496,11 +1512,26 @@ async def search_products(
             # Supabase has no subcategory column (it's a Python property returning None).
             # Filter using name/description JSONB text instead.
             if subcategory.lower() == "gaming":
+                # Gaming laptops: match "gaming" in title/description OR dedicated GPU keywords.
+                # Also exclude Chromebooks and 2-in-1 convertibles — not gaming machines.
+                _gpu_kws = ["rtx", "gtx", "rx 6", "rx 7", "radeon rx", "geforce", "omen", "rog ", "tuf gaming", "nitro", "helios", "predator", "strix"]
+                gpu_conditions = [Product.name.ilike(f"%{g}%") for g in _gpu_kws] + \
+                                  [Product.attributes['description'].astext.ilike(f"%{g}%") for g in _gpu_kws]
                 db_query = db_query.filter(
                     or_(
                         Product.name.ilike("%gaming%"),
-                        Product.attributes['description'].astext.ilike("%gaming%")
+                        Product.attributes['description'].astext.ilike("%gaming%"),
+                        *gpu_conditions,
                     )
+                )
+                # Exclude Chromebooks and 2-in-1 convertibles (not gaming machines)
+                db_query = db_query.filter(
+                    ~Product.name.ilike("%chromebook%"),
+                    ~Product.name.ilike("%chrome book%"),
+                    ~Product.name.ilike("%2-in-1%"),
+                    ~Product.name.ilike("%2 in 1%"),
+                    ~Product.name.ilike("% flip%"),
+                    ~Product.name.ilike("%convertible%"),
                 )
             elif subcategory.lower() in ["work", "school", "creative", "entertainment", "education"]:
                 db_query = db_query.filter(
@@ -1783,15 +1814,37 @@ async def search_products(
             "had_filters": list(req_f.keys()),
         })
 
-        # Step 1: drop soft filters (color, subcategory, use_case, use_cases)
-        # but keep hard constraints (price, brand, product_type, RAM, storage, screen, battery, year)
+        # Step 1: drop soft filters (color, subcategory when not gaming, use_cases)
+        # but keep hard constraints (price, brand, product_type, RAM, storage, screen, battery, year).
+        # EXCEPTION: when use_case="gaming", treat it as a hard constraint — Chromebooks must never
+        # appear as gaming results even after relaxation.
         q1 = _demo_and_category_query(db).filter(Product.category == category_val)
         q1 = _apply_price(q1, req_f)
         q1 = _apply_spec_filters(q1, req_f)  # keep spec constraints during relaxation
         if req_f.get("brand"):
-            q1 = q1.filter(Product.brand == req_f["brand"])
+            _b = req_f["brand"]
+            q1 = q1.filter(
+                or_(
+                    Product.brand.ilike(_b),
+                    Product.name.ilike(f"{_b} %"),
+                    Product.name.ilike(f"% {_b} %"),
+                    Product.name.ilike(f"% {_b}"),
+                )
+            )
         if req_f.get("_product_type_hint"):
             q1 = _apply_product_type_hint(q1, req_f["_product_type_hint"])
+        # If use_case is gaming, preserve the gaming filter in relaxation
+        _is_gaming_query = str(req_f.get("use_case", "") or req_f.get("subcategory", "")).lower() == "gaming"
+        if _is_gaming_query:
+            _gpu_kws_r = ["rtx", "gtx", "rx 6", "rx 7", "radeon rx", "geforce", "omen", "rog ", "tuf gaming", "nitro", "gaming"]
+            q1 = q1.filter(
+                or_(*[Product.name.ilike(f"%{g}%") for g in _gpu_kws_r],
+                    *[Product.attributes['description'].astext.ilike(f"%{g}%") for g in _gpu_kws_r])
+            ).filter(
+                ~Product.name.ilike("%chromebook%"),
+                ~Product.name.ilike("%2-in-1%"),
+                ~Product.name.ilike("%convertible%"),
+            )
         count1 = q1.count()
         soft_keys = {"color", "subcategory", "use_case", "use_cases", "genre", "topic"}
         if count1 > 0:
