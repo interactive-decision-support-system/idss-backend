@@ -1990,6 +1990,12 @@ def _generate_why_picked(product: Dict[str, Any], tier: str, position: int, buck
         bullets.append("✓ Flexible 2-in-1 form factor")
 
     # ── Tier / position context (↳ prefix) ─────────────────────────────────
+    # Budget-friendly applies to ALL products in the budget tier — not just the fallback.
+    # The professor noted the cheapest product ($359) had no budget-friendly tag while
+    # the pricier one ($369) did, because position-0 only got "Cheapest option" and the
+    # budget-friendly bullet only fired as a fallback when len(bullets) < 2.
+    if tier == "budget":
+        bullets.append("✓ Budget-friendly")
     if position == 0 and tier == "budget":
         bullets.append("↳ Cheapest option in this tier")
     elif position == bucket_size - 1 and tier == "premium":
@@ -1999,13 +2005,13 @@ def _generate_why_picked(product: Dict[str, Any], tier: str, position: int, buck
     elif position == bucket_size - 1:
         bullets.append("↳ Premium pick in this group")
 
-    # Ensure at least 2 bullets — add price context as fallback
+    # Ensure at least 2 bullets — add price context as fallback (skip if already budget tier)
     if len(bullets) < 2:
         if price >= 1500:
             bullets.append("✓ Premium build & components")
         elif price >= 800:
             bullets.append("✓ Strong mid-range value")
-        else:
+        elif tier != "budget":
             bullets.append("✓ Budget-friendly entry point")
 
     return bullets[:4]  # cap at 4 so the card stays compact
