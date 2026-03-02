@@ -90,6 +90,11 @@ class InterviewSessionState:
     agent_filters: Dict[str, Any] = field(default_factory=dict)  # Slot values gathered by agent
     agent_questions_asked: List[str] = field(default_factory=list)  # Slot names already asked
     agent_history: List[Dict[str, str]] = field(default_factory=list)  # Conversation history for LLM context
+    # In-memory product cache keyed by product_id — NOT serialized to Redis.
+    # Accumulates every product dict shown to the user this session so follow-up
+    # questions ("tell me more about that first one") never need a DB round-trip.
+    # Rebuilt from last_recommendation_data on Redis hydration; cold-start is fine.
+    _product_cache: Dict[str, Any] = field(default_factory=dict)
 
 
 class InterviewSessionManager:
@@ -242,7 +247,57 @@ class InterviewSessionManager:
             }
             slim.append({k: v for k, v in item.items() if v is not None})
         session.last_recommendation_data = slim
+        # Populate the in-memory product cache so follow-up questions can answer
+        # "tell me more about option 1" without any DB round-trip.
+        for item in slim:
+            pid = item.get("id")
+            if pid:
+                session._product_cache[pid] = item
+        # Cap at 200 entries (FIFO — oldest entries dropped when full)
+        if len(session._product_cache) > 200:
+            excess = len(session._product_cache) - 200
+            for key in list(session._product_cache.keys())[:excess]:
+                del session._product_cache[key]
         self._persist(session_id)
+
+    def update_product_cache(self, session_id: str, products: List[Dict[str, Any]]) -> None:
+        """Merge product dicts into the session's in-memory cache.
+
+        Call this whenever product data is fetched from DB so subsequent
+        requests for the same product_id (e.g., compare, pros/cons, explain)
+        can be served from memory without a SQL query.
+        """
+        session = self.get_session(session_id)
+        for p in products:
+            pid = p.get("id") or p.get("product_id")
+            if pid:
+                session._product_cache[pid] = p
+        if len(session._product_cache) > 200:
+            excess = len(session._product_cache) - 200
+            for key in list(session._product_cache.keys())[:excess]:
+                del session._product_cache[key]
+
+    def get_cached_products(self, session_id: str, product_ids: List[str]) -> tuple:
+        """Return (hits, misses) where hits is a list of cached product dicts
+        and misses is a list of product_id strings not found in the cache.
+
+        Usage in chat_endpoint:
+            hits, miss_ids = session_manager.get_cached_products(sid, ids)
+            if miss_ids:
+                fresh = _fetch_from_db(miss_ids)
+                session_manager.update_product_cache(sid, fresh)
+                hits.extend(fresh)
+        """
+        session = self.get_session(session_id)
+        hits: List[Dict[str, Any]] = []
+        misses: List[str] = []
+        for pid in product_ids:
+            cached = session._product_cache.get(pid)
+            if cached is not None:
+                hits.append(cached)
+            else:
+                misses.append(pid)
+        return hits, misses
 
     def recall_session_memory(self, session_id: str) -> Optional[Dict[str, Any]]:
         """
