@@ -374,6 +374,12 @@ def _pick_best_value(products: list) -> Optional[dict]:
         else:
             total = (price_score * 0.35) + (rating_score * 0.35) + review_boost + (spec_score * 0.20)
 
+        # Chromebooks are a different product category (ChromeOS, cloud-only).
+        # Penalise them heavily so they never win "Best Pick" in a general laptop search.
+        _pname = (product.get("name") or "").lower()
+        if "chromebook" in _pname or "chrome book" in _pname:
+            total = max(0.0, total - 0.35)
+
         scored.append((total, product))
 
     scored.sort(key=lambda x: x[0], reverse=True)
