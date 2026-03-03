@@ -32,20 +32,41 @@ logger = StructuredLogger("chat_endpoint")
 # ============================================================================
 
 _INJECTION_RE = re.compile(
+    # ── Classic jailbreak / role-override phrases ────────────────────────────
     r"ignore\s+(all\s+)?previous\s+instructions"
     r"|forget\s+(all\s+)?your\s+instructions"
-    r"|you\s+are\s+now\s+"
+    r"|ignore\s+your\s+programming"
     r"|disregard\s+(all\s+)?training"
+    r"|you\s+are\s+now\s+"
+    r"|override\s+(?:your\s+)?(?:safety|guidelines|restrictions)"
+    r"|\bDAN\s+mode\b|\bjailbreak\b"
+    r"|repeat\s+(?:the|your)\s+(?:system|original)\s+prompt"
+    # ── "Act as" / persona hijacking ─────────────────────────────────────────
     r"|act\s+as\s+(?:a\s+)?(?:different|new|evil|unlimited|unfiltered|unrestricted)"
+    r"|pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?!customer|shopper|buyer|user|student|teacher|expert)"
+    # ── "Pretend/act as if you have no restrictions" (Gap 1 fix) ─────────────
+    # Covers: "pretend you have no restrictions", "pretend there are no rules",
+    #         "act as if there are no limits", "behave as if you have no filters"
+    r"|(?:pretend|act\s+as\s+if|behave\s+as\s+if|imagine)\s+(?:you\s+)?(?:have|there\s+are)\s+no\s+"
+    r"(?:restrictions|limits|rules|guidelines|constraints|filters|safety|limitations|censorship)"
+    # ── "You have no restrictions" (direct assertion) ─────────────────────────
+    r"|you\s+have\s+no\s+(?:restrictions|limits|rules|constraints|filters|guidelines|safety)"
+    # ── Bypass / disable safety instructions ─────────────────────────────────
+    r"|bypass\s+(?:your\s+)?(?:safety|filter|restriction|guideline|training|rule)"
+    r"|disable\s+(?:your\s+)?(?:safety|filter|restriction|rule|guideline)"
+    # ── XML/HTML tag injection ────────────────────────────────────────────────
     r"|\[\s*system\s*\]\s*:"
     r"|</?(prompt|instruction|system)>"
+    # ── Python code execution ─────────────────────────────────────────────────
     r"|(?:os\.system|subprocess\.run|exec\s*\(|eval\s*\()"
-    r"|ignore\s+your\s+programming"
-    r"|pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+)?(?!customer|shopper|buyer|user|student|teacher|expert)"
-    r"|repeat\s+(?:the|your)\s+(?:system|original)\s+prompt"
-    r"|\bDAN\s+mode\b|\bjailbreak\b"
-    r"|override\s+(?:your\s+)?(?:safety|guidelines|restrictions)",
-    re.IGNORECASE | re.DOTALL,
+    # ── Shell command injection (Gap 2 fix) ───────────────────────────────────
+    # Covers: "execute: rm -rf /", "sudo rm", "curl | bash", "$(cmd)", backticks
+    r"|(?:^|[\s;|&`])\s*(?:rm\s+-[a-z]*r|sudo\s+\w|chmod\s+[0-9+])"
+    r"|\|\s*(?:bash|sh|zsh|ksh|csh)\b"           # pipe-to-shell: | bash
+    r"|\$\([^)]{1,200}\)"                          # $(command) substitution
+    r"|`[^`\n]{1,200}`"                            # `backtick execution`
+    r"|\bexecute\s*:\s*(?:[/~]|\w*rm\b|sudo|bash|sh\b|python|curl|wget|chmod)",
+    re.IGNORECASE | re.DOTALL | re.MULTILINE,
 )
 
 
