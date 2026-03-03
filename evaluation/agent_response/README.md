@@ -48,13 +48,13 @@ Columns: `test_id`, `user_query`, `agent_message`, `score`, `passed`, `details`.
 
 ### Baseline (for comparison table)
 
-The baseline is a **fixed clarifying question** for every query (no agent, no API/Redis):
+The baseline is **restricted to recommendations from the Supabase database** (same product store as the agent). It extracts minimal filters (budget, brand) from the query via a small LLM call, runs `search_products` against the store, and formats a short message listing only those products (or a no-results message if none). No agent interview logic, no session. Requires `DATABASE_URL` or `SUPABASE_URL`/`SUPABASE_KEY` and `OPENAI_API_KEY`.
 
 ```bash
 python -m evaluation.agent_response.run_eval --baseline
 ```
 
-Writes `agent_response_eval_results_baseline.json` and `.csv`. Same test cases and G-Eval rubric; only the response is the fixed string. Use with the poster summary to get a Baseline vs Agent table.
+Writes `agent_response_eval_results_baseline.json` and `.csv`. Same test cases and G-Eval rubric. Use with the poster summary to get a Baseline vs Agent table.
 
 ## Poster summary (numeric table by query difficulty)
 

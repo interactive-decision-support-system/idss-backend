@@ -42,6 +42,10 @@ from evaluation.recommendations.runners import (
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
+# Skip evaluation for items with fewer than this many ground-truth product IDs
+# (database is not static; too few ground truths makes scoring unreliable)
+MIN_GROUND_TRUTH_IDS = 3
+
 
 def ensure_results_dir() -> Path:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -55,28 +59,35 @@ def write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
         w.writerows(rows)
 
 
-def run_all(golden_path: str, skip_baseline: bool = False) -> None:
+def run_all(golden_path: str, skip_baseline: bool = False, ucp_recs_only: bool = False) -> None:
     ensure_results_dir()
-    items = load_golden_dataset(golden_path)
+    all_items = load_golden_dataset(golden_path)
+    items = [g for g in all_items if len(g.ground_truth_product_ids) >= MIN_GROUND_TRUTH_IDS]
+    skipped = len(all_items) - len(items)
+    if skipped:
+        print(f"Skipping {skipped} items with < {MIN_GROUND_TRUTH_IDS} ground-truth IDs (evaluating {len(items)} items)")
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # (a) Query -> UCP only
-    query_to_ucp_results = [run_query_to_ucp(g) for g in items]
-    out_ucp = []
-    for r in query_to_ucp_results:
-        out_ucp.append({
-            "query_id": r["query_id"],
-            "query": r["query"],
-            "expected_ucp_match": r["expected_ucp_match"],
-        })
-    write_csv(
-        RESULTS_DIR / f"query_to_ucp_results_{ts}.csv",
-        out_ucp,
-        ["query_id", "query", "expected_ucp_match"],
-    )
-    with open(RESULTS_DIR / f"query_to_ucp_results_{ts}.json", "w", encoding="utf-8") as f:
-        json.dump(query_to_ucp_results, f, indent=2)
-    print(f"Wrote query_to_ucp_results (CSV + JSON)")
+    query_to_ucp_results = []
+    if not ucp_recs_only:
+        # (a) Query -> UCP only
+        query_to_ucp_results = [run_query_to_ucp(g) for g in items]
+    if not ucp_recs_only:
+        out_ucp = []
+        for r in query_to_ucp_results:
+            out_ucp.append({
+                "query_id": r["query_id"],
+                "query": r["query"],
+                "expected_ucp_match": r["expected_ucp_match"],
+            })
+        write_csv(
+            RESULTS_DIR / f"query_to_ucp_results_{ts}.csv",
+            out_ucp,
+            ["query_id", "query", "expected_ucp_match"],
+        )
+        with open(RESULTS_DIR / f"query_to_ucp_results_{ts}.json", "w", encoding="utf-8") as f:
+            json.dump(query_to_ucp_results, f, indent=2)
+        print(f"Wrote query_to_ucp_results (CSV + JSON)")
 
     # (b) UCP -> recs only
     async def _ucp_recs():
@@ -107,7 +118,7 @@ def run_all(golden_path: str, skip_baseline: bool = False) -> None:
 
     # Baseline
     baseline_results = []
-    if not skip_baseline:
+    if not ucp_recs_only and not skip_baseline:
         baseline_results = [run_baseline_eval(g) for g in items]
         baseline_rows = [
             {
@@ -148,10 +159,13 @@ def run_all(golden_path: str, skip_baseline: bool = False) -> None:
         "timestamp": ts,
         "golden_path": golden_path,
         "num_queries": len(items),
+        "num_skipped_insufficient_ground_truth": skipped,
+        "min_ground_truth_ids": MIN_GROUND_TRUTH_IDS,
+        "ucp_recs_only": ucp_recs_only,
         "aggregates": {
-            "query_to_ucp": agg_ucp("query_to_ucp", query_to_ucp_results),
+            "query_to_ucp": agg_ucp("query_to_ucp", query_to_ucp_results) if not ucp_recs_only else None,
             "ucp_to_recs": agg_recs("ucp_to_recs", ucp_recs_results),
-            "baseline": agg_recs("baseline", baseline_results) if not skip_baseline else None,
+            "baseline": agg_recs("baseline", baseline_results) if not ucp_recs_only and not skip_baseline else None,
         },
     }
     with open(RESULTS_DIR / f"summary_{ts}.json", "w", encoding="utf-8") as f:
@@ -167,8 +181,9 @@ def main() -> None:
         help="Path to golden dataset JSON",
     )
     parser.add_argument("--skip-baseline", action="store_true", help="Skip baseline LLM run")
+    parser.add_argument("--ucp-recs-only", action="store_true", help="Run only UCP->recs (skip query->UCP and baseline)")
     args = parser.parse_args()
-    run_all(args.golden, skip_baseline=args.skip_baseline)
+    run_all(args.golden, skip_baseline=args.skip_baseline, ucp_recs_only=args.ucp_recs_only)
 
 
 if __name__ == "__main__":

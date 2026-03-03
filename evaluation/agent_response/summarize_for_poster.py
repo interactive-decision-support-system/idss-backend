@@ -84,7 +84,7 @@ def main():
         print(f"| Baseline | {n_b:3d} |     {avg_b:.3f} | {pass_b:5.1f} |")
         print(f"| Agent    | {n_a:3d} |     {avg_a:.3f} | {pass_a:5.1f} |")
         print()
-        print("(G-Eval threshold = 0.5; score in [0,1]. Baseline = fixed clarifying question.)")
+        print("(G-Eval threshold = 0.5; score in [0,1]. Baseline = Supabase-only recommendations, no agent.)")
         return 0
 
     # Single-results table by difficulty

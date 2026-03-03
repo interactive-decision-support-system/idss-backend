@@ -119,21 +119,120 @@ def build_geval_metric(model=None):
     return GEval(**kwargs)
 
 
-# Baseline: one fixed clarifying question for all queries (no agent call).
-BASELINE_MESSAGE = (
-    "What's your budget for a laptop, and how will you mainly use it? "
-    "(e.g. work, gaming, school, creative work)"
-)
+# Baseline: recommendations restricted to Supabase (same product store as agent). No agent logic.
+# We extract minimal filters from the query, search the DB, and format a response from results only.
+_OPENAI_MODEL = os.environ.get("OPENAI_MODEL_BASELINE") or "gpt-4o-mini"
+
+
+def _extract_baseline_filters(user_query: str) -> dict:
+    """Extract price_max_cents and optional brand from the user query via a small LLM call."""
+    from openai import OpenAI
+    client = OpenAI()
+    completion = client.chat.completions.create(
+        model=_OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": (
+                "Extract from the user's laptop request: (1) maximum budget in dollars as a number, "
+                "or null if not stated; (2) brand name if mentioned (e.g. HP, Dell, Apple), or null. "
+                "Reply with only a JSON object: {\"price_max_dollars\": number or null, \"brand\": string or null}."
+            )},
+            {"role": "user", "content": user_query},
+            ],
+        max_completion_tokens=80,
+    )
+    raw = (completion.choices[0].message.content or "").strip()
+    try:
+        # Handle optional markdown code block
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        out = json.loads(raw)
+        price_max_dollars = out.get("price_max_dollars")
+        brand = out.get("brand")
+        filters = {"category": "electronics", "product_type": "laptop"}
+        if isinstance(price_max_dollars, (int, float)) and price_max_dollars > 0:
+            filters["price_max_cents"] = int(round(price_max_dollars * 100))
+        if isinstance(brand, str) and brand.strip():
+            filters["brand"] = brand.strip()
+        return filters
+    except (json.JSONDecodeError, TypeError):
+        return {"category": "electronics", "product_type": "laptop"}
+
+
+def _baseline_search_supabase(filters: dict, limit: int = 9) -> list:
+    """Return product dicts from the same Supabase/product store the agent uses."""
+    try:
+        from app.tools.supabase_product_store import get_product_store
+        store = get_product_store()
+        return store.search_products(filters, limit=limit) or []
+    except Exception:
+        return []
+
+
+def _products_to_catalog_text(products: list, max_items: int = 6) -> str:
+    """Turn product dicts into a short catalog list for the LLM context."""
+    parts = []
+    for p in (products or [])[:max_items]:
+        name = (p.get("name") or p.get("title") or "Laptop").strip()
+        price = p.get("price") or p.get("price_value")
+        if price is not None:
+            try:
+                price = f"${float(price):.0f}"
+            except (TypeError, ValueError):
+                price = ""
+        else:
+            price = ""
+        if price:
+            parts.append(f"- {name} ({price})")
+        else:
+            parts.append(f"- {name}")
+    return "\n".join(parts) if parts else "(none)"
+
+
+def _baseline_llm_response(user_query: str, catalog_text: str, has_products: bool) -> str:
+    """Let the model give its normal response; it may only recommend products from catalog_text."""
+    from openai import OpenAI
+    client = OpenAI()
+    if has_products:
+        system = (
+            "You are a helpful laptop recommendation assistant. The user asked a question below. "
+            "You have access ONLY to the following products from our catalog (name and price). "
+            "Do not invent or mention any other products."
+        )
+        user_content = f"Products in our catalog:\n{catalog_text}\n\nUser request: {user_query}"
+    else:
+        system = (
+            "You are a helpful laptop recommendation assistant. The user asked a question below. "
+            "We have no products in our catalog that match their criteria. "
+        )
+        user_content = f"User request: {user_query}"
+    completion = client.chat.completions.create(
+        model=_OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_content},
+        ],
+        max_completion_tokens=500,
+    )
+    raw = getattr(completion.choices[0].message, "content", None) or ""
+    return (raw if isinstance(raw, str) else "").strip()
 
 
 def run_baseline(test_case: dict) -> dict:
-    """Return a result row using the fixed baseline message (no agent)."""
+    """Return a result row: model gives normal response, but recs come only from Supabase catalog."""
+    user_query = test_case["user_query"].strip()
+    filters = _extract_baseline_filters(user_query)
+    products = _baseline_search_supabase(filters)
+    catalog_text = _products_to_catalog_text(products)
+    message = _baseline_llm_response(user_query, catalog_text, has_products=bool(products))
+    rec_summary = f"{len(products)} product(s)" if products else None
     return {
         "test_id": test_case["test_id"],
         "user_query": test_case["user_query"],
-        "agent_message": BASELINE_MESSAGE,
-        "recommendations_summary": None,
-        "response_type": "question",
+        "agent_message": message,
+        "recommendations_summary": rec_summary,
+        "response_type": "recommendations" if products else "question",
     }
 
 
@@ -233,7 +332,7 @@ def main(use_laptop_queries: bool = True, baseline_only: bool = False):
         test_cases = load_test_cases()
         print(f"Using {len(test_cases)} test cases from test_cases.json")
     if baseline_only:
-        print("Baseline mode: using fixed response (no agent).")
+        print("Baseline mode: Supabase-only recommendations (extract filters -> search DB -> format from results).")
         rows = [run_baseline(tc) for tc in test_cases]
     else:
         print(f"Running agent for {len(test_cases)} test cases...")

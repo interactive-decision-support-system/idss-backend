@@ -3,16 +3,17 @@
 Populate ground_truth_product_ids for each item in the golden dataset.
 
 For each item:
-  1. Filter the database (laptop products) by expected_ucp hard constraints.
-  2. Rank filtered products by similarity of user_query embedding to product embedding.
-  3. Set ground_truth_product_ids to the top 10 product IDs.
+  1. Get laptop pool from DB (Electronics + laptop).
+  2. Filter by expected_ucp hard constraints (price, brand, category, min_ram_gb, etc.).
+  3. Rank the filtered list by embedding similarity: query (soft constraints) vs product
+     embeddings from Supabase (product_embeddings table). Take the top 10 IDs.
 
-Uses the same embedding model as product_embeddings (all-mpnet-base-v2). Product
-embeddings are read from the product_embeddings table when present; otherwise
-computed on the fly from product text (name, description, category, brand, etc.).
+Query embedding = user_query (encodes soft/intent semantics). Product embeddings are
+loaded from the product_embeddings table (Supabase/Postgres); missing products are
+embedded on the fly from product text. Same model everywhere: all-mpnet-base-v2.
 
 Usage:
-  python -m evaluation.recommendations.populate_ground_truth [--golden path/to/golden_dataset.json] [--top 10] [--backup]
+  python -m evaluation.recommendations.populate_ground_truth [--golden path] [--top 10] [--backup]
 """
 
 from __future__ import annotations
@@ -54,10 +55,10 @@ from evaluation.recommendations.populate_product_embeddings import (
 
 
 def load_product_embeddings_map(model_name: str = MODEL_NAME) -> dict[str, np.ndarray]:
-    """Load all product_id -> embedding from product_embeddings table. Returns {} if table does not exist."""
+    """Load all product_id -> embedding from product_embeddings table. Returns {} if table does not exist or DB unavailable."""
     from sqlalchemy import text
     from app.database import engine
-    from sqlalchemy.exc import ProgrammingError
+    from sqlalchemy.exc import OperationalError, ProgrammingError
 
     out = {}
     try:
@@ -70,6 +71,9 @@ def load_product_embeddings_map(model_name: str = MODEL_NAME) -> dict[str, np.nd
                 pid = str(row[0])
                 arr = np.array(row[1], dtype=np.float32)
                 out[pid] = arr.reshape(-1) if arr.ndim > 1 else arr
+    except OperationalError:
+        # DB not running or unreachable; will compute embeddings on the fly
+        print("  (DB unreachable; product embeddings will be computed on the fly)", file=sys.stderr)
     except ProgrammingError as e:
         if "does not exist" in str(e.orig) if getattr(e, "orig", None) else str(e):
             pass  # table not created yet; will compute on the fly
@@ -138,21 +142,28 @@ def main() -> int:
 
     print("Loading golden dataset...")
     items = load_golden_dataset(str(golden_path))
-    print("Loading laptop products...")
+
+    print("Loading laptop products from DB...")
     all_products = load_laptop_products()
+
     if not all_products:
-        print("No laptop products found. Run populate_product_embeddings first and ensure DB has laptops.", file=sys.stderr)
+        print(
+            "No laptop products found. Ensure DB has laptops (category=Electronics, product_type=laptop).",
+            file=sys.stderr,
+        )
         return 1
+    print(f"  {len(all_products)} laptop products loaded")
 
-    print("Loading product embeddings from DB...")
+    print("Loading product embeddings from Supabase (product_embeddings table)...")
     embeddings_map = load_product_embeddings_map()
-    print(f"  {len(embeddings_map)} embeddings loaded")
+    print(f"  {len(embeddings_map)} product embeddings loaded")
 
-    print("Loading encoder for query/product text...")
+    print("Loading encoder for query (soft constraints) embedding...")
     encoder = get_encoder()
 
     for g in items:
         filtered = filter_by_hard_constraints(all_products, g.expected_ucp, HARD_KEYS)
+        # Final 10: rank by similarity of query (user_query = soft constraints) to product embeddings
         top_ids = top_k_by_query_similarity(
             filtered,
             g.user_query,
@@ -163,7 +174,7 @@ def main() -> int:
             k=args.top,
         )
         g.ground_truth_product_ids = top_ids
-        print(f"  {g.query_id}: {len(filtered)} passed hard constraints -> top {len(top_ids)} by similarity")
+        print(f"  {g.query_id}: {len(filtered)} passed hard constraints -> top {len(top_ids)} by query–product embedding similarity")
 
     # Serialize back to list of dicts
     out_data = [g.to_dict() for g in items]

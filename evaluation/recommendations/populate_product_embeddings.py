@@ -122,7 +122,7 @@ def main() -> None:
             conn.execute(
                 text("""
                 INSERT INTO product_embeddings (product_id, embedding, model_name)
-                VALUES (:product_id::uuid, :embedding, :model_name)
+                VALUES (CAST(:product_id AS uuid), :embedding, :model_name)
                 ON CONFLICT (product_id, model_name)
                 DO UPDATE SET embedding = EXCLUDED.embedding, created_at = now()
                 """),

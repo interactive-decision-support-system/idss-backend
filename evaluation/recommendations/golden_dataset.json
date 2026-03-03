@@ -1,65 +1,68 @@
 [
   {
-    "query_id": "q1",
-    "user_query": "I need a gaming laptop under $2000",
+    "query_id": "laptop_1",
+    "user_query": "Need an HP laptop for everyday use under $650. Prefer a 15.6-inch touchscreen with at least 16GB RAM.",
     "expected_ucp": {
       "category": "Electronics",
       "product_type": "laptop",
-      "price_max_cents": 200000,
+      "price_max_cents": 65000,
+      "brand": "HP",
+      "min_ram_gb": 16,
+      "min_screen_size": 15.1,
+      "max_screen_size": 16.1
+    },
+    "ground_truth_product_ids": [
+      "6c5193f7-9984-4492-a253-6acdd6d3b4da",
+      "6054fc10-c44e-4b33-9024-4a850d2e66ca",
+      "def677dc-e665-464d-97d2-620899348acc",
+      "a1f334e8-3d9e-4682-a617-5bb58bd8e209",
+      "28eb810f-5209-4298-be3b-c39ca2ccaed5",
+      "d78fc92f-d40f-41a1-abb0-55882f63b4e7"
+    ]
+  },
+  {
+    "query_id": "laptop_2",
+    "user_query": "Need a 2-in-1 or detachable tablet+keyboard laptop under $800 in the US with active stylus support and 7+ hours battery life. Prefer something under 16 inches, USB-C charging, and suitable for college notes, writing, browsing, and light gaming (e.g., Terraria at 1080p/60 on medium). Must work well with Linux (Debian/Mint), and refurb/used is preferred.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 80000,
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5,
       "good_for_gaming": true
     },
-    "ground_truth_product_ids": [
-      "00d7d336-f17a-472b-8f0a-02f6b2cbbd25"
-    ]
+    "ground_truth_product_ids": []
   },
   {
-    "query_id": "q2",
-    "user_query": "MacBook for coding and web development, budget around $1500",
+    "query_id": "laptop_3",
+    "user_query": "Looking for a premium thin-and-light ultrabook in the US up to $4000, prioritizing battery life, build quality, and portability (ideally <3 lbs and <0.7 in thick) with a 14\"-class display (14.5\" max). Needs an Intel CPU, 32GB RAM, at least 2x USB4 and 2x USB-A 3.2 Gen2, plus dual M.2 NVMe slots (prefer 2280). Primary workloads include compiling large codebases, running multiple Docker containers/VMs, and casual photo/video editing.",
     "expected_ucp": {
       "category": "Electronics",
       "product_type": "laptop",
-      "brand": "Apple",
+      "price_max_cents": 400000,
+      "min_ram_gb": 32,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5,
+      "good_for_creative": true,
+      "good_for_web_dev": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_4",
+    "user_query": "Need a $1000\u2013$1500 laptop in the USA for a statistics PhD, mainly to run large Bayesian simulations in R. Priorities are performance, strong build quality, and good battery life; weight/size should be backpack-friendly and no touchscreen. Open to refurbished/used and wants it to last, with possible light-to-moderate gaming later (e.g., Baldur\u2019s Gate 3).",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
       "price_max_cents": 150000,
-      "good_for_web_dev": true
+      "good_for_gaming": true,
+      "good_for_ml": true
     },
     "ground_truth_product_ids": []
   },
   {
-    "query_id": "q3",
-    "user_query": "Cheap laptop for students under $600",
-    "expected_ucp": {
-      "category": "Electronics",
-      "product_type": "laptop",
-      "price_max_cents": 60000
-    },
-    "ground_truth_product_ids": [
-      "bd14b5b1-4fe5-4557-81f6-bddfc6abe622",
-      "eaf5cc40-d7b0-4d74-824a-d5b86af58ddd",
-      "586b9f87-71d5-4531-883a-c9050a52bd01",
-      "f0e10701-99c7-4249-b117-886b006a5ff2",
-      "0952af0b-ff19-4310-80a3-788cfcfae4c3",
-      "e1cdce3e-3266-4146-8b3a-739fe6d9a549",
-      "4bec11aa-b5d3-48ce-9b7f-6aa559cdd2b3",
-      "742fe38b-0065-4006-b7b5-6106c62a69a8",
-      "0d8c8a1c-2364-4328-b313-2357f623dafd",
-      "1d34d53e-3345-4451-8412-9946397fa1c4"
-    ]
-  },
-  {
-    "query_id": "q4",
-    "user_query": "Dell XPS or similar, 16GB RAM, for work",
-    "expected_ucp": {
-      "category": "Electronics",
-      "product_type": "laptop",
-      "brand": "Dell",
-      "min_ram_gb": 16,
-      "good_for_web_dev": true
-    },
-    "ground_truth_product_ids": []
-  },
-  {
-    "query_id": "q5",
-    "user_query": "Lightweight laptop, 14 inch screen, under $1200",
+    "query_id": "laptop_5",
+    "user_query": "Looking for a Windows laptop for a neuroscience/business student under $1200 with a ~14-inch matte, non-touchscreen display. Priorities are fast performance for heavy multitasking (Office + streaming + 20+ browser tabs), durability, light weight, and 8+ hours of battery life. Considering Lenovo ThinkPad X1 (2024) or Surface Laptop 7, but not a MacBook.",
     "expected_ucp": {
       "category": "Electronics",
       "product_type": "laptop",
@@ -69,43 +72,679 @@
     },
     "ground_truth_product_ids": [
       "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "9f09bf27-4a97-4a6a-afe7-ccfbbe956212",
+      "9638137a-81bb-418e-887d-84ddb31232b8",
+      "ba7c7292-9e35-49b0-b8a5-582c5a00a732",
+      "586b9f87-71d5-4531-883a-c9050a52bd01",
       "eedce8ed-7314-49de-b73c-0433047b305b",
-      "dbb1901e-5bee-4c5d-b4f4-f31649809de7",
-      "995c709e-1d98-4832-b216-9a1cbf64222b",
-      "01634bd5-56bd-422e-982f-8113dd3c391e",
-      "a27e9dec-95f6-4b22-b697-2201254b0827",
-      "0952af0b-ff19-4310-80a3-788cfcfae4c3",
-      "e9e8a652-6bbf-4912-92a6-45a537387a5c",
-      "b2cf21b8-e40a-431d-ac7f-ec6f36f98d1a",
-      "43c81cd9-80dc-42b2-8520-f4dd32e368a3"
+      "8fc3b53b-96b0-440e-b64c-044d7129493a",
+      "1cc191cd-2857-48f1-9357-fa440caa08e8",
+      "7483ed02-18f9-40a7-8098-367324253eda",
+      "0952af0b-ff19-4310-80a3-788cfcfae4c3"
     ]
   },
   {
-    "query_id": "q6",
-    "user_query": "Laptop for video editing and creative work",
+    "query_id": "laptop_6",
+    "user_query": "Looking for a $400\u2013$500 laptop (open to used/refurb) to stream from a PS5 using a capture card and add overlays plus a face cam. Performance is the top priority; weight, thinness, and screen size don\u2019t matter. Also needs to handle video editing.",
     "expected_ucp": {
       "category": "Electronics",
       "product_type": "laptop",
+      "price_max_cents": 50000,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_7",
+    "user_query": "Need a portable ~14\" laptop for an incoming biology major, with good battery life and a good keyboard. Prefer a touchscreen for digital note-taking (open to 2-in-1), and open to used/refurb options under $1000. Fingerprint reader and backlit keyboard/build quality are nice-to-haves.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5
+    },
+    "ground_truth_product_ids": [
+      "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "7483ed02-18f9-40a7-8098-367324253eda",
+      "9638137a-81bb-418e-887d-84ddb31232b8",
+      "995c709e-1d98-4832-b216-9a1cbf64222b",
+      "c8020c96-aeec-46f6-9795-3be98dccf2f0",
+      "8fc3b53b-96b0-440e-b64c-044d7129493a",
+      "1cc191cd-2857-48f1-9357-fa440caa08e8",
+      "66bc4654-d802-4ebb-a0bc-3ab9e989f43f",
+      "a09252bf-4c43-471d-9d47-fe874d277e61",
+      "ac1333ac-ba56-4476-a62d-f555a08a8ff5"
+    ]
+  },
+  {
+    "query_id": "laptop_8",
+    "user_query": "Looking for a gaming laptop mainly to play Fortnite, The Sims 4 (with expansions/mods), GTA, and Stardew Valley. Wants to stay around $1,000 or less if possible, and is open to refurbished/used. Weight/thinness and extra features are not important.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_9",
+    "user_query": "Need a durable used/refurb 15-inch Windows 11 laptop for a garage/vehicle workshop budgeted at $230. It should handle basic office/web tasks plus vehicle tuning/diagnostic software, with ~3\u20134 hours battery life and the ability to connect to a TV. Prefer 16GB RAM, 256GB+ SSD, and a 1080p display; considering Lenovo ThinkPad models (P53s/T15/E15/L15).",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 23000,
+      "brand": "Lenovo",
+      "min_ram_gb": 16,
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_10",
+    "user_query": "Looking for a US laptop with good build quality and performance for online school, CAD work, and light gaming (e.g., Project Zomboid, Kenshi, Minecraft). Budget is $600\u2013$1,000 but willing to pay more if the upgrade is significantly better. Refurb/used is fine; no strong preferences on weight or screen size.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_11",
+    "user_query": "Looking for a new 15\"+ laptop ideally in the $400\u2013$500 range (max $650) focused on performance. Main use is playing World of Warcraft Classic at max settings with 60+ FPS, plus basic web browsing and streaming. No refurb/used and no need for touchscreen; will use an external mouse.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 65000,
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_12",
+    "user_query": "Looking for a gaming laptop in the US with a budget around $2000. Preferably a 16-inch screen. Will be used for MMOs and shooter games.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
+      "min_screen_size": 15.5,
+      "max_screen_size": 16.5,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_13",
+    "user_query": "Looking for a new work laptop under $1,000 USD with strong battery life (at least 6 hours) and high reliability. Prefer a 14\u201315 inch screen with the webcam at the top bezel, plus at least two USB ports and a headphone jack. Used mainly for Zoom and Microsoft Office; lightweight preferred but not required.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
+      "min_screen_size": 14.0,
+      "max_screen_size": 15.0
+    },
+    "ground_truth_product_ids": [
+      "742fe38b-0065-4006-b7b5-6106c62a69a8",
+      "9638137a-81bb-418e-887d-84ddb31232b8",
+      "0952af0b-ff19-4310-80a3-788cfcfae4c3",
+      "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "43c81cd9-80dc-42b2-8520-f4dd32e368a3",
+      "9cf8669c-261c-421d-9455-af4f798f6a29",
+      "c8020c96-aeec-46f6-9795-3be98dccf2f0",
+      "8fc3b53b-96b0-440e-b64c-044d7129493a",
+      "1cc191cd-2857-48f1-9357-fa440caa08e8",
+      "f9496461-a450-4a16-aa4f-bfe9157394b4"
+    ]
+  },
+  {
+    "query_id": "laptop_14",
+    "user_query": "Looking for a reliable, well-built laptop for a 13-year-old in the US with a $600\u2013$1,000 budget (willing to pay more if it\u2019s a big upgrade). Needs good performance for online school, CAD work, and light gaming (e.g., Minecraft, Project Zomboid, Kenshi). Refurb/used is fine and there are no strong preferences on size, weight, or form factor.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_15",
+    "user_query": "Looking for a college laptop in the USA under $1400 (lower is better), open to refurb/used in like-new condition with original packaging. Needs good battery life and performance for SolidWorks, coding (VS Code/MySQL), and moderate gaming (Forza, Hytale, modded Minecraft), ideally in a 14\u201315\" 2-in-1. Must have a touchscreen and OLED display; would like a good keyboard/touchpad and fingerprint reader.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 140000,
+      "brand": "Asus",
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5,
+      "good_for_gaming": true,
+      "good_for_creative": true,
+      "good_for_web_dev": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_16",
+    "user_query": "Looking for a good laptop from Costco in the US for up to $1000, new only (no refurbs/used) and not HP. Prefer a lightweight, thin laptop around 13 inches with all-day battery life, optional touchscreen, and reliable build quality. Needs to handle online classes and light gaming (Stardew Valley, indie games, visual novels); considering MacBook Air but concerned about game availability.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
+      "min_screen_size": 12.5,
+      "max_screen_size": 13.5,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_17",
+    "user_query": "Looking for a laptop in the US for $500 or less (refurb/used OK) that can run Foundry VTT at recommended settings for Lancer/DnD. Prefers a 16-inch or larger screen and would like somewhat rugged build if possible. Linux compatibility is preferred but not required.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 50000,
+      "min_screen_size": 15.5,
+      "max_screen_size": 16.5
+    },
+    "ground_truth_product_ids": [
+      "f0e10701-99c7-4249-b117-886b006a5ff2",
+      "0ae88c4b-ae6f-4bb3-ac09-c5b8ebda5e09",
+      "24f47dfd-1809-43d8-aa9a-21237465bdb2",
+      "eaf5cc40-d7b0-4d74-824a-d5b86af58ddd",
+      "fef912c2-91a0-492c-ae03-021f0c9b56cc",
+      "06d3f4d2-47e4-4218-bf2f-14938f9ceaa4",
+      "bdca0b1e-c04e-496c-b424-af29894bbe25",
+      "2497df8b-5528-4e75-a61f-37bdcc2a003f",
+      "b84ac4e2-6ab6-4601-83a6-d55b7f6e4ee6",
+      "f30e7230-a411-4df5-81a9-c9ba370d4174"
+    ]
+  },
+  {
+    "query_id": "laptop_18",
+    "user_query": "US aerospace engineering student with a ~$2000 budget wants a Windows 2-in-1 laptop with touchscreen/stylus note-taking to replace a MacBook Air/iPad setup. Needs enough performance for SolidWorks, MATLAB, and other engineering/CAD software, and should work well with a USB-C monitor/keyboard and Bluetooth mouse setup.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
       "good_for_creative": true
     },
     "ground_truth_product_ids": [
-      "398a53ff-da8b-4955-92ad-c4d8eb9c31a9",
       "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
-      "5d213ac7-dfb5-4bab-a972-78adb494adc5",
-      "6ba261e8-800b-4750-b19a-3e2a576a5c2a",
-      "406a9be0-2aa4-47b0-b49f-e4c3b7faa4e4",
-      "25f6ed92-2db4-444c-a7a5-eddbc0349ca4",
+      "398a53ff-da8b-4955-92ad-c4d8eb9c31a9",
       "6a7d51d9-78d9-4c90-a002-7b89cc7a894c"
     ]
   },
   {
-    "query_id": "q7",
-    "user_query": "Best value laptop with 32GB RAM for machine learning",
+    "query_id": "laptop_19",
+    "user_query": "Looking for a non-Apple laptop in the $700\u2013$800 range for a college freshman. Needs to comfortably run Opera GX, Roblox, and Discord. Open to brands like Lenovo or Dell.",
     "expected_ucp": {
       "category": "Electronics",
       "product_type": "laptop",
+      "price_max_cents": 80000,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_20",
+    "user_query": "Need a professional-looking 15\u201316\" laptop for mechanical engineering school under $2000, with at least ~6 hours battery life and good performance. Must handle CAD/3D workloads (Fusion 360, SolidWorks, Blender) and programming (MATLAB/Python), plus some gaming (BeamNG, Forza, GTA). Open to open-box if it looks new and is portable for backpack carry.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
+      "min_screen_size": 15.5,
+      "max_screen_size": 16.5,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_21",
+    "user_query": "Need a new Windows 2-in-1 laptop for college use, entertainment, light gaming (Roblox/Steam), and drawing with a touch screen and tablet/fold mode. Budget is $500\u2013$700 USD (buying in the US), new only, with good battery life and portable enough for a backpack. Prefer a reasonably large screen plus good keyboard and touchpad.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 70000,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_22",
+    "user_query": "Looking for a new MacBook under $3000 USD in the US, preferably around 16 inches. User is a software engineer prioritizing performance for running a Phoenix server and Claude Code, considering an M4 chip and unsure how to prioritize GPU vs memory. Prefers a model with a fingerprint scanner and is not open to refurb/used.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 300000,
+      "brand": "Apple",
+      "min_screen_size": 15.5,
+      "max_screen_size": 16.5,
+      "good_for_web_dev": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_23",
+    "user_query": "Recommend an up-to-date MacBook model suitable for professional applications. It should handle animation and game development workloads.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "brand": "Apple",
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_24",
+    "user_query": "Looking for a new (refurb OK if like-new) laptop in the US for $1500, stretchable to $2000, prioritizing strong CPU performance and good battery life with reasonable portability. Needs 14\u201316\" non-touch, non-OLED display ideally 1440p/60Hz, M.2 SSD with at least 512GB and upgradeable to 1TB+, and at least 16GB RAM (prefer 32GB if non-upgradable). Should handle light\u2013moderate gaming (LoL, Slay the Spire, modded Minecraft at 1440p ~60fps) and programming/LaTeX, with USB-C DP Alt Mode and preferably a headphone jack.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
+      "min_ram_gb": 16,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5,
+      "good_for_gaming": true,
+      "good_for_web_dev": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_25",
+    "user_query": "Looking for a laptop in the $2000\u2013$2500 budget range. Primary use is gaming, with some schoolwork.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 250000,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": [
+      "00d7d336-f17a-472b-8f0a-02f6b2cbbd25",
+      "6ba261e8-800b-4750-b19a-3e2a576a5c2a"
+    ]
+  },
+  {
+    "query_id": "laptop_26",
+    "user_query": "Looking for a lightweight 2-in-1 tablet-style Windows/Android device under $400 in the US (refurb/used OK) for on-the-go reading, writing, and photo/video editing. Must support touchscreen + pen and preferably have a removable keyboard, with better performance and higher RAM than a Surface Go to avoid lag when multitasking.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 40000,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_27",
+    "user_query": "Looking for a basic, cheap laptop under $350 (USD) for web browsing, Microsoft Office, and reading PDFs. Performance and battery life are the top priorities, and lighter/smaller is preferred. Must have a backlit keyboard, a USB port for a flash drive, and a trackpad; open to refurbished/used if from a reputable seller and under warranty.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 35000
+    },
+    "ground_truth_product_ids": [
+      "742fe38b-0065-4006-b7b5-6106c62a69a8",
+      "0952af0b-ff19-4310-80a3-788cfcfae4c3",
+      "bd14b5b1-4fe5-4557-81f6-bddfc6abe622",
+      "ed84af18-8a1c-48df-8ec6-9bbaa71853e8",
+      "8863ce9a-201a-4ca5-895d-976ecb65dca0",
+      "aaae5c14-1a66-40a7-b156-453bc42600a3",
+      "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "c1ae975b-8aec-4f3e-b145-883daa75ab8a",
+      "8b36dc17-88cf-4b36-9832-d9e66e2848f1",
+      "26776e64-e3b8-400a-9b20-ee1381cf91f7"
+    ]
+  },
+  {
+    "query_id": "laptop_28",
+    "user_query": "Looking for a $1200 laptop in the US for a finance major that can handle Excel-heavy schoolwork and gaming (Minecraft, Roblox, Valorant) at medium\u2013high settings around 60\u2013120 FPS. Prioritizes performance first, then build quality and battery life, with moderate portability and a 14\u201316 inch screen. Needs a good keyboard, reliable build, at least 16GB RAM, and 512GB+ SSD; open to certified refurbished with warranty and wants it to last 4+ years.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 120000,
+      "min_ram_gb": 16,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_29",
+    "user_query": "Looking for a used/refurb traditional 14\u201316\" laptop in the US for under $1,000 with reliable build quality. Wants to game modern titles (indie to AAA) at medium settings around 60 FPS and also do music recording. Can reuse a 1TB drive and 32GB DDR5-4800 RAM from a prior laptop, so low storage/16GB configs are acceptable.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
       "min_ram_gb": 32,
-      "good_for_ml": true
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_30",
+    "user_query": "Need a laptop for electrical engineering within a $1500 budget (used is OK). Primary use is CAD and programming; no gaming. Prefer quiet operation for library use and a decent keyboard.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 150000,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": [
+      "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
+      "6a7d51d9-78d9-4c90-a002-7b89cc7a894c"
+    ]
+  },
+  {
+    "query_id": "laptop_31",
+    "user_query": "Need a new laptop under $1000 for work and gaming/creative use, including Minecraft (possibly hosting a server), Roblox/Roblox Studio, and Blender. Prefer good performance, good battery life, and solid keyboard/touchpad with durable build quality. Wants a normal/professional look (no flashy RGB).",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_32",
+    "user_query": "Looking for a new lightweight 12\u201313\" 2-in-1 with excellent pen support (palm rejection, color accuracy) for drawing and creative apps, plus enough performance to game. Budget is $2,000\u2013$2,400 and battery life should support ~8 hours of productivity use. Wants to run Photoshop/CSP/Illustrator (possibly Blender) and play Warframe at high/max settings around 60+ FPS.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 240000,
+      "min_screen_size": 12.5,
+      "max_screen_size": 13.5,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_33",
+    "user_query": "Need a portable college laptop (14in preferred, max 15in; under ~2.0kg) with strong performance and decent all-day battery life on a $1,200\u2013$1,500 USD budget. Primary use is competitive FPS gaming on an external 1080p monitor (Apex/OW/Valorant) targeting ~200+ FPS, plus occasional light photo/video editing. Good keyboard is a must; open to used/refurb but cautious about scams.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 150000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_34",
+    "user_query": "Looking for a reliable, long-lasting laptop in the US with strong battery life for lectures and note-taking. Main use is multitasking for school/professional work: research with multiple tabs/windows, writing papers, creating presentations, and virtual meetings. Open to refurbished/used but prefers reliability; interested in repairable/upgradeable options like Framework.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "good_for_creative": true,
+      "good_for_web_dev": true
+    },
+    "ground_truth_product_ids": [
+      "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
+      "398a53ff-da8b-4955-92ad-c4d8eb9c31a9"
+    ]
+  },
+  {
+    "query_id": "laptop_35",
+    "user_query": "Need a reliable, long-battery-life laptop for an incoming US electrical engineering student, with enough performance for CAD and creative work (Blender, Onshape/SolidWorks, light video editing) plus some gaming. Prefers a portable 14-inch-ish laptop with good display for outdoor use, USB-C charging, and a microSD card slot, under $2000. Wants at least ~1TB fast storage and strong specs that will stay relevant for 4+ years.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_36",
+    "user_query": "Need the cheapest possible laptop around $250 (can go a bit higher), open to used/refurb. Main use is running a Roblox macro for Bee Swarm Simulator nearly 24/7 while plugged in, targeting ~60 FPS at lowest settings. Performance and thermals matter; size/weight/build quality do not, and Windows debloat or Linux is acceptable.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 25000,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_37",
+    "user_query": "Looking for a Windows laptop in the US around $1,500 (new only) for Photoshop/Illustrator and light-to-moderate Steam gaming (cozy games, modded Minecraft). Priorities are performance and reliable build, lighter weight than an XPS 15, ~15-inch screen with high color accuracy, and support for 2\u20133 external monitors while mostly plugged in. Prefer a normal-looking clamshell (no 2-in-1/gamer styling) and wants Nvidia graphics with at least 16GB RAM.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 150000,
+      "brand": "Lenovo",
+      "min_ram_gb": 16,
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_38",
+    "user_query": "Looking for a ~$1500 laptop (can go slightly over; refurb/used OK from reputable sellers) prioritized for performance for CAD (SolidWorks/Autodesk), slicers, and some 1080p gaming (~60 FPS). Should be portable enough for school and support docking for peripherals, power delivery, and multiple external monitors.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 150000,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_39",
+    "user_query": "Need a lightweight, quiet, well-built laptop for work (Python, frequent Docker builds, Slack) with good battery life and strong Linux compatibility. Planning dual-boot Windows + Linux (Debian/Ubuntu/Arch), prefers x86 (not ARM), 14\u201316\" (12\" acceptable), and wants 16GB+ RAM. Prefer USB4/Thunderbolt and HDMI; budget up to $2500 and open to used/refurbished.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 250000,
+      "min_ram_gb": 16,
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5,
+      "good_for_web_dev": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_40",
+    "user_query": "Need a Windows laptop for music production with some casual gaming. Prioritize overall performance and reliability to stay useful for around 5 years. Requesting a couple of recommendations.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": [
+      "406a9be0-2aa4-47b0-b49f-e4c3b7faa4e4",
+      "5d213ac7-dfb5-4bab-a972-78adb494adc5",
+      "25f6ed92-2db4-444c-a7a5-eddbc0349ca4",
+      "6ba261e8-800b-4750-b19a-3e2a576a5c2a"
+    ]
+  },
+  {
+    "query_id": "laptop_41",
+    "user_query": "Need a well-built laptop with great battery life for a Mechanical Engineering BCS, budget $1500\u2013$2000, open to used/refurb. It should handle potential SolidWorks use and Lightroom for photo editing. Considering MacBook vs Lenovo ThinkPad or similar alternatives, and should be comfortable to carry in a backpack.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": [
+      "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
+      "398a53ff-da8b-4955-92ad-c4d8eb9c31a9",
+      "6a7d51d9-78d9-4c90-a002-7b89cc7a894c"
+    ]
+  },
+  {
+    "query_id": "laptop_42",
+    "user_query": "Looking for a portable 11\u201313\" Windows 2-in-1 that can replace an iPad Pro as a tablet-first device, with excellent battery life and strong performance for creative work. Must support reliable, high-quality pen input/pressure for drawing and run programs like Adobe Suite, Toon Boom Harmony, and DaVinci Resolve. Budget is up to $1500 and open to refurbished/used.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 150000,
+      "min_screen_size": 11.5,
+      "max_screen_size": 12.5,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_43",
+    "user_query": "Looking for a new Windows 11 laptop around $1200 that\u2019s portable for frequent travel with a 14\u201315 inch screen. Needs strong performance and good battery life for PhD work using SAS, R, and large Excel datasets plus feed formulation software. Prefers good keyboard, build quality, and input devices; coming from a MacBook Air that can\u2019t run required programs.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 120000,
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5
+    },
+    "ground_truth_product_ids": [
+      "4e2c9e4f-8476-42f1-9d5e-3acbf01fe12c",
+      "f5617aae-253d-4f1b-a34f-3791f359d402",
+      "7546aefb-dca3-4b9f-a00d-6f1fc28a5b83",
+      "99c2d4e2-a049-4e4a-86b2-191170f6d38e",
+      "3fab14a9-5807-49ec-8663-8a82e8873638",
+      "cbcbe1c4-1b1d-4e05-af1b-060651982bd8",
+      "2a95f9fe-3fe8-44aa-8645-a903cf350d21",
+      "b5d4d16e-5f3e-45b3-98ac-0fe43ef87364",
+      "c18a6c2a-032a-443a-92df-49b23b43d552",
+      "2dac4c20-8cdd-4f71-8ac2-8dce8880be35"
+    ]
+  },
+  {
+    "query_id": "laptop_44",
+    "user_query": "Need a non-ASUS 14-inch (max) laptop under $3000 for frequent travel, with at least 32GB RAM, dedicated GPU, and low noise during office use. Main uses are large office spreadsheets/files, video editing/processing, and secondary gaming while traveling.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 300000,
+      "min_ram_gb": 32,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_45",
+    "user_query": "Need a new laptop under $750 focused on strong performance for video editing (DaVinci Resolve/Adobe Premiere) plus schoolwork and multitasking. Prefer reliable build quality, SSD storage, and at least 16GB RAM, with battery life moderately important. Screen size ideally 15 inches or larger, weight/thinness not a priority.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 75000,
+      "min_ram_gb": 16,
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5,
+      "good_for_gaming": true,
+      "good_for_creative": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_46",
+    "user_query": "Need a small, lightweight travel laptop to play Riot\u2019s 2XKO at low settings with a stable 60 FPS. Budget is up to $600 (cheaper preferred) and refurbished/used is acceptable but reliability is a concern. Preferred screen size is around 10\u201313 inches with performance prioritized over battery life.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 60000,
+      "min_screen_size": 12.5,
+      "max_screen_size": 13.5,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_47",
+    "user_query": "Looking for a well-built 15-inch laptop under $900 (US), preferably new (not refurb/used). Must support USB-C charging and ideally have an Intel CPU. Preferred brands are Lenovo or HP; shopping near Costco or Micro Center.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 90000,
+      "brand": "Lenovo",
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5
+    },
+    "ground_truth_product_ids": [
+      "ece73516-a1ab-4d4f-b689-8189023083d6",
+      "fe9a4e0f-c753-486b-bfd7-d296ac9aec53",
+      "a2b5aa21-153f-45f0-84b8-1e505387afdf",
+      "f2ab6e50-725c-4305-96d9-bc6b9ef5fddf",
+      "16279257-1428-4992-bb52-14c0b598bdf8",
+      "fe94c013-37f9-4595-8e55-36f2aa258fb8",
+      "43bcc47e-e446-473c-83f0-1481a4badd05",
+      "3f302b05-29b2-4e9e-82a5-c29c9cd796b0",
+      "46b40ca4-4176-471b-832b-57f19d056195",
+      "ceacedf5-b33e-49d1-9a2d-9ca41aaf8acf"
+    ]
+  },
+  {
+    "query_id": "laptop_48",
+    "user_query": "Need an inexpensive laptop ($500\u2013600, USA) that can connect to a Dell WD15 USB-C dock and extend the desktop to two Dell U2412Mc external monitors. It will mostly be used plugged in for tax software plus basic web and Office apps. Must have a 10-key numeric keypad; touchscreen is a nice-to-have.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 60000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5
+    },
+    "ground_truth_product_ids": [
+      "ac82562e-3232-4f40-8f6e-40cb416a0347",
+      "742fe38b-0065-4006-b7b5-6106c62a69a8",
+      "0952af0b-ff19-4310-80a3-788cfcfae4c3",
+      "eedce8ed-7314-49de-b73c-0433047b305b",
+      "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "9638137a-81bb-418e-887d-84ddb31232b8",
+      "010d5cc9-1f17-43c8-bd55-3b8e4ead8325",
+      "59a461f3-5d13-41de-9cfc-3fbfcf8911b1",
+      "1979a488-15a9-480d-b29b-a94dc844dcd2",
+      "586b9f87-71d5-4531-883a-c9050a52bd01"
+    ]
+  },
+  {
+    "query_id": "laptop_49",
+    "user_query": "Need a laptop for college plus gaming under $1700 (preferably less), open to refurbished. Wants strong performance and good battery life, with good cooling, at least 24\u201332GB RAM and 1TB storage, and at least 2 USB ports. Should run Helldivers 2 and War Thunder around 100\u2013120 FPS on medium, and future games ~80+ FPS on medium.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 170000,
+      "min_ram_gb": 32,
+      "good_for_gaming": true
+    },
+    "ground_truth_product_ids": []
+  },
+  {
+    "query_id": "laptop_50",
+    "user_query": "Looking for a 15\u201317\" laptop under $1000 in the US (California), preferably from Best Buy or Costco, and open to refurbished/used. Needs good battery life and to be reasonably future-proof for office work and basic photo editing (e.g., making Christmas cards). Touchscreen is not needed; a full number pad is nice to have but not required.",
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
+      "good_for_creative": true
     },
     "ground_truth_product_ids": []
   }
