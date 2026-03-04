@@ -2080,81 +2080,180 @@ async def _search_and_respond_ecommerce(
 # Helper Functions
 # ============================================================================
 
+_GPU_SHORT_RE = re.compile(
+    r'(RTX\s*\d{3,4}\s*(?:Ti\b|Super\b)?'
+    r'|GTX\s*\d{3,4}\s*(?:Ti\b|Super\b)?'
+    r'|RX\s*\d{3,4}\s*(?:XT\b|M\b)?'
+    r'|Arc\s+[A-Z]\d+'
+    r'|Iris\s+Xe'
+    r'|UHD\s+\d+)',
+    re.IGNORECASE,
+)
+
+
+def _shorten_gpu(gpu_str: str) -> str:
+    """Return a short readable chip name from a full GPU description."""
+    m = _GPU_SHORT_RE.search(gpu_str)
+    if m:
+        return re.sub(r'\s+', ' ', m.group(0)).strip()
+    # Fallback: trim to 22 chars
+    s = gpu_str.strip()
+    return s if len(s) <= 22 else s[:21] + "…"
+
+
+def _product_ram_gb(product: dict) -> int:
+    """Extract RAM in GB from any of the three product layouts."""
+    attrs = product.get("attributes") or {}
+    lp = product.get("laptop")
+    specs = (lp.get("specs") or {}) if isinstance(lp, dict) else {}
+    raw = specs.get("ram") or attrs.get("ram_gb") or attrs.get("ram") or product.get("ram_gb") or product.get("ram")
+    if not raw:
+        return 0
+    try:
+        return int(float(str(raw).lower().replace("gb", "").strip().split()[0]))
+    except (ValueError, IndexError):
+        return 0
+
+
+def _product_gpu(product: dict) -> str:
+    """Extract GPU string from any of the three product layouts."""
+    attrs = product.get("attributes") or {}
+    lp = product.get("laptop")
+    specs = (lp.get("specs") or {}) if isinstance(lp, dict) else {}
+    return (
+        specs.get("graphics")
+        or product.get("gpu_model")
+        or product.get("gpu")
+        or attrs.get("gpu")
+        or ""
+    ).strip()
+
 
 def _recommendation_quick_replies(products: List[Dict], search_filters: Dict) -> List[str]:
-    """Generate context-aware follow-up chips based on what was just returned."""
+    """Generate RAG-grounded follow-up chips using actual specs from the returned products."""
     replies: List[str] = []
 
     use_case = (search_filters.get("use_case") or "").lower().strip()
-    brand = search_filters.get("brand") or search_filters.get("preferred_brand") or ""
-    budget_cents = search_filters.get("price_max_cents") or search_filters.get("budget_cents")
 
-    # Derive representative price from results
-    prices = [float(p.get("price") or 0) for p in products if p.get("price")]
-    avg_price = sum(prices) / len(prices) if prices else 0
-    max_price = max(prices) if prices else 0
-    min_price = min(prices) if prices else 0
+    # ── Extract actual values from the returned products ─────────────────────
+    prices = sorted([float(p.get("price") or 0) for p in products if p.get("price")])
 
-    # --- Use-case specific chips ---
+    ram_set: set[int] = set()
+    gpu_seen: list[str] = []
+    for p in products:
+        r = _product_ram_gb(p)
+        if r:
+            ram_set.add(r)
+        g = _product_gpu(p)
+        if g and len(g) > 2:
+            short = _shorten_gpu(g)
+            if short and short not in gpu_seen:
+                gpu_seen.append(short)
+
+    sorted_ram = sorted(ram_set)
+    unique_gpus = gpu_seen[:2]
+
+    # ── Price-grounded ────────────────────────────────────────────────────────
+    if len(prices) >= 2:
+        spread = int(prices[-1] - prices[0])
+        if spread >= 80:
+            replies.append(
+                f"What do you get for the extra ${spread:,} between cheapest and most expensive?"
+            )
+
+    # ── RAM-grounded ──────────────────────────────────────────────────────────
+    if len(sorted_ram) >= 2:
+        lo, hi = sorted_ram[0], sorted_ram[-1]
+        if use_case in ("gaming", "game"):
+            replies.append(f"Is {hi}GB RAM worth the premium over {lo}GB for gaming?")
+        elif use_case in ("ml", "machine learning", "data science", "ai"):
+            replies.append(f"Do I need {hi}GB RAM for ML or is {lo}GB enough?")
+        elif use_case in ("student", "school", "college"):
+            replies.append(f"Is {hi}GB RAM overkill for college or worth it?")
+        else:
+            replies.append(f"What's the real-world difference between {lo}GB and {hi}GB RAM?")
+    elif len(sorted_ram) == 1:
+        ram = sorted_ram[0]
+        if use_case in ("gaming", "game"):
+            replies.append(f"Is {ram}GB RAM enough for modern AAA games?")
+        elif use_case in ("ml", "machine learning", "data science", "ai"):
+            replies.append(f"Is {ram}GB RAM sufficient for ML workloads?")
+        elif use_case in ("student", "school", "college"):
+            replies.append(f"Is {ram}GB RAM enough for college multitasking?")
+
+    # ── GPU-grounded ──────────────────────────────────────────────────────────
+    if len(unique_gpus) >= 2:
+        g1, g2 = unique_gpus[0], unique_gpus[1]
+        if use_case in ("gaming", "game"):
+            replies.append(f"How does {g1} compare to {g2} for 1080p gaming?")
+        elif use_case in ("ml", "machine learning", "data science", "ai"):
+            replies.append(f"Which GPU is better for ML: {g1} or {g2}?")
+        elif use_case in ("video editing", "creative", "design"):
+            replies.append(f"Which handles 4K editing better: {g1} or {g2}?")
+        else:
+            replies.append(f"How does {g1} compare to {g2}?")
+    elif len(unique_gpus) == 1:
+        gpu = unique_gpus[0]
+        if use_case in ("gaming", "game"):
+            replies.append(f"What games can {gpu} run well at 1080p?")
+        elif use_case in ("ml", "machine learning", "data science", "ai"):
+            replies.append(f"Is {gpu} good for ML training and inference?")
+        elif use_case not in ("", "general"):
+            replies.append(f"Is {gpu} good for {use_case}?")
+
+    # ── Use-case specific extras ──────────────────────────────────────────────
+    uc_extras: list[str] = []
     if use_case in ("gaming", "game"):
-        if budget_cents:
-            budget_dollars = budget_cents // 100
-            lower = max(300, budget_dollars - 200)
-            replies.append(f"Show gaming laptops under ${lower:,}")
-        replies.append("Compare GPU performance across these")
-        replies.append("Show laptops with RTX 4070 or better")
-
+        uc_extras = [
+            "Which of these can handle 4K gaming?",
+            "Which has the best cooling for long sessions?",
+            "Show gaming laptops with RTX 4070 or better",
+        ]
     elif use_case in ("ml", "machine learning", "data science", "ai"):
-        replies.append("Show laptops with 32GB+ RAM")
-        replies.append("Compare GPU options for ML workloads")
-        if max_price > 0:
-            replies.append(f"Find similar laptops under ${int(min_price + 200):,}")
-
+        uc_extras = [
+            "Which is best for running local LLMs?",
+            "How much VRAM do I need for fine-tuning?",
+            "Show options with NVIDIA GPUs only",
+        ]
     elif use_case in ("student", "school", "college"):
-        replies.append("Show lightest options under 4 lbs")
-        replies.append("Which has the best battery life?")
-        if avg_price > 700:
-            replies.append("Show me budget-friendly alternatives under $700")
-
+        uc_extras = [
+            "Which has the best battery life for classes?",
+            "Which is lightest for carrying in a backpack?",
+            "Which handles Zoom and Microsoft Office best?",
+        ]
     elif use_case in ("video editing", "creative", "design"):
-        replies.append("Show laptops with OLED or 4K display")
-        replies.append("Compare color accuracy across these")
-
+        uc_extras = [
+            "Which display has the best color accuracy?",
+            "Will these handle 4K video editing smoothly?",
+        ]
     elif use_case in ("programming", "coding", "developer", "work"):
-        replies.append("Show laptops with the best keyboard")
-        replies.append("Which has the longest battery?")
+        uc_extras = [
+            "Which has the best keyboard for long coding sessions?",
+            "Which has the longest battery for remote work?",
+        ]
+    else:
+        uc_extras = [
+            "Which has the best build quality?",
+            "What are the trade-offs between these?",
+        ]
 
-    # --- Budget-based chips (always relevant) ---
-    if budget_cents and avg_price > 0:
-        budget_dollars = budget_cents // 100
-        if avg_price < budget_dollars * 0.75:
-            # Results are well under budget — offer to go premium
-            premium_ceil = int(budget_dollars * 1.30)
-            replies.append(f"Show me more powerful options up to ${premium_ceil:,}")
-        elif avg_price > budget_dollars * 0.90:
-            # Results near budget ceiling — offer cheaper
-            cheaper_ceil = max(300, budget_dollars - 150)
-            replies.append(f"Find something under ${cheaper_ceil:,}")
-
-    # --- Brand chips ---
-    if brand and len(brand) < 20:
-        replies.append(f"Show other {brand} models")
-        if not any("brand" in r.lower() for r in replies):
-            replies.append("Show top-rated alternatives from other brands")
-
-    # --- Universal fallbacks (only fill remaining slots) ---
-    universal = [
-        "Tell me more about these products",
-        "Which has the best value for money?",
-        "Compare top two side by side",
-        "Show me something lighter",
-        "Refine my search",
-    ]
-    for u in universal:
+    for e in uc_extras:
         if len(replies) >= 4:
             break
-        if u not in replies:
-            replies.append(u)
+        if e not in replies:
+            replies.append(e)
+
+    # ── Universal fallbacks ───────────────────────────────────────────────────
+    for f in [
+        "Which is the best value for money?",
+        "Compare the top two picks side by side",
+        "Show lighter alternatives",
+        "Refine my search",
+    ]:
+        if len(replies) >= 5:
+            break
+        if f not in replies:
+            replies.append(f)
 
     return replies[:5]
 
