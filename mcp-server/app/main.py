@@ -361,6 +361,356 @@ async def chat(request: ChatRequest):
     return await process_chat(request)
 
 
+# ─── Text-only chat endpoint (for messaging apps via OpenClaw) ────────────────
+
+def _format_response_as_text(response: ChatResponse) -> str:
+    """
+    Convert a ChatResponse to a WhatsApp / iMessage / Telegram friendly
+    plain-text string.  No HTML, no markdown beyond *bold* (which WhatsApp
+    renders natively).
+    """
+    import re as _re
+
+    lines: list[str] = []
+
+    # ── Main message ──────────────────────────────────────────────────────────
+    if response.message:
+        lines.append(response.message)
+
+    # ── Product recommendations ───────────────────────────────────────────────
+    if response.recommendations:
+        products = [p for bucket in response.recommendations for p in bucket]
+        if products:
+            lines.append("")
+            lines.append("📦 *Top Picks:*")
+
+            for i, p in enumerate(products[:5], 1):
+                name = p.get("name") or p.get("title") or "Unknown"
+                price = p.get("price")
+                price_str = f"${float(price):,.0f}" if price else ""
+
+                # Compact spec pills (processor · RAM · Storage)
+                specs: list[str] = []
+                laptop = p.get("laptop") or {}
+                spec_obj = laptop.get("specs") or {}
+                cpu = spec_obj.get("processor", "")
+                if cpu:
+                    cpu = _re.sub(r"^(Intel Core |AMD |Apple )", "", cpu, flags=_re.I).strip()
+                    if len(cpu) > 22:
+                        cpu = cpu[:20] + "…"
+                    specs.append(cpu)
+                if spec_obj.get("ram"):
+                    specs.append(spec_obj["ram"])
+                if spec_obj.get("storage"):
+                    specs.append(spec_obj["storage"])
+
+                rating = p.get("rating")
+                rating_str = f"⭐ {float(rating):.1f}" if rating else ""
+
+                header = f"{i}. *{name}*"
+                if price_str:
+                    header += f" — {price_str}"
+                lines.append(header)
+                if specs:
+                    lines.append(f"   {' · '.join(specs)}")
+                if rating_str:
+                    lines.append(f"   {rating_str}")
+
+    # ── Quick reply suggestions ───────────────────────────────────────────────
+    if response.quick_replies:
+        lines.append("")
+        lines.append("💬 *You can ask:*")
+        for qr in response.quick_replies[:3]:
+            lines.append(f"• {qr}")
+
+    return "\n".join(lines).strip()
+
+
+class ChatTextResponse(BaseModel):
+    """Slim response for messaging-app clients (OpenClaw, WhatsApp bots, etc.)"""
+    text: str
+    session_id: str
+    response_type: str
+
+
+@app.post("/chat-text", response_model=ChatTextResponse)
+async def chat_text(request: ChatRequest):
+    """
+    Text-only variant of /chat for use with OpenClaw and other messaging
+    adapters.  Returns a pre-formatted plain-text string instead of the
+    full JSON product graph so the skill doesn't have to do any formatting.
+
+    Usage in OpenClaw skill:
+        POST /chat-text  { message, session_id }
+        → { text: "📦 Top Picks:\\n1. Dell XPS ...", session_id, response_type }
+    """
+    response = await process_chat(request)
+    return ChatTextResponse(
+        text=_format_response_as_text(response),
+        session_id=response.session_id,
+        response_type=response.response_type,
+    )
+
+
+# ─── OpenClaw server-to-server webhook ───────────────────────────────────────
+# OpenClaw calls POST /openclaw/message when a user sends a shopping query via
+# WhatsApp, Telegram, Discord, etc.  We process it through the same AI pipeline
+# as /chat-text and return a pre-formatted text string for OpenClaw to forward.
+#
+# Authentication: HMAC-SHA256 over the raw JSON body.
+#   Header: X-OpenClaw-Signature: sha256=<hex>
+#   If OPENCLAW_WEBHOOK_SECRET is not set, verification is skipped (dev mode).
+
+import hmac as _hmac
+import hashlib as _hashlib
+
+
+class OpenClawWebhookRequest(BaseModel):
+    """Payload that OpenClaw sends to our webhook."""
+    message: str
+    session_id: Optional[str] = None
+    platform: Optional[str] = None   # "whatsapp" | "telegram" | "discord" | …
+    user_id: Optional[str] = None
+
+
+class OpenClawWebhookResponse(BaseModel):
+    text: str
+    session_id: str
+
+
+def _verify_openclaw_signature(raw_body: bytes, signature_header: Optional[str]) -> bool:
+    """
+    Verify the HMAC-SHA256 signature sent by OpenClaw.
+
+    Returns True if:
+      - OPENCLAW_WEBHOOK_SECRET is not configured (dev / open mode), OR
+      - The supplied header matches sha256=HMAC(secret, raw_body)
+
+    Returns False if the secret is set but the signature is missing or wrong.
+    """
+    secret = os.getenv("OPENCLAW_WEBHOOK_SECRET", "")
+    if not secret:
+        return True                           # dev mode — skip verification
+
+    if not signature_header:
+        return False                          # secret required but no header
+
+    parts = signature_header.split("=", 1)
+    if len(parts) != 2 or parts[0] != "sha256":
+        return False                          # wrong algorithm prefix
+
+    expected = _hmac.new(secret.encode(), raw_body, _hashlib.sha256).hexdigest()
+    return _hmac.compare_digest(expected, parts[1])
+
+
+@app.post("/openclaw/message", response_model=OpenClawWebhookResponse)
+async def openclaw_message(request: Request):
+    """
+    Server-to-server webhook for OpenClaw integrations.
+
+    OpenClaw calls this endpoint when a user sends a shopping query via any
+    connected messaging app (WhatsApp, iMessage, Telegram, Discord, Slack…).
+    The message is processed through the IDSS AI pipeline and the response is
+    returned as a plain-text string that OpenClaw forwards to the user.
+
+    Auth: X-OpenClaw-Signature: sha256=<HMAC-SHA256 of raw body>
+    Set OPENCLAW_WEBHOOK_SECRET on the server to enable signature validation.
+    Leave unset for development / unauthenticated usage.
+
+    Request body:
+        {
+          "message":    "find me a gaming laptop under $900",
+          "session_id": "oc-<id>",          // optional – auto-generated if absent
+          "platform":   "whatsapp",          // optional metadata
+          "user_id":    "user123"            // optional metadata
+        }
+
+    Response:
+        { "text": "📦 *Top Picks:* ...", "session_id": "oc-<id>" }
+    """
+    raw_body = await request.body()
+
+    # ── Signature verification ────────────────────────────────────────────────
+    signature = request.headers.get("X-OpenClaw-Signature")
+    if not _verify_openclaw_signature(raw_body, signature):
+        raise HTTPException(status_code=401, detail="Invalid OpenClaw signature")
+
+    # ── Parse payload ─────────────────────────────────────────────────────────
+    try:
+        payload = OpenClawWebhookRequest.model_validate_json(raw_body)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid request body")
+
+    # ── Process via the IDSS AI pipeline ─────────────────────────────────────
+    session_id = payload.session_id or f"oc-{_uuid.uuid4().hex[:8]}"
+    chat_req = ChatRequest(message=payload.message, session_id=session_id)
+    response = await process_chat(chat_req)
+
+    return OpenClawWebhookResponse(
+        text=_format_response_as_text(response),
+        session_id=response.session_id,
+    )
+
+
+# ─── eBay deal search ─────────────────────────────────────────────────────────
+
+class EbayResult(BaseModel):
+    title: str
+    price: Optional[str] = None
+    condition: Optional[str] = None
+    url: str
+    shipping: Optional[str] = None
+
+
+class EbaySearchResponse(BaseModel):
+    query: str
+    max_price: Optional[float] = None
+    results: List[EbayResult]
+    search_url: str
+    source: str  # "api" | "rss" | "url_only"
+
+
+@app.get("/search/ebay", response_model=EbaySearchResponse)
+async def search_ebay(
+    q: str,
+    max_price: Optional[float] = None,
+    condition: Optional[str] = None,   # "new" | "used" | "refurbished"
+    sort: Optional[str] = "best-match",  # "price-low" | "best-match" | "ending-soon"
+    limit: int = 5,
+):
+    """
+    Search eBay listings and return structured results.
+
+    Priority:
+      1. eBay Finding API (if EBAY_APP_ID env var is set) — authoritative, fast
+      2. eBay RSS feed fallback — no API key needed, parses XML
+      3. URL-only — just returns the search URL so OpenClaw can browse it
+
+    Used by the OpenClaw IDSS skill for cross-referencing AI picks against
+    live eBay prices and making purchase decisions.
+    """
+    import xml.etree.ElementTree as _ET
+    import httpx as _httpx
+    from urllib.parse import quote as _quote
+
+    # ── Build canonical eBay search URL ──────────────────────────────────────
+    sort_codes = {"price-low": "15", "best-match": "12", "ending-soon": "1"}
+    sort_code = sort_codes.get(sort or "best-match", "12")
+    condition_codes = {"new": "LH_New=1", "used": "LH_Used=1", "refurbished": "LH_Refurb=1"}
+
+    url_params = [f"_nkw={_quote(q)}", f"_sop={sort_code}", "_ipg=25"]
+    if max_price:
+        url_params.append(f"_udhi={int(max_price)}")
+    if condition and condition in condition_codes:
+        url_params.append(condition_codes[condition])
+
+    search_url = "https://www.ebay.com/sch/i.html?" + "&".join(url_params)
+
+    # ── Attempt 1: eBay Finding API ───────────────────────────────────────────
+    ebay_app_id = os.getenv("EBAY_APP_ID", "")
+    if ebay_app_id:
+        try:
+            api_params = {
+                "OPERATION-NAME": "findItemsByKeywords",
+                "SERVICE-VERSION": "1.0.0",
+                "SECURITY-APPNAME": ebay_app_id,
+                "RESPONSE-DATA-FORMAT": "JSON",
+                "GLOBAL-ID": "EBAY-US",
+                "keywords": q,
+                "paginationInput.entriesPerPage": str(min(limit, 10)),
+                "sortOrder": "BestMatch" if sort == "best-match" else "PricePlusShippingLowest",
+            }
+            if max_price:
+                api_params["itemFilter(0).name"] = "MaxPrice"
+                api_params["itemFilter(0).value"] = str(max_price)
+                api_params["itemFilter(0).paramName"] = "Currency"
+                api_params["itemFilter(0).paramValue"] = "USD"
+            if condition == "new":
+                api_params["itemFilter(1).name"] = "Condition"
+                api_params["itemFilter(1).value"] = "1000"
+            elif condition == "used":
+                api_params["itemFilter(1).name"] = "Condition"
+                api_params["itemFilter(1).value"] = "3000"
+
+            async with _httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.get(
+                    "https://svcs.ebay.com/services/search/FindingService/v1",
+                    params=api_params,
+                )
+            data = resp.json()
+            items = (
+                data.get("findItemsByKeywordsResponse", [{}])[0]
+                .get("searchResult", [{}])[0]
+                .get("item", [])
+            )
+            results = []
+            for item in items[:limit]:
+                vcs = item.get("viewItemURL", [""])
+                price_info = item.get("sellingStatus", [{}])[0].get("currentPrice", [{}])[0]
+                price_val = price_info.get("__value__", "")
+                cond = item.get("condition", [{}])[0].get("conditionDisplayName", [""])[0]
+                ship = item.get("shippingInfo", [{}])[0].get("shippingType", [""])[0]
+                results.append(EbayResult(
+                    title=item.get("title", [""])[0],
+                    price=f"${float(price_val):,.2f}" if price_val else None,
+                    condition=cond or None,
+                    url=vcs[0] if vcs else search_url,
+                    shipping=ship or None,
+                ))
+            if results:
+                return EbaySearchResponse(query=q, max_price=max_price, results=results,
+                                          search_url=search_url, source="api")
+        except Exception as _e:
+            logger.warning("ebay_api_error: %s", _e)
+
+    # ── Attempt 2: eBay RSS feed (no auth needed) ────────────────────────────
+    try:
+        rss_url = search_url + "&_rss=1"
+        async with _httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; IDSS-Shopping/1.0)"
+        }) as client:
+            rss_resp = await client.get(rss_url)
+
+        root = _ET.fromstring(rss_resp.text)
+        ns = {"media": "http://search.yahoo.com/mrss/"}
+        results = []
+
+        for item in root.findall(".//item")[:limit]:
+            title_el = item.find("title")
+            link_el = item.find("link")
+            desc_el = item.find("description")
+
+            if title_el is None or link_el is None:
+                continue
+
+            title = (title_el.text or "").strip()
+            link = (link_el.text or "").strip()
+
+            # eBay RSS embeds price in the description HTML — extract it
+            import re as _re_local
+            desc_html = desc_el.text if desc_el is not None else ""
+            price_match = _re_local.search(r"\$[\d,]+(?:\.\d{2})?", desc_html or "")
+            price_str = price_match.group(0) if price_match else None
+
+            results.append(EbayResult(title=title, price=price_str, url=link))
+
+        if results:
+            return EbaySearchResponse(query=q, max_price=max_price, results=results,
+                                      search_url=search_url, source="rss")
+    except Exception as _e:
+        logger.warning("ebay_rss_error: %s", _e)
+
+    # ── Attempt 3: URL-only fallback ─────────────────────────────────────────
+    # OpenClaw's browser automation will open the URL and scrape the page itself.
+    return EbaySearchResponse(
+        query=q,
+        max_price=max_price,
+        results=[],
+        search_url=search_url,
+        source="url_only",
+    )
+
+
 # ─── Shareable chat link store ───────────────────────────────────────────────
 # Persisted to PostgreSQL shared_chats table (created in lifespan startup).
 
