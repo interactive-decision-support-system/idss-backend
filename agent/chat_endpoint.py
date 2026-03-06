@@ -22,7 +22,7 @@ from agent.interview.session_manager import (
 )
 from agent.universal_agent import UniversalAgent, AgentState
 from agent.domain_registry import get_domain_schema
-from agent.comparison_agent import detect_post_rec_intent, generate_comparison_narrative
+from agent.comparison_agent import detect_post_rec_intent, generate_comparison_narrative, generate_targeted_answer
 from app.structured_logger import StructuredLogger
 
 logger = StructuredLogger("chat_endpoint")
@@ -945,6 +945,29 @@ async def _handle_post_recommendation(
         "pros and cons",              # any pros/cons request
         "worth the price",            # ActionBar "Worth the price?" chip
     )
+    # Targeted Q&A: "which has the best X?" → show only the 1-2 winning products
+    # with detailed reasoning.  Must be checked BEFORE _FAST_COMPARE_KWS because
+    # "which is better" is a compare (all products) but "which has the best X" is
+    # targeted (1-2 winners).
+    _FAST_TARGETED_QA_KWS = (
+        "which has the best",         # "Which has the best build quality?"
+        "which is the most",          # "Which is the most durable?"
+        "which is most",              # "Which is most reliable?"
+        "which has the most",         # "Which has the most battery life?"
+        "which would you recommend",  # "Which would you recommend?"
+        "which one would you",        # "Which one would you pick?"
+        "which should i get",         # "Which should I get?"
+        "which should i pick",        # "Which should I pick?"
+        "which should i choose",      # "Which should I choose?"
+        "best build quality",         # bare phrase matches too
+        "best display quality",
+        "most durable",
+        "most reliable",
+        "best keyboard",
+        "best for college",
+        "best for everyday",
+        "best for work",
+    )
     # Explicit compare (user named products or pressed Compare dialog) → show cards
     # Also catches all ActionBar common-question chips so they never hit the LLM
     # intent router (which occasionally misclassifies them as "new_search").
@@ -1000,6 +1023,8 @@ async def _handle_post_recommendation(
         intent = "best_value"
     elif any(kw in msg_lower for kw in _FAST_PROS_CONS_KWS):
         intent = "pros_cons"
+    elif any(kw in msg_lower for kw in _FAST_TARGETED_QA_KWS):
+        intent = "targeted_qa"
     elif any(kw in msg_lower for kw in _FAST_COMPARE_KWS):
         intent = "compare"
     elif any(kw in msg_lower for kw in _FAST_SEE_SIMILAR_KWS):
@@ -1159,6 +1184,107 @@ async def _handle_post_recommendation(
         return ChatResponse(
             response_type="question",
             message="I don't have any recommendations to analyze yet. What are you looking for?",
+            session_id=session_id,
+            quick_replies=["Laptops", "Vehicles", "Books"],
+            filters={}, preferences={}, question_count=0, domain=None,
+        )
+
+    if intent == "targeted_qa":
+        # "Which has the best build quality?" / "Which is most durable?" etc.
+        # Identify 1-2 winners on the user's specific criterion — do NOT dump
+        # a block for every product (that's what "compare" does).
+        session_manager.add_message(session_id, "user", clean_message)
+        products = list(getattr(session, "last_recommendation_data", []))
+        if not products and getattr(session, "last_recommendation_ids", None):
+            products = _fetch_products_by_ids(session.last_recommendation_ids[:12], session_id=session_id)
+        # Deduplicate
+        _seen_tqa: set = set()
+        _deduped_tqa = []
+        for _p in products:
+            _pid = str(_p.get("id", ""))
+            if _pid and _pid not in _seen_tqa:
+                _seen_tqa.add(_pid)
+                _deduped_tqa.append(_p)
+        products = _deduped_tqa
+
+        if products:
+            try:
+                narrative, selected_ids, selected_names = await generate_targeted_answer(
+                    products, clean_message, active_domain or "laptops"
+                )
+            except Exception as _e:
+                logger.error("targeted_qa_failed", str(_e), {})
+                narrative = "Sorry, I had trouble identifying the best option. Try asking again."
+                selected_ids, selected_names = [], []
+
+            # Match LLM-returned IDs back to product objects (same logic as compare branch)
+            selected_products: list = []
+            if selected_ids:
+                str_sel = [str(sid) for sid in selected_ids]
+                selected_products = [
+                    p for p in products
+                    if str(p.get("id") or p.get("product_id", "")) in str_sel
+                ]
+            # Name-based fallback
+            if not selected_products and selected_names:
+                _STOP_TQA = frozenset([
+                    "laptop", "intel", "amd", "with", "and", "the", "for",
+                    "gaming", "screen", "memory", "storage", "ssd",
+                ])
+                def _dwords(text: str) -> set:
+                    return {
+                        w.lower().strip('",.-()[]') for w in text.split()
+                        if len(w) > 3 and w.lower().strip('",.-()[]') not in _STOP_TQA
+                    }
+                for tname in selected_names:
+                    if not tname:
+                        continue
+                    tw = _dwords(tname)
+                    best_s, best_m = 0, None
+                    for p in products:
+                        s = len(tw & _dwords(p.get("name") or ""))
+                        if s > best_s:
+                            best_s, best_m = s, p
+                    if best_m and best_s >= 2 and best_m not in selected_products:
+                        selected_products.append(best_m)
+            # Final fallback: return top-rated if LLM gave nothing usable
+            if not selected_products:
+                selected_products = sorted(
+                    products, key=lambda p: float(p.get("rating") or 0), reverse=True
+                )[:1]
+
+            # Deduplicate
+            _seen_tqa_sel: set = set()
+            _deduped_tqa_sel = []
+            for _p in selected_products:
+                _pid = str(_p.get("id", ""))
+                if _pid not in _seen_tqa_sel:
+                    _seen_tqa_sel.add(_pid)
+                    _deduped_tqa_sel.append(_p)
+            selected_products = _deduped_tqa_sel[:2]  # hard cap at 2
+
+            from app.formatters import format_product
+            fmt_domain = "books" if _domain_to_category(active_domain) == "Books" else (active_domain or "laptops")
+            formatted_products = [
+                format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True)
+                for p in selected_products
+            ]
+
+            return ChatResponse(
+                response_type="recommendations",
+                message=narrative,
+                session_id=session_id,
+                quick_replies=["See similar items", "Compare items", "Refine search"],
+                recommendations=[formatted_products] if formatted_products else [],
+                bucket_labels=["Top Pick"] if len(formatted_products) == 1 else ["Top Picks"],
+                filters=session.explicit_filters,
+                preferences={},
+                question_count=session.question_count,
+                domain=active_domain,
+            )
+        return ChatResponse(
+            response_type="question",
+            message="I don't have any recommendations to evaluate yet. What are you looking for?",
             session_id=session_id,
             quick_replies=["Laptops", "Vehicles", "Books"],
             filters={}, preferences={}, question_count=0, domain=None,

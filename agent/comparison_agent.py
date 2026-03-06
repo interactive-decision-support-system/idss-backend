@@ -45,7 +45,13 @@ _REFINE_KEYWORDS = {
 async def detect_post_rec_intent(message: str) -> str:
     """
     LLM-based intent detection for post-recommendation messages.
-    Returns: 'compare' | 'refine' | 'new_search'
+    Returns: 'compare' | 'targeted_qa' | 'refine' | 'new_search'
+
+    targeted_qa: user asks which product(s) are best at a specific criterion
+                 (e.g. "Which has the best build quality?", "Which is most durable?").
+                 Answer = 1-2 winners with detailed reasoning, NOT a table of all products.
+    compare:     user wants a side-by-side breakdown of all shown products
+                 (e.g. "compare these", "pros and cons of each", "how do they differ?").
     """
     try:
         from openai import AsyncOpenAI
@@ -53,18 +59,26 @@ async def detect_post_rec_intent(message: str) -> str:
 
         system_prompt = (
             "You are an intent routing assistant. The user is viewing a list of product recommendations.\n"
-            "Classify their follow-up message into one of three categories:\n"
-            "1. 'new_search': The user is starting COMPLETELY FRESH with a self-contained query unrelated to the shown products. "
-            "Signals: detailed spec list from scratch, entirely different use case, no anaphoric references to 'these'/'them'/'those' products, "
-            "e.g. 'I want to play [game] and need RTX 4070, 32GB RAM, a 165Hz display, budget $2000-$2500'. "
-            "Key: the message could stand alone as a brand-new search with no context from the current results.\n"
-            "2. 'refine': The user wants to CHANGE or ADD to the current search filters (references current context implicitly). "
+            "Classify their follow-up message into one of four categories:\n"
+            "1. 'new_search': The user is starting COMPLETELY FRESH — self-contained query unrelated to shown products. "
+            "Signals: detailed spec list from scratch, entirely different use case, no anaphoric references to "
+            "'these'/'them'/'those' products. Key: message could stand alone as a brand-new search.\n"
+            "2. 'refine': The user wants to CHANGE or ADD to the current search filters. "
             "e.g. 'show me cheaper ones', 'I want Apple instead', 'at least 16in screen', 'more RAM'.\n"
-            "3. 'compare': The user is asking a follow-up about the CURRENT shown products. "
-            "e.g. 'why is Lenovo better?', 'which has better battery?', 'are you sure?'.\n\n"
-            "CRITICAL: Use 'new_search' only when the message is a fully self-contained product query with specific new requirements "
-            "that does NOT reference the currently shown products. Use 'refine' for adjustments to the existing search. "
-            "Default to 'compare' for questions about current results.\n"
+            "3. 'targeted_qa': The user asks which product(s) are BEST at a specific dimension or criterion — "
+            "expects 1-2 direct picks with reasoning, NOT a rundown of every product. "
+            "Signals: 'which has the best X', 'which is most X', 'which is the most X', 'which is best for X', "
+            "'which one would you recommend', 'which should I get/pick/choose', 'what has the best X'. "
+            "Examples: 'Which has the best build quality?', 'Which is most durable?', "
+            "'Which one would you recommend for college?', 'Which has the best display?'.\n"
+            "4. 'compare': The user wants a SIDE-BY-SIDE breakdown of all shown products. "
+            "e.g. 'compare these', 'how do they compare?', 'what are the differences?', 'specs of each', "
+            "'pros and cons of each', 'which is better — A or B?'.\n\n"
+            "CRITICAL rules:\n"
+            "- 'targeted_qa' → asking for THE BEST one or two; only 1-2 products will be highlighted.\n"
+            "- 'compare' → asking for ALL products to be shown side by side.\n"
+            "- Use 'new_search' only for fully self-contained new queries.\n"
+            "- Default to 'compare' when unsure between compare and targeted_qa.\n"
             "Return valid JSON with a single key 'intent'."
         )
 
@@ -76,33 +90,37 @@ async def detect_post_rec_intent(message: str) -> str:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message},
             ],
-            # Output is {"intent": "compare"} — 8 tokens. 20 prevents the model
-            # from adding unrequested explanation while keeping a safe margin.
             max_completion_tokens=20,
         )
 
         data = json.loads(completion.choices[0].message.content)
         intent = data.get("intent", "compare")
 
-        # Guard against weird LLM outputs
-        if intent not in ("compare", "refine", "new_search"):
+        if intent not in ("compare", "targeted_qa", "refine", "new_search"):
             intent = "compare"
 
         return intent
 
     except Exception as e:
         logger.error(f"Intent router failed: {e}")
-        # Ultra-fast keyword fallback
         lower = message.lower()
         if any(kw in lower for kw in _REFINE_KEYWORDS):
             return "refine"
-        # Detect self-contained new search: explicit spec combo + no current-product references
+        # targeted_qa fast fallback
+        _TARGETED_SIGNALS = (
+            "which has the best", "which is the most", "which is most",
+            "which has the most", "which would you recommend", "which one should i",
+            "which should i get", "which should i pick", "which should i choose",
+            "best build quality", "most durable", "most reliable",
+        )
+        if any(sig in lower for sig in _TARGETED_SIGNALS):
+            return "targeted_qa"
         _no_anaphora = not any(ref in lower for ref in ("these", " them", "those", "current", "shown"))
         _has_specs = any(sig in lower for sig in ("rtx ", "gtx ", "ryzen", "i7", "i9", "i5", "32gb", "16gb", "ram", "budget"))
         _has_new_intent = any(sig in lower for sig in ("i want to play", "i need a laptop for", "looking for a laptop that", "need rtx", "gaming laptop with"))
         if _no_anaphora and (_has_new_intent or (_has_specs and ("$" in lower or "budget" in lower))):
             return "new_search"
-        return "compare"  # Default to discussion on failure
+        return "compare"
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +404,120 @@ async def generate_comparison_narrative(
             [p.get("id") or p.get("product_id") for p in products if p.get("id") or p.get("product_id")],
             [p.get("name", "") for p in products],
         )
+
+
+async def generate_targeted_answer(
+    products: List[Dict[str, Any]],
+    user_message: str,
+    domain: str,
+) -> tuple[str, list, list]:
+    """
+    Answer a "which has the best X?" question by identifying the top 1-2 products
+    that excel at the user's specific criterion.
+
+    Unlike generate_comparison_narrative (compare mode), this does NOT write a block
+    for every product — it selects only the 1-2 winners and explains in detail why
+    they win on that specific dimension.
+
+    Returns:
+        (narrative_str, selected_ids_list, selected_names_list)
+        selected_ids contains only 1-2 product UUIDs, not all products.
+    """
+    if not products:
+        return "I don't have any recommendations to evaluate yet.", [], []
+
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI()
+
+        spec_sheet = _build_spec_sheet(products, domain)
+        n = len(products)
+
+        domain_quality_hints = {
+            "laptops": (
+                "Build quality signals: chassis material (aluminum/magnesium > plastic), "
+                "weight, keyboard travel/feedback, hinge durability, MIL-SPEC certification, "
+                "brand reliability (ThinkPad/MacBook/XPS historically strong). "
+                "Display signals: resolution, nit brightness, OLED vs IPS vs TN, color gamut. "
+                "Performance signals: CPU tier, GPU model, RAM speed, SSD type (NVMe > SATA). "
+                "Battery signals: WHr capacity, battery_life_hours, efficiency (ARM > x86)."
+            ),
+            "vehicles": (
+                "Reliability signals: brand/model reliability history, mileage, condition. "
+                "Value signals: price vs. average market, fuel efficiency, total cost of ownership."
+            ),
+            "books": (
+                "Quality signals: author reputation, ratings, review sentiment, genre fit."
+            ),
+        }.get(domain, "Focus on the most important differentiating attributes for the user's criterion.")
+
+        system_prompt = (
+            "You are a knowledgeable product advisor. The user is asking which product(s) are BEST at a "
+            "specific criterion. Your job is to identify the top 1-2 winners — not to describe every product.\n\n"
+            "OUTPUT: Valid JSON with exactly three keys:\n"
+            "  'narrative': your recommendation (format below)\n"
+            f"  'selected_ids': array of PRODUCT_ID strings for ONLY the top 1-2 winning products "
+            f"(copy verbatim from spec sheet). Do NOT list all {n} products.\n"
+            "  'selected_names': array of those product names (used as fallback)\n\n"
+            "NARRATIVE FORMAT:\n"
+            "  Start with the winner:\n"
+            "  '**[Product Name]** — [Price]\n"
+            "  • [Specific reason 1 — reference real spec value or brand fact]\n"
+            "  • [Specific reason 2 — reference real spec value or brand fact]\n"
+            "  • [Specific reason 3 if needed]\n'\n"
+            "  If there's a genuine close runner-up (not just the second-best by default), add:\n"
+            "  '**Runner-up: [Product Name]** — [Price]\n"
+            "  • [Why it's close but #2]\n'\n"
+            "  End with: 'Best for [user criterion]: [Product Name] — [one direct sentence why].'\n\n"
+            "RULES:\n"
+            "- selected_ids must contain ONLY 1-2 UUIDs — the actual winners. Do NOT include all products.\n"
+            "- If one product clearly wins, return only 1 product in selected_ids.\n"
+            "- Only add a runner-up if it genuinely competes on the user's criterion.\n"
+            "- Reference real spec values from the spec sheet (not vague claims like 'high quality').\n"
+            "- Start the narrative IMMEDIATELY with '**'. No intro sentence.\n"
+            "- NEVER include UUID strings in the narrative text — only product names.\n"
+            "- Keep bullets concise (1 sentence each), specific, and directly relevant to the criterion.\n"
+        )
+
+        user_prompt = (
+            f"User question: \"{user_message}\"\n\n"
+            f"Available products:\n{spec_sheet}\n"
+            f"{domain_quality_hints}\n\n"
+            "Identify the top 1-2 products that best answer the user's question. Output the JSON now."
+        )
+
+        completion = await client.chat.completions.create(
+            model=OPENAI_MODEL,
+            response_format={"type": "json_object"},
+            **_REASONING_KWARGS,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            # 1-2 products × ~150 tokens each + JSON overhead = ~500 tokens max
+            max_completion_tokens=600,
+        )
+
+        data = json.loads(completion.choices[0].message.content.strip())
+        return (
+            data.get("narrative", ""),
+            data.get("selected_ids", []),
+            data.get("selected_names", []),
+        )
+
+    except Exception as e:
+        logger.error(f"generate_targeted_answer failed: {e}")
+        # Minimal fallback: just return the top-rated product
+        best = max(products, key=lambda p: float(p.get("rating") or 0), default=None)
+        if best:
+            name = best.get("name", "Top pick")
+            price = best.get("price")
+            price_str = f"${price:,.0f}" if price else ""
+            fb = f"**{name}**" + (f" — {price_str}" if price_str else "")
+            fb += f"\n• Highest-rated option in your results ({float(best.get('rating') or 0):.1f} ★)"
+            fb += f"\n\nBest pick: {name} based on overall user ratings."
+            return fb, [str(best.get("id") or best.get("product_id", ""))], [name]
+        return "I couldn't determine a winner from the current results.", [], []
 
 
 def _fallback_comparison(products: List[Dict[str, Any]], domain: str) -> str:
