@@ -34,7 +34,12 @@ from app.models import Product
 
 # Read DATABASE_URL fresh from environment AFTER load_dotenv (avoids stale
 # cached value when app.database was already imported by an earlier test file)
-_DATABASE_URL = os.environ["DATABASE_URL"]
+_DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if not _DATABASE_URL or not _DATABASE_URL.startswith(("postgresql", "sqlite")):
+    pytest.skip(
+        "DATABASE_URL not configured or invalid — skipping integration tests",
+        allow_module_level=True,
+    )
 
 # ── Test database (same Supabase PostgreSQL) ────────────────────────────────────
 _NS = uuid.NAMESPACE_DNS
