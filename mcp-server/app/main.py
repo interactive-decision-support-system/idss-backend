@@ -105,6 +105,12 @@ from app.coupons import validate_coupon
 from agent import ChatRequest, ChatResponse, process_chat
 from agent.interview.session_manager import SessionResponse, ResetRequest, ResetResponse
 from agent.interview.session_manager import get_session_state, reset_session, delete_session, list_sessions
+try:
+    from channels.slack import router as _slack_router
+    _slack_router_loaded = True
+except ImportError:
+    _slack_router = None
+    _slack_router_loaded = False
 
 
 @asynccontextmanager
@@ -250,6 +256,10 @@ app.add_middleware(ProtocolHeaderMiddleware)
 
 # Include supplier API router
 app.include_router(supplier_router)
+
+# Multi-channel adapters (Slack, etc.)
+if _slack_router_loaded and _slack_router is not None:
+    app.include_router(_slack_router, prefix="/channels")
 
 
 

@@ -36,3 +36,6 @@ openai==2.16.0
 
 # Utilities
 python-dotenv==1.2.1
+
+# Multi-channel messaging adapters
+slack-sdk>=3.27.0
