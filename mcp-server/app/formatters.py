@@ -1,5 +1,58 @@
-from typing import Dict, Any, Optional
+import re
+from typing import Dict, Any, List, Optional
 from .schemas import UnifiedProduct, ProductType, ImageInfo, VehicleDetails, LaptopDetails, BookDetails, LaptopSpecs, RetailListing
+
+
+def _parse_description_bullets(description: Optional[str]) -> Optional[List[str]]:
+    """Parse an Amazon-style product description into 3-5 clean bullet points.
+
+    Handles:
+    - Pipe-separated specs: "16GB RAM | 512GB SSD | 15.6 FHD Display"
+    - Sentence-heavy marketing copy
+    - Newline-separated items
+    """
+    if not description or not description.strip():
+        return None
+
+    # Strip HTML tags
+    text = re.sub(r"<[^>]+>", " ", description).strip()
+    if not text:
+        return None
+
+    # 1. Try pipe splitting (most common in Amazon laptop specs)
+    pipe_parts = [p.strip() for p in text.split("|") if p.strip()]
+    if len(pipe_parts) >= 3:
+        bullets = [p for p in pipe_parts if len(p) > 8][:5]
+        if len(bullets) >= 3:
+            return bullets
+
+    # 2. Try newline splitting
+    newline_parts = [p.strip() for p in re.split(r"[\n\r]+", text) if p.strip()]
+    if len(newline_parts) >= 3:
+        bullets = [p for p in newline_parts if len(p) > 8][:5]
+        if len(bullets) >= 3:
+            return bullets
+
+    # 3. Sentence splitting — filter marketing filler and keep informative sentences
+    _FILLER_RE = re.compile(
+        r"^\s*(experience|discover|introducing|welcome|enjoy|meet the|designed (for|to)|"
+        r"perfect for|the (best|ultimate|ideal)|get (the )?most|take your|elevate your|"
+        r"upgrade your|transform your|unleash|power(ful)? (performance|computing))\b",
+        re.IGNORECASE,
+    )
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    bullets = []
+    for s in sentences:
+        s = s.strip().rstrip(".")
+        if len(s) < 10 or len(s) > 180:
+            continue
+        if _FILLER_RE.match(s):
+            continue
+        bullets.append(s)
+        if len(bullets) == 5:
+            break
+
+    return bullets if len(bullets) >= 2 else None
 
 def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
     """
@@ -86,6 +139,7 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
 
         # Additional fields for frontend display
         description=product.get("description"),
+        description_bullets=_parse_description_bullets(product.get("description")),
         category=product.get("category") or src.get("bodyStyle") or src.get("body_style"),
         subcategory=product.get("subcategory"),
         color=product.get("color") or src.get("exteriorColor"),
