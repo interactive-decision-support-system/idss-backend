@@ -78,7 +78,8 @@ async def detect_post_rec_intent(message: str) -> str:
             "- 'targeted_qa' → asking for THE BEST one or two; only 1-2 products will be highlighted.\n"
             "- 'compare' → asking for ALL products to be shown side by side.\n"
             "- Use 'new_search' only for fully self-contained new queries.\n"
-            "- Default to 'compare' when unsure between compare and targeted_qa.\n"
+            "- Default to 'targeted_qa' when unsure between compare and targeted_qa.\n"
+            "- ONLY return 'compare' when the user explicitly asks for a side-by-side or asks about ALL products.\n"
             "Return valid JSON with a single key 'intent'."
         )
 
@@ -94,10 +95,10 @@ async def detect_post_rec_intent(message: str) -> str:
         )
 
         data = json.loads(completion.choices[0].message.content)
-        intent = data.get("intent", "compare")
+        intent = data.get("intent", "targeted_qa")
 
         if intent not in ("compare", "targeted_qa", "refine", "new_search"):
-            intent = "compare"
+            intent = "targeted_qa"
 
         return intent
 
@@ -120,7 +121,9 @@ async def detect_post_rec_intent(message: str) -> str:
         _has_new_intent = any(sig in lower for sig in ("i want to play", "i need a laptop for", "looking for a laptop that", "need rtx", "gaming laptop with"))
         if _no_anaphora and (_has_new_intent or (_has_specs and ("$" in lower or "budget" in lower))):
             return "new_search"
-        return "compare"
+        # Default to "other" (falls through to UniversalAgent) rather than
+        # forcing a comparison table for ambiguous messages.
+        return "other"
 
 
 # ---------------------------------------------------------------------------

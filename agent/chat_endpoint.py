@@ -445,11 +445,18 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
     # Compare-first fast-path: if the user's first message is "X vs Y" or
     # "compare X and Y" with no prior session context, skip the interview and
     # go directly to search.  The agent will extract both brands/names and
-    # return products the user can then compare via the action bar.
+    # return a comparison response directly (no extra "compare" click needed).
     _VS_PATS = (" vs ", " versus ", " vs.", " v. ", " compared to ", " or the ")
     _DOMAIN_HINTS = (
         "laptop", "computer", "mac", "macbook", "thinkpad", "xps", "book", "phone",
         "hp", "dell", "asus", "lenovo", "acer", "apple", "samsung", "microsoft", "razer",
+    )
+    # _compare_first_vs: explicit "X vs Y" — immediately compare after search.
+    # Excludes " or the " which is vaguer (e.g. "a Mac or the Dell").
+    _compare_first_vs = (
+        not session.active_domain
+        and any(pat in msg_lower for pat in (" vs ", " versus ", " vs.", " compared to "))
+        and any(hint in msg_lower for hint in _DOMAIN_HINTS)
     )
     if (
         not session.active_domain
@@ -457,7 +464,9 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
         and any(hint in msg_lower for hint in _DOMAIN_HINTS)
     ):
         agent.max_questions = 0
-        logger.info("compare_first_detected", "Skipping interview for compare-first query", {"msg": msg_lower[:80]})
+        logger.info("compare_first_detected", "Skipping interview for compare-first query", {
+            "msg": msg_lower[:80], "will_auto_compare": _compare_first_vs
+        })
 
     previous_domain = session.active_domain
     # process_message makes synchronous OpenAI calls; run in a thread so the
@@ -550,6 +559,8 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
                 question_count=agent_response.get("question_count", 0),
                 agent=agent,
+                compare_first=_compare_first_vs,
+                original_message=request.message,
             )
 
     # Fallback
@@ -2391,6 +2402,77 @@ async def _search_and_respond_vehicles(
             timings_ms=timings
         )
 
+def _build_preference_ack(filters: Dict[str, Any], domain: str) -> str:
+    """
+    Build a one-sentence acknowledgment of the user's stated preferences
+    to show at the top of the first recommendation response.
+
+    Example output:
+      "Got it — you're looking for a student laptop under $700 with 16 GB RAM."
+    """
+    parts: list[str] = []
+
+    use_case = filters.get("use_case") or (filters.get("_soft_preferences") or {}).get("use_case", "")
+    budget_cents = filters.get("price_max_cents")
+    brand = filters.get("brand", "")
+    min_ram = filters.get("min_ram_gb")
+    storage_type = filters.get("storage_type", "")
+    os_ = filters.get("os", "")
+    good_gaming = filters.get("good_for_gaming")
+    good_ml = filters.get("good_for_ml")
+    excluded = filters.get("excluded_brands", [])
+
+    # Persona phrase
+    if use_case:
+        use_map = {
+            "school": "a student", "college": "a college student", "gaming": "a gamer",
+            "programming": "a developer", "ml": "an ML/AI user",
+            "business": "a business user", "video editing": "a video editor",
+            "travel": "someone who travels a lot",
+        }
+        persona = use_map.get(use_case.lower(), f"someone doing {use_case}")
+        parts.append(f"you're {persona}")
+    elif good_gaming:
+        parts.append("you want a gaming laptop")
+    elif good_ml:
+        parts.append("you need a machine learning laptop")
+    else:
+        parts.append("you're looking for a laptop" if domain == "laptops" else f"you want a {domain}")
+
+    # Budget
+    if budget_cents:
+        parts.append(f"under ${budget_cents / 100:.0f}")
+
+    # Brand preference
+    if brand and str(brand).lower() not in ("no preference", "any"):
+        parts.append(f"from {brand}")
+
+    # Excluded brands
+    if excluded:
+        excl = excluded if isinstance(excluded, list) else [excluded]
+        parts.append(f"(not {', '.join(excl)})")
+
+    # RAM
+    if min_ram:
+        parts.append(f"with at least {min_ram} GB RAM")
+
+    # Storage type
+    if storage_type:
+        parts.append(f"with {storage_type}")
+
+    # OS
+    if os_ and os_.lower() not in ("any", "no preference"):
+        parts.append(f"running {os_}")
+
+    # Only show ack if we have at least one meaningful filter beyond the generic persona
+    if len(parts) < 2:
+        return ""
+
+    # Join: first part is the persona, rest are specs
+    sentence_body = " ".join(parts)
+    return f"Got it — {sentence_body}. Here's what I found:"
+
+
 async def _search_and_respond_ecommerce(
     search_filters: Dict[str, Any],
     category: str,
@@ -2402,6 +2484,8 @@ async def _search_and_respond_ecommerce(
     n_per_row: int = 3,
     question_count: int = 0,
     agent: Optional["UniversalAgent"] = None,
+    compare_first: bool = False,
+    original_message: str = "",
 ) -> ChatResponse:
     import time
     timings = {}
@@ -2454,6 +2538,117 @@ async def _search_and_respond_ecommerce(
                 all_ids.append(pid)
     session_manager.set_last_recommendations(session_id, all_ids)
     session_manager.set_last_recommendation_data(session_id, flat_data)
+
+    # ── Compare-first: dual-brand search + immediate comparison ─────────────
+    # "MacBook Air vs Dell XPS" → search each side independently so we get one
+    # product per side, then call generate_comparison_narrative on the pair.
+    # Without this, the agent's single-brand extraction returns only one brand's
+    # products and the comparison is meaningless (same-brand laptops vs each other).
+    if compare_first and original_message:
+        try:
+            # Map common product keywords → canonical brand names used in the DB
+            _CF_BRAND_MAP = {
+                "macbook": "Apple", "mac book": "Apple", "apple": "Apple",
+                "dell": "Dell", "xps": "Dell", "inspiron": "Dell", "alienware": "Dell",
+                "thinkpad": "Lenovo", "ideapad": "Lenovo", "legion": "Lenovo", "lenovo": "Lenovo",
+                "hp": "HP", "envy": "HP", "spectre": "HP", "pavilion": "HP", "omen": "HP",
+                "asus": "ASUS", "zenbook": "ASUS", "vivobook": "ASUS", "rog": "ASUS",
+                "acer": "Acer", "aspire": "Acer", "nitro": "Acer", "swift": "Acer",
+                "microsoft": "Microsoft", "surface": "Microsoft",
+                "samsung": "Samsung", "galaxy": "Samsung",
+                "lg": "LG", "gram": "LG",
+                "razer": "Razer", "blade": "Razer",
+                "msi": "MSI",
+            }
+
+            def _detect_brand(text: str) -> Optional[str]:
+                tl = text.lower()
+                for kw, brand in _CF_BRAND_MAP.items():
+                    if kw in tl:
+                        return brand
+                return None
+
+            # Split "MacBook Air vs Dell XPS" → ["MacBook Air", "Dell XPS"]
+            _cf_sep = None
+            for _sep in (" vs ", " versus ", " vs.", " compared to "):
+                if _sep in original_message.lower():
+                    _cf_sep = _sep
+                    break
+            _cf_parts = re.split(_cf_sep or " vs ", original_message, maxsplit=1, flags=re.IGNORECASE) if _cf_sep else []
+
+            if len(_cf_parts) == 2:
+                left_text, right_text = _cf_parts[0].strip(), _cf_parts[1].strip()
+                left_brand = _detect_brand(left_text)
+                right_brand = _detect_brand(right_text)
+
+                # Only proceed with dual-search if we identified at least one brand per side
+                if left_brand and right_brand and left_brand != right_brand:
+                    from app.tools.supabase_product_store import get_product_store as _gps
+                    _store = _gps()
+                    _base = {k: v for k, v in search_filters.items() if k not in ("brand", "query")}
+
+                    _left_results = _store.search_products({**_base, "brand": left_brand, "query": left_text}, limit=3)
+                    _right_results = _store.search_products({**_base, "brand": right_brand, "query": right_text}, limit=3)
+
+                    if _left_results and _right_results:
+                        # Take best 2 from each side for a focused comparison
+                        _compare_products = _left_results[:2] + _right_results[:2]
+                        # Update session with the dual-brand products
+                        _all_ids = [str(p.get("product_id") or p.get("id") or "") for p in _compare_products]
+                        session_manager.set_last_recommendations(session_id, [x for x in _all_ids if x])
+                        session_manager.set_last_recommendation_data(session_id, _compare_products)
+
+                        from agent.comparison_agent import generate_comparison_narrative
+                        narrative, _, _ = await generate_comparison_narrative(
+                            _compare_products, original_message, domain
+                        )
+                        from app.formatters import format_product
+                        fmt_domain = "books" if domain == "books" else domain
+                        formatted = [
+                            format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True)
+                            for p in _compare_products
+                        ]
+                        logger.info("compare_first_dual_search", f"Dual-brand compare: {left_brand} vs {right_brand} → {len(formatted)} products", {})
+                        return ChatResponse(
+                            response_type="recommendations",
+                            message=narrative,
+                            session_id=session_id,
+                            quick_replies=["Show me the best value", "See similar items", "Refine search"],
+                            recommendations=[formatted] if formatted else [],
+                            bucket_labels=["Compared Items"] if formatted else [],
+                            filters=search_filters,
+                            preferences={},
+                            question_count=question_count,
+                            domain=domain,
+                        )
+
+            # Fallback: use flat_data from the main search (single-brand or mixed)
+            if flat_data:
+                from agent.comparison_agent import generate_comparison_narrative
+                narrative, _, _ = await generate_comparison_narrative(
+                    flat_data[:6], original_message or "compare these", domain
+                )
+                from app.formatters import format_product
+                fmt_domain = "books" if domain == "books" else domain
+                formatted = [
+                    format_product(p, fmt_domain).model_dump(mode="json", exclude_none=True)
+                    for p in flat_data[:6]
+                ]
+                return ChatResponse(
+                    response_type="recommendations",
+                    message=narrative,
+                    session_id=session_id,
+                    quick_replies=["Show me the best value", "See similar items", "Refine search"],
+                    recommendations=[formatted] if formatted else [],
+                    bucket_labels=["Compared Items"] if formatted else [],
+                    filters=search_filters,
+                    preferences={},
+                    question_count=question_count,
+                    domain=domain,
+                )
+        except Exception as _ce:
+            logger.error("compare_first_narrative_failed", str(_ce), {})
+            # Fall through to normal recommendations on error
 
     # ── Brand-relaxation disclosure ───────────────────────────────────────────
     # If the user requested a specific brand but none of the returned products
@@ -2745,7 +2940,8 @@ def _fetch_products_by_ids(
 
     if session_id:
         try:
-            cache_hits, db_miss_ids = session_manager.get_cached_products(session_id, product_ids)
+            _sm = get_session_manager()
+            cache_hits, db_miss_ids = _sm.get_cached_products(session_id, product_ids)
             if cache_hits and not db_miss_ids:
                 logger.info(
                     "product_cache_full_hit",
@@ -2798,7 +2994,7 @@ def _fetch_products_by_ids(
         # Store newly fetched products in session cache for next call
         if session_id and db_results:
             try:
-                session_manager.update_product_cache(session_id, db_results)
+                get_session_manager().update_product_cache(session_id, db_results)
             except Exception:
                 pass
 
