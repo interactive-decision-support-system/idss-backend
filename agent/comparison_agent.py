@@ -272,6 +272,7 @@ async def generate_comparison_narrative(
     domain: str,
     mode: str = "compare",
     focus_features: Optional[str] = None,
+    brands: Optional[tuple] = None,
 ) -> str:
     """
     Generate a rich Markdown narrative for the given products.
@@ -309,6 +310,81 @@ async def generate_comparison_narrative(
                 "Focus on: writing style, relevance to genre/interest, page count, author reputation."
             ),
         }.get(domain, "Focus on the most important differentiating attributes.")
+
+        if mode == "brand_compare" and brands and len(brands) == 2:
+            # ---------------------------------------------------------------
+            # Brand-vs-brand mode: user said "compare Apple and Dell laptops"
+            # Products are up to 3 samples per brand used as evidence.
+            # Narrative describes brands broadly, NOT just the samples shown.
+            # ---------------------------------------------------------------
+            left_brand_name, right_brand_name = brands
+
+            # Split samples by brand field
+            left_prods = [p for p in products
+                          if left_brand_name.lower() in (p.get("brand") or "").lower()][:3]
+            right_prods = [p for p in products
+                           if right_brand_name.lower() in (p.get("brand") or "").lower()][:3]
+            # Fallback: split by position if brand field mismatch
+            if not left_prods or not right_prods:
+                mid = max(1, len(products) // 2)
+                left_prods, right_prods = products[:mid], products[mid:]
+
+            left_spec = _build_spec_sheet(left_prods, domain)
+            right_spec = _build_spec_sheet(right_prods, domain)
+            focus_note = f"\nFocus specifically on: {focus_features}." if focus_features else ""
+
+            system_prompt = (
+                f"You are a helpful product advisor comparing two laptop brands: "
+                f"{left_brand_name} and {right_brand_name}.\n"
+                "The user wants a BRAND-LEVEL overview, not a comparison of just these specific models.\n"
+                "Use the sample products as evidence to describe each brand's typical characteristics.\n\n"
+                "FORMAT — use exactly this structure:\n"
+                f"**{left_brand_name} laptops**\n"
+                "- [typical price range with $ figures from the samples]\n"
+                "- [OS ecosystem and key platform strengths]\n"
+                "- [typical performance tier and who they suit]\n\n"
+                f"**{right_brand_name} laptops**\n"
+                "- [typical price range with $ figures from the samples]\n"
+                "- [OS ecosystem and key platform strengths]\n"
+                "- [typical performance tier and who they suit]\n\n"
+                "**Which should you choose?**\n"
+                "[1-2 sentences: direct recommendation by use case]\n\n"
+                "RULES:\n"
+                "- Reference real prices and specs from the samples to back your claims.\n"
+                "- Be direct — no filler like 'it depends on your needs'.\n"
+                "- Keep each bullet under 20 words."
+                + focus_note
+            )
+            user_prompt = (
+                f"User request: \"{user_message}\"\n\n"
+                f"Sample {left_brand_name} products from our catalog:\n{left_spec}\n\n"
+                f"Sample {right_brand_name} products from our catalog:\n{right_spec}\n\n"
+                "Write the brand comparison now."
+            )
+
+            try:
+                completion = await client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    **_REASONING_KWARGS,
+                    max_completion_tokens=500,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+                narrative = completion.choices[0].message.content.strip()
+            except Exception as _bc_err:
+                logger.warning(f"brand_compare LLM failed: {_bc_err}")
+                narrative = (
+                    f"**{left_brand_name} laptops** — representative range in our catalog:\n"
+                    + "\n".join(f"- {p.get('name','')[:60]} (${p.get('price', '?')})" for p in left_prods)
+                    + f"\n\n**{right_brand_name} laptops** — representative range:\n"
+                    + "\n".join(f"- {p.get('name','')[:60]} (${p.get('price', '?')})" for p in right_prods)
+                )
+
+            selected_ids = [str(p.get("id") or p.get("product_id", "")) for p in products]
+            selected_names = [str(p.get("name", "")) for p in products]
+            return narrative, selected_ids, selected_names
 
         if mode == "features":
             # ---------------------------------------------------------------

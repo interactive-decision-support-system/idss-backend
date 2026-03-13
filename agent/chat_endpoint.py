@@ -2582,9 +2582,12 @@ async def _search_and_respond_ecommerce(
     # a silent fallthrough to generic recommendations.
     if compare_first and original_message:
         # Shared state — set by the parse step, consumed by the render step
-        _compare_products: list = []
+        _compare_products: list = []   # products shown in the comparison table (1 per brand)
+        _narrative_products: list = [] # products passed to LLM for narrative (3 per brand for brand mode)
         _focus_features: Optional[str] = None
         _not_found_note: str = ""
+        _is_brand_compare: bool = False   # True when comparing brands, not specific models
+        _brand_pair: Optional[tuple] = None  # (left_brand, right_brand) for brand_compare mode
 
         # Brand-keyword map (same as before)
         _CF_BRAND_MAP = {
@@ -2654,17 +2657,21 @@ async def _search_and_respond_ecommerce(
 
                     _left_kw = _model_keyword(_left_query, left_brand)
                     _right_kw = _model_keyword(_right_query, right_brand)
+                    # Brand-vs-brand when neither side has a specific model keyword
+                    _is_brand_compare = not _left_kw and not _right_kw
+                    _brand_pair = (left_brand, right_brand) if _is_brand_compare else None
                     logger.info("compare_first_keywords",
-                                f"Model keywords: '{_left_kw}' vs '{_right_kw}'", {})
+                                f"Model keywords: '{_left_kw}' vs '{_right_kw}' brand_compare={_is_brand_compare}", {})
 
-                    # Title search → specific model; omit title_search if no meaningful
-                    # keyword (e.g. "Apple laptops" → brand-only search, not title="laptops")
+                    # Fetch more samples for brand comparisons (LLM needs context across the range)
+                    _fetch_limit = 5 if _is_brand_compare else 3
+                    # Title search → specific model; omit title_search if no meaningful keyword
                     _lr = _store.search_products(
                         {**_base, "brand": left_brand, **( {"title_search": _left_kw} if _left_kw else {})},
-                        limit=3)
+                        limit=_fetch_limit)
                     _rr = _store.search_products(
                         {**_base, "brand": right_brand, **( {"title_search": _right_kw} if _right_kw else {})},
-                        limit=3)
+                        limit=_fetch_limit)
 
                     _missing: list = []
                     if not _lr:
@@ -2682,7 +2689,9 @@ async def _search_and_respond_ecommerce(
                         )
 
                     if _lr and _rr:
+                        # Table always shows 1 per brand; narrative gets up to 3 per brand for brand mode
                         _compare_products = _lr[:1] + _rr[:1]
+                        _narrative_products = (_lr[:3] + _rr[:3]) if _is_brand_compare else _compare_products
 
         except Exception as _parse_err:
             logger.error("compare_first_parse_failed", str(_parse_err), {})
@@ -2703,8 +2712,10 @@ async def _search_and_respond_ecommerce(
             try:
                 from agent.comparison_agent import generate_comparison_narrative
                 narrative, _, _ = await generate_comparison_narrative(
-                    _compare_products, original_message, domain,
+                    _narrative_products or _compare_products, original_message, domain,
                     focus_features=_focus_features,
+                    mode="brand_compare" if _is_brand_compare else "compare",
+                    brands=_brand_pair,
                 )
             except Exception as _narr_err:
                 logger.error("compare_first_narrative_failed", str(_narr_err), {})
