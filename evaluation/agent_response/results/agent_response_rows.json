@@ -3,352 +3,402 @@
     {
       "test_id": "laptop_1",
       "user_query": "Need an HP laptop for everyday use under $650. Prefer a 15.6-inch touchscreen with at least 16GB RAM.",
-      "agent_message": "\u2022 HP 15.6\" FHD Touchscreen Laptop \u2014 solid 15.6\" display and full HD touch features for general use.  \n\u2022 HP Essential 15.6\" HD Laptop \u2014 affordable 15.6\" option with decent everyday performance.  \n\u2022 HP Essential 15.6\" HD Laptop Computer \u2014 another budget-friendly 15.6\" choice with similar specs for daily tasks.  \n\nBest pick: HP 15.6\" FHD Touchscreen Laptop \u2014 best balance of display quality and versatility among the 15.6\" options.",
+      "conversation_input": "User (turn 1): Need an HP laptop for everyday use under $650. Prefer a 15.6-inch touchscreen with at least 16GB RAM.",
+      "agent_message": "**HP 15 Laptop, 15.6\" HD Screen, Intel Pentium N5030 Processor, 16GB DDR4 RAM, 1TB SSD, HDMI, Media Card Reader, RJ45, Wi-Fi, Windows 11 Home, Black** is the best value pick:\n\n- **Lowest price** in your results at $423 \u2014 best affordability out of 6 options\n- **Top-rated at 4.6/5** from 210 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
       "recommendations_summary": "2 row(s), 6 item(s)",
       "response_type": "recommendations"
     },
     {
       "test_id": "laptop_2",
       "user_query": "Need a 2-in-1 or detachable tablet+keyboard laptop under $800 in the US with active stylus support and 7+ hours battery life. Prefer something under 16 inches, USB-C charging, and suitable for college notes, writing, browsing, and light gaming (e.g., Terraria at 1080p/60 on medium). Must work well with Linux (Debian/Mint), and refurb/used is preferred.",
-      "agent_message": "What\u2019s the minimum RAM you need for your 2-in-1 under $800 (active stylus, Linux-friendly, 16\" max, battery life >7h)?",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Need a 2-in-1 or detachable tablet+keyboard laptop under $800 in the US with active stylus support and 7+ hours battery life. Prefer something under 16 inches, USB-C charging, and suitable for college notes, writing, browsing, and light gaming (e.g., Terraria at 1080p/60 on medium). Must work well with Linux (Debian/Mint), and refurb/used is preferred.",
+      "agent_message": "**Macally Wireless Number Pad for Laptop - Slim 2.4G USB Number Keypad - 18 Key Rechargeable Numeric Keypad with USB Receiver for Data Entry - 10 Key Numpad Keyboard for Mac, MacBook - Black** is the best value pick:\n\n- **Priced at $14** \u2014 $1 below the average of your results, great value for money\n- **Well-rated at 4.4/5** from 626 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_3",
       "user_query": "Looking for a premium thin-and-light ultrabook in the US up to $4000, prioritizing battery life, build quality, and portability (ideally <3 lbs and <0.7 in thick) with a 14\"-class display (14.5\" max). Needs an Intel CPU, 32GB RAM, at least 2x USB4 and 2x USB-A 3.2 Gen2, plus dual M.2 NVMe slots (prefer 2280). Primary workloads include compiling large codebases, running multiple Docker containers/VMs, and casual photo/video editing.",
-      "agent_message": "Which brand would you prefer for this premium thin-and-light ultrabook?",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a premium thin-and-light ultrabook in the US up to $4000, prioritizing battery life, build quality, and portability (ideally <3 lbs and <0.7 in thick) with a 14\"-class display (14.5\" max). Needs an Intel CPU, 32GB RAM, at least 2x USB4 and 2x USB-A 3.2 Gen2, plus dual M.2 NVMe slots (prefer 2280). Primary workloads include compiling large codebases, running multiple Docker containers/VMs, and casual photo/video editing.",
+      "agent_message": "**Lenovo ThinkPad T490 Business Notebook with 14.0\" WQHD (2560 x 1440) 500 nits Screen, Intel Core i7-8665U Processor, 1TB PCIe SSD, HDR, vPro, and Windows 10 Pro** is the best value pick:\n\n- **Lowest price** in your results at $2,099 \u2014 best affordability out of 4 options\n- **Top-rated at 4.8/5** from 7 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 4 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_4",
       "user_query": "Need a $1000\u2013$1500 laptop in the USA for a statistics PhD, mainly to run large Bayesian simulations in R. Priorities are performance, strong build quality, and good battery life; weight/size should be backpack-friendly and no touchscreen. Open to refurbished/used and wants it to last, with possible light-to-moderate gaming later (e.g., Baldur\u2019s Gate 3).",
-      "agent_message": "\u2022 Lenovo V14 14\" FHD \u2014 solid i7-13620H with 16GB RAM and 1TB SSD for strong multi-tasking ($769).  \n\u2022 ASUS Vivobook 15 E1504FA \u2014 Ryzen 5, 8GB, 512GB SSD with WiFi 6E, great daily-use value ($776).  \n\u2022 MSI Thin A15 \u2014 15.6\" gaming laptop, good performance for casual gaming at a solid price ($809).  \n\u2022 Dell Pro 16 Plus \u2014 16\" professional laptop, strong all-around power for work ($1,452).  \n\u2022 Lenovo LOQ 15.6\" FHD Gaming Laptop \u2014 Ryzen 7, 16GB, 1TB SSD, RTX 5050 for solid gaming and multitasking ($1,179).  \n\u2022 HP EliteBook 840 G11 \u2014 14\" business ultrabook with up-to-date CPU, solid portability ($1,004).  \n\nBest pick: Lenovo LOQ 15.6\" FHD Gaming Laptop \u2014 best balance of CPU, GPU (RTX 5050), and RAM for gaming and serious multitasking at this budget.",
+      "conversation_input": "User (turn 1): Need a $1000\u2013$1500 laptop in the USA for a statistics PhD, mainly to run large Bayesian simulations in R. Priorities are performance, strong build quality, and good battery life; weight/size should be backpack-friendly and no touchscreen. Open to refurbished/used and wants it to last, with possible light-to-moderate gaming later (e.g., Baldur\u2019s Gate 3).",
+      "agent_message": "**2020_Lenovo IdeaPad 5 15.6\" FHD IPS Touchscreen Display, 10th Gen Intel Core i5-1035G1 CPU, 16GB DDR4 RAM, 512GB SSD, Camera, WiFi, Bluetooth, Backlit Keyboard, Fingerprint Reader, Windows 10** is the best value pick:\n\n- **Lowest price** in your results at $755 \u2014 best affordability out of 6 options\n- **Well-rated at 4.4/5** from 76 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
       "recommendations_summary": "2 row(s), 6 item(s)",
       "response_type": "recommendations"
     },
     {
       "test_id": "laptop_5",
       "user_query": "Looking for a Windows laptop for a neuroscience/business student under $1200 with a ~14-inch matte, non-touchscreen display. Priorities are fast performance for heavy multitasking (Office + streaming + 20+ browser tabs), durability, light weight, and 8+ hours of battery life. Considering Lenovo ThinkPad X1 (2024) or Surface Laptop 7, but not a MacBook.",
-      "agent_message": "What will you primarily use the laptop for?",
-      "recommendations_summary": null,
-      "response_type": "question"
-    },
-    {
-      "test_id": "laptop_6",
-      "user_query": "Looking for a $400\u2013$500 laptop (open to used/refurb) to stream from a PS5 using a capture card and add overlays plus a face cam. Performance is the top priority; weight, thinness, and screen size don\u2019t matter. Also needs to handle video editing.",
-      "agent_message": "\u2022 HP Stream 14\" HD Business Laptop \u2014 8 GB RAM and Windows 11, solid multitasking for budget-friendly creativity.  \n\u2022 ASUS VivoBook 15.6\" FHD Ryzen \u2014 good all-around performance for photo/video editing on a budget.  \n\u2022 HP Chromebook Plus 14\" Laptop \u2014 lightweight Chrome OS that's great for casual design apps and portability.  \n\u2022 HP 15.6\" Full HD Laptop \u2014 larger screen for detail work at a friendly price.  \n\u2022 HP 2-in-1 14\" Touch-Screen Chromebook \u2014 versatile 2-in-1 for sketching and notes on the go.  \n\u2022 Lenovo 11.6\" 500e Chromebook \u2014 rugged and portable, fits light creative tasks.  \n\nBest pick: HP Stream 14\" \u2014 8 GB RAM and Windows 11 give you smoother multitasking and more creative app compatibility without breaking the bank.",
+      "conversation_input": "User (turn 1): Looking for a Windows laptop for a neuroscience/business student under $1200 with a ~14-inch matte, non-touchscreen display. Priorities are fast performance for heavy multitasking (Office + streaming + 20+ browser tabs), durability, light weight, and 8+ hours of battery life. Considering Lenovo ThinkPad X1 (2024) or Surface Laptop 7, but not a MacBook.",
+      "agent_message": "**Lenovo 2022 Newest Ideapad 3 14\" FHD Laptop, Intel Core i7-1165G7, 12GB RAM, 1TB SSD, Intel Iris Xe Graphics,Thin and Light, Windows 11 Home, Wi-Fi 6, Bluetooth 5, Cefesfy Accessory** is the best value pick:\n\n- **Lowest price** in your results at $620 \u2014 best affordability out of 6 options\n- **Well-rated at 4.2/5** from 74 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
       "recommendations_summary": "2 row(s), 6 item(s)",
       "response_type": "recommendations"
     },
     {
-      "test_id": "laptop_7",
-      "user_query": "Need a portable ~14\" laptop for an incoming biology major, with good battery life and a good keyboard. Prefer a touchscreen for digital note-taking (open to 2-in-1), and open to used/refurb options under $1000. Fingerprint reader and backlit keyboard/build quality are nice-to-haves.",
-      "agent_message": "What minimum RAM would you prefer for your laptop? Feel free to also share Brand",
+      "test_id": "laptop_6",
+      "user_query": "Looking for a $400\u2013$500 laptop (open to used/refurb) to stream from a PS5 using a capture card and add overlays plus a face cam. Performance is the top priority; weight, thinness, and screen size don\u2019t matter. Also needs to handle video editing.",
+      "conversation_input": "User (turn 1): Looking for a $400\u2013$500 laptop (open to used/refurb) to stream from a PS5 using a capture card and add overlays plus a face cam. Performance is the top priority; weight, thinness, and screen size don\u2019t matter. Also needs to handle video editing.",
+      "agent_message": "What will you mainly use the laptop for? Feel free to also share your preferences for minimum ram, screen size, brand.",
       "recommendations_summary": null,
       "response_type": "question"
     },
     {
+      "test_id": "laptop_7",
+      "user_query": "Need a portable ~14\" laptop for an incoming biology major, with good battery life and a good keyboard. Prefer a touchscreen for digital note-taking (open to 2-in-1), and open to used/refurb options under $1000. Fingerprint reader and backlit keyboard/build quality are nice-to-haves.",
+      "conversation_input": "User (turn 1): Need a portable ~14\" laptop for an incoming biology major, with good battery life and a good keyboard. Prefer a touchscreen for digital note-taking (open to 2-in-1), and open to used/refurb options under $1000. Fingerprint reader and backlit keyboard/build quality are nice-to-haves.",
+      "agent_message": "**Asus VivoBook 14-inch FHD 1080p Laptop PC** is the best value pick:\n\n- **Priced at $569** \u2014 $116 below the average of your results, great value for money\n- **Well-rated at 4.3/5** from 231 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
+    },
+    {
       "test_id": "laptop_8",
       "user_query": "Looking for a gaming laptop mainly to play Fortnite, The Sims 4 (with expansions/mods), GTA, and Stardew Valley. Wants to stay around $1,000 or less if possible, and is open to refurbished/used. Weight/thinness and extra features are not important.",
-      "agent_message": "What\u2019s the minimum RAM you\u2019d consider for a gaming laptop?",
+      "conversation_input": "User (turn 1): Looking for a gaming laptop mainly to play Fortnite, The Sims 4 (with expansions/mods), GTA, and Stardew Valley. Wants to stay around $1,000 or less if possible, and is open to refurbished/used. Weight/thinness and extra features are not important.",
+      "agent_message": "How much RAM do you need at minimum? Feel free to also share your preferences for screen size, brand.",
       "recommendations_summary": null,
       "response_type": "question"
     },
     {
       "test_id": "laptop_9",
       "user_query": "Need a durable used/refurb 15-inch Windows 11 laptop for a garage/vehicle workshop budgeted at $230. It should handle basic office/web tasks plus vehicle tuning/diagnostic software, with ~3\u20134 hours battery life and the ability to connect to a TV. Prefer 16GB RAM, 256GB+ SSD, and a 1080p display; considering Lenovo ThinkPad models (P53s/T15/E15/L15).",
-      "agent_message": "\u2022 Lenovo IdeaPad Slim 3i 15.6\" \u2014 budget-friendly 15.6\" option with a very low price for the size.  \n\u2022 Lenovo 14\" 14e Chromebook Gen 3 \u2014 compact 14\" Chromebook, great value but not 15\" size.  \n\u2022 Lenovo {SmartChoice) Chromebook Intel Celeron N4500 \u2014 11.6\" screen, solid price, Chromebox size.  \n\u2022 Lenovo IdeaPad 1 Laptop 14\" \u2014 lightweight 14\" laptop at a good price.  \n\u2022 Lenovo IdeaPad 3i Chromebook 15.6 FHD \u2014 15.6\" FHD Chromebook, crisp display for work.  \n\u2022 Lenovo IdeaPad 3 Chromebook 11.6\" \u2014 small 11.6\" option, best for ultra-portable use.\n\nBest pick: None of these fully meet your 16GB RAM and SSD requirement, but the IdeaPad Slim 3i 15.6\" is the closest fit on screen size and budget, offering solid value for basic business tasks.",
+      "conversation_input": "User (turn 1): Need a durable used/refurb 15-inch Windows 11 laptop for a garage/vehicle workshop budgeted at $230. It should handle basic office/web tasks plus vehicle tuning/diagnostic software, with ~3\u20134 hours battery life and the ability to connect to a TV. Prefer 16GB RAM, 256GB+ SSD, and a 1080p display; considering Lenovo ThinkPad models (P53s/T15/E15/L15).",
+      "agent_message": "**Lenovo Ideapad 1i Thin Light Laptop, 14.0'' HD Display, Intel Celeron N4020(up to 2.80 GHz), 4GB RAM 192GB Storage(64GB eMMC+ 128GB Micro SD), WiFi 6 Webcam 10Hr Battery, Win 11 S, Cloud Grey Silver** is the best value pick:\n\n- **Lowest price** in your results at $183 \u2014 best affordability out of 6 options\n- **Well-rated at 4.2/5** from 29 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
       "recommendations_summary": "2 row(s), 6 item(s)",
       "response_type": "recommendations"
     },
     {
       "test_id": "laptop_10",
       "user_query": "Looking for a US laptop with good build quality and performance for online school, CAD work, and light gaming (e.g., Project Zomboid, Kenshi, Minecraft). Budget is $600\u2013$1,000 but willing to pay more if the upgrade is significantly better. Refurb/used is fine; no strong preferences on weight or screen size.",
-      "agent_message": "What\u2019s the minimum RAM you\u2019re looking for in a school laptop?",
+      "conversation_input": "User (turn 1): Looking for a US laptop with good build quality and performance for online school, CAD work, and light gaming (e.g., Project Zomboid, Kenshi, Minecraft). Budget is $600\u2013$1,000 but willing to pay more if the upgrade is significantly better. Refurb/used is fine; no strong preferences on weight or screen size.",
+      "agent_message": "How much RAM do you need at minimum? Feel free to also share your preferences for screen size, brand.",
       "recommendations_summary": null,
       "response_type": "question"
     },
     {
       "test_id": "laptop_11",
       "user_query": "Looking for a new 15\"+ laptop ideally in the $400\u2013$500 range (max $650) focused on performance. Main use is playing World of Warcraft Classic at max settings with 60+ FPS, plus basic web browsing and streaming. No refurb/used and no need for touchscreen; will use an external mouse.",
-      "agent_message": "What minimum RAM would you consider essential to run WoW Classic at max settings on a 15\"+ laptop in your budget? Feel free to also share Brand",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a new 15\"+ laptop ideally in the $400\u2013$500 range (max $650) focused on performance. Main use is playing World of Warcraft Classic at max settings with 60+ FPS, plus basic web browsing and streaming. No refurb/used and no need for touchscreen; will use an external mouse.",
+      "agent_message": "**HP Probook 450 G6 15.6 Inch Full HD 1080P Professional Laptop, Intel Core I5-8265U, 8 GB RAM, 256 GB SSD, Windows 10 Pro** is the best value pick:\n\n- **Lowest price** in your results at $409 \u2014 best affordability out of 3 options\n- **Well-rated at 4.3/5** from 23 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "1 row(s), 3 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_12",
       "user_query": "Looking for a gaming laptop in the US with a budget around $2000. Preferably a 16-inch screen. Will be used for MMOs and shooter games.",
-      "agent_message": "What minimum RAM would you require for the gaming laptop? Feel free to also share Brand",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a gaming laptop in the US with a budget around $2000. Preferably a 16-inch screen. Will be used for MMOs and shooter games.",
+      "agent_message": "**Lenovo 2021 Legion 5 17.3\" FHD Gaming Laptop, AMD Ryzen 5-5600H(Beats Intel i7-9750H), 16GB RAM, 512GB PCIe SSD, NVIDIA GeForce GTX 1650, Nahimic 3D Audio, Win 11, Black, 32GB Snowbell USB Card** is the best value pick:\n\n- **Priced at $1,099** \u2014 $41 below the average of your results, great value for money\n- **Top-rated at 4.5/5** from 257 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_13",
       "user_query": "Looking for a new work laptop under $1,000 USD with strong battery life (at least 6 hours) and high reliability. Prefer a 14\u201315 inch screen with the webcam at the top bezel, plus at least two USB ports and a headphone jack. Used mainly for Zoom and Microsoft Office; lightweight preferred but not required.",
-      "agent_message": "What minimum RAM would you prefer for your new work laptop (min_ram_gb)? Feel free to also share Brand.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a new work laptop under $1,000 USD with strong battery life (at least 6 hours) and high reliability. Prefer a 14\u201315 inch screen with the webcam at the top bezel, plus at least two USB ports and a headphone jack. Used mainly for Zoom and Microsoft Office; lightweight preferred but not required.",
+      "agent_message": "**MICROSOFT Surface Laptop 3 - 15\" - CORE I5 1035G7 - 8 GB RAM - 128 GB SSD** is the best value pick:\n\n- **Lowest price** in your results at $549 \u2014 best affordability out of 4 options\n- **Well-rated at 4.2/5** from 67 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 4 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_14",
       "user_query": "Looking for a reliable, well-built laptop for a 13-year-old in the US with a $600\u2013$1,000 budget (willing to pay more if it\u2019s a big upgrade). Needs good performance for online school, CAD work, and light gaming (e.g., Minecraft, Project Zomboid, Kenshi). Refurb/used is fine and there are no strong preferences on size, weight, or form factor.",
-      "agent_message": "What minimum RAM (in GB) do you want for the laptop? Feel free to also share Screen Size, Brand",
+      "conversation_input": "User (turn 1): Looking for a reliable, well-built laptop for a 13-year-old in the US with a $600\u2013$1,000 budget (willing to pay more if it\u2019s a big upgrade). Needs good performance for online school, CAD work, and light gaming (e.g., Minecraft, Project Zomboid, Kenshi). Refurb/used is fine and there are no strong preferences on size, weight, or form factor.",
+      "agent_message": "How much RAM do you need at minimum? Feel free to also share your preferences for screen size, brand.",
       "recommendations_summary": null,
       "response_type": "question"
     },
     {
       "test_id": "laptop_15",
       "user_query": "Looking for a college laptop in the USA under $1400 (lower is better), open to refurb/used in like-new condition with original packaging. Needs good battery life and performance for SolidWorks, coding (VS Code/MySQL), and moderate gaming (Forza, Hytale, modded Minecraft), ideally in a 14\u201315\" 2-in-1. Must have a touchscreen and OLED display; would like a good keyboard/touchpad and fingerprint reader.",
-      "agent_message": "What will you primarily use the laptop for? Feel free to also share Minimum RAM and Brand.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a college laptop in the USA under $1400 (lower is better), open to refurb/used in like-new condition with original packaging. Needs good battery life and performance for SolidWorks, coding (VS Code/MySQL), and moderate gaming (Forza, Hytale, modded Minecraft), ideally in a 14\u201315\" 2-in-1. Must have a touchscreen and OLED display; would like a good keyboard/touchpad and fingerprint reader.",
+      "agent_message": "**Lenovo Newest Ideapad 3 14\" HD Display Premium Laptop, Intel Pentium Gold 6405U 2.4 GHz, 8GB DDR4 RAM, 128GB SSD, Bluetooth 5.0, Webcam,WiFi, HDMI, Windows 10 S, Black + AllyFlex Mouspad** is the best value pick:\n\n- **Priced at $799** \u2014 $55 below the average of your results, great value for money\n- **Top-rated at 4.5/5** from 432 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_16",
       "user_query": "Looking for a good laptop from Costco in the US for up to $1000, new only (no refurbs/used) and not HP. Prefer a lightweight, thin laptop around 13 inches with all-day battery life, optional touchscreen, and reliable build quality. Needs to handle online classes and light gaming (Stardew Valley, indie games, visual novels); considering MacBook Air but concerned about game availability.",
-      "agent_message": "What minimum RAM do you need for smooth online classes and light gaming on a ~13-inch laptop under $1000? Options: 8 GB, 12 GB, or 16 GB. Feel free to also share Brand",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a good laptop from Costco in the US for up to $1000, new only (no refurbs/used) and not HP. Prefer a lightweight, thin laptop around 13 inches with all-day battery life, optional touchscreen, and reliable build quality. Needs to handle online classes and light gaming (Stardew Valley, indie games, visual novels); considering MacBook Air but concerned about game availability.",
+      "agent_message": "**Apple MacBook Air (13-Inch, Previous Model, 8GB RAM, 128GB Storage, 1.6GHz Intel Core i5) - Space Gray** is the best value pick:\n\n- **Lowest price** in your results at $535 \u2014 best affordability out of 6 options\n- **Top-rated at 4.6/5** from 1,247 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_17",
       "user_query": "Looking for a laptop in the US for $500 or less (refurb/used OK) that can run Foundry VTT at recommended settings for Lancer/DnD. Prefers a 16-inch or larger screen and would like somewhat rugged build if possible. Linux compatibility is preferred but not required.",
-      "agent_message": "\u2022 Dell Latitude 7400 14 inch \u2014 budget-friendly option with compact 14\" portability.  \n\u2022 HP Chromebook x360 14\" Flip Design Intel Core i3 N305 \u2014 versatile 2-in-1 at $269.  \n\u2022 Lenovo IdeaPad 3 Laptop AMD Ryzen 5 5500U \u2014 strong CPU value at $329, 15.6\" display.  \n\u2022 Lenovo C340 15.6\" FHD Touchscreen 2-in-1 Chromebook Laptop Intel \u2014 15.6\" touchscreen versatility for $369.  \n\u2022 Acer Chromebook 511 11.6\" Chromebook \u2014 ultra-affordable compact clamshell for $477.  \n\u2022 Dell 3120 Chromebook 3000 11.6\" \u2014 basic budget Chromebook in small size for $339.  \n\nBest pick: Lenovo IdeaPad 3 Laptop AMD Ryzen 5 5500U \u2014 solid Ryzen 5 performance at a great price with a roomy 15.6\" screen.",
+      "conversation_input": "User (turn 1): Looking for a laptop in the US for $500 or less (refurb/used OK) that can run Foundry VTT at recommended settings for Lancer/DnD. Prefers a 16-inch or larger screen and would like somewhat rugged build if possible. Linux compatibility is preferred but not required.",
+      "agent_message": "**Macally Wireless Number Pad for Laptop - Slim 2.4G USB Number Keypad - 18 Key Rechargeable Numeric Keypad with USB Receiver for Data Entry - 10 Key Numpad Keyboard for Mac, MacBook - Black** is the best value pick:\n\n- **Lowest price** in your results at $14 \u2014 best affordability out of 6 options\n- **Well-rated at 4.4/5** from 626 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
       "recommendations_summary": "2 row(s), 6 item(s)",
       "response_type": "recommendations"
     },
     {
       "test_id": "laptop_18",
       "user_query": "US aerospace engineering student with a ~$2000 budget wants a Windows 2-in-1 laptop with touchscreen/stylus note-taking to replace a MacBook Air/iPad setup. Needs enough performance for SolidWorks, MATLAB, and other engineering/CAD software, and should work well with a USB-C monitor/keyboard and Bluetooth mouse setup.",
-      "agent_message": "What minimum RAM do you require for smooth SolidWorks, MATLAB, and CAD work on a Windows 2-in-1 with a touchscreen? Feel free to also share Screen Size and Brand.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): US aerospace engineering student with a ~$2000 budget wants a Windows 2-in-1 laptop with touchscreen/stylus note-taking to replace a MacBook Air/iPad setup. Needs enough performance for SolidWorks, MATLAB, and other engineering/CAD software, and should work well with a USB-C monitor/keyboard and Bluetooth mouse setup.",
+      "agent_message": "\u26a0\ufe0f We couldn't find **Apple** laptops matching all your specs. Here are the best alternatives from other brands:\n\n**Dell Latitude 7000 7320 Detachable 13 2-in-1 (2021) | 13\" FHD+ Touch | Core i7 - 1TB SSD - 16GB RAM | 4 Cores @ 4.6 GHz - 11th Gen CPU (Renewed)** is the best value pick:\n\n- **Lowest price** in your results at $1,020 \u2014 best affordability out of 6 options\n- **Top-rated at 5.0/5** from 8 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_19",
       "user_query": "Looking for a non-Apple laptop in the $700\u2013$800 range for a college freshman. Needs to comfortably run Opera GX, Roblox, and Discord. Open to brands like Lenovo or Dell.",
-      "agent_message": "What is your minimum RAM requirement (in GB) for your new laptop? Feel free to also share Screen Size.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a non-Apple laptop in the $700\u2013$800 range for a college freshman. Needs to comfortably run Opera GX, Roblox, and Discord. Open to brands like Lenovo or Dell.",
+      "agent_message": "**Lenovo IdeaPad 3 17ITL6 82H90010US 17.3\" Notebook - HD+ - 1600 x 900 - Intel Core i3 11th Gen i3-1115G4 Dual-core (2 Core) 3 GHz - 8 GB RAM - 1 TB HDD - Abyss Blue** is the best value pick:\n\n- **Priced at $407** \u2014 $48 below the average of your results, great value for money\n- **Rated 3.5/5** from 19 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n- \u26a0\ufe0f **Reviews are mixed (3.5/5)** \u2014 read user feedback before buying\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_20",
       "user_query": "Need a professional-looking 15\u201316\" laptop for mechanical engineering school under $2000, with at least ~6 hours battery life and good performance. Must handle CAD/3D workloads (Fusion 360, SolidWorks, Blender) and programming (MATLAB/Python), plus some gaming (BeamNG, Forza, GTA). Open to open-box if it looks new and is portable for backpack carry.",
-      "agent_message": "\u2022 HP - 15.6\" FHD IPS Touchscreen Laptop, Intel i7-1255U, 32GB RAM, 2TB SSD \u2014 strong all\u2011rounder with lots of storage and responsive performance.  \n\u2022 Dell - 15.6\" 64GB RAM, 1TB SSD, 13th Gen i7 \u2014 massive multitasking headroom for heavy workload and projects.  \n\nBest pick: HP - 15.6\" FHD IPS Touchscreen Laptop \u2014 best balance of speed, huge storage, and a touchscreen for class tasks.",
+      "conversation_input": "User (turn 1): Need a professional-looking 15\u201316\" laptop for mechanical engineering school under $2000, with at least ~6 hours battery life and good performance. Must handle CAD/3D workloads (Fusion 360, SolidWorks, Blender) and programming (MATLAB/Python), plus some gaming (BeamNG, Forza, GTA). Open to open-box if it looks new and is portable for backpack carry.",
+      "agent_message": "**HP Envy Laptop, 17.3\" Full HD Touchscreen, 12th Gen Intel Core i7-1260P, 16GB RAM, 512GB PCIe SSD, IR Camera, Backlit Keyboard, HDMI, Wi-Fi 6, Windows 11 Home, Silver** is the best value pick:\n\n- **Lowest price** in your results at $1,008 \u2014 best affordability out of 6 options\n- **Well-rated at 4.1/5** from 50 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
       "recommendations_summary": "2 row(s), 6 item(s)",
       "response_type": "recommendations"
     },
     {
       "test_id": "laptop_21",
       "user_query": "Need a new Windows 2-in-1 laptop for college use, entertainment, light gaming (Roblox/Steam), and drawing with a touch screen and tablet/fold mode. Budget is $500\u2013$700 USD (buying in the US), new only, with good battery life and portable enough for a backpack. Prefer a reasonably large screen plus good keyboard and touchpad.",
-      "agent_message": "What minimum RAM do you want for your laptop?",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Need a new Windows 2-in-1 laptop for college use, entertainment, light gaming (Roblox/Steam), and drawing with a touch screen and tablet/fold mode. Budget is $500\u2013$700 USD (buying in the US), new only, with good battery life and portable enough for a backpack. Prefer a reasonably large screen plus good keyboard and touchpad.",
+      "agent_message": "**HP 2022 Newest Laptop Computer, 15.6\" HD Display, Dual Core Intel i3-1115G4 (Upto 4.1GHz,Beats i5-1030G7), 8GB RAM, 256GB SSD, HD Webcam, Bluetooth, WiFi 6, 11+ Hour Battery, Win 11 S+MarxsolCables** is the best value pick:\n\n- **Lowest price** in your results at $439 \u2014 best affordability out of 6 options\n- **Top-rated at 4.7/5** from 18 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_22",
       "user_query": "Looking for a new MacBook under $3000 USD in the US, preferably around 16 inches. User is a software engineer prioritizing performance for running a Phoenix server and Claude Code, considering an M4 chip and unsure how to prioritize GPU vs memory. Prefers a model with a fingerprint scanner and is not open to refurb/used.",
-      "agent_message": "What will you primarily use the MacBook for? Feel free to also share Minimum RAM.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a new MacBook under $3000 USD in the US, preferably around 16 inches. User is a software engineer prioritizing performance for running a Phoenix server and Claude Code, considering an M4 chip and unsure how to prioritize GPU vs memory. Prefers a model with a fingerprint scanner and is not open to refurb/used.",
+      "agent_message": "**Apple 2021 MacBook Pro (14-inch, M1 Pro chip with 8\u2011core CPU and 14\u2011core GPU, 16GB RAM, 1TB SSD) - Space Gray Z15G001VR/Z15G0022J** is the best value pick:\n\n- **Lowest price** in your results at $1,599 \u2014 best affordability out of 6 options\n- **Top-rated at 4.8/5** from 25 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_23",
       "user_query": "Recommend an up-to-date MacBook model suitable for professional applications. It should handle animation and game development workloads.",
-      "agent_message": "\u2022 Apple Refurbished MacBook Pro 14\" M3 (Back Market) \u2014 powerful M3 for creative workloads at a compelling price.  \nBest pick: Apple Refurbished MacBook Pro 14\" M3 (Back Market) for top performance in a budget-friendly package.",
-      "recommendations_summary": "1 row(s), 1 item(s)",
+      "conversation_input": "User (turn 1): Recommend an up-to-date MacBook model suitable for professional applications. It should handle animation and game development workloads.",
+      "agent_message": "**Apple MacBook Air (13-Inch, Previous Model, 8GB RAM, 128GB Storage, 1.6GHz Intel Core i5) - Space Gray** is the best value pick:\n\n- **Lowest price** in your results at $535 \u2014 best affordability out of 6 options\n- **Top-rated at 4.6/5** from 1,247 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
       "response_type": "recommendations"
     },
     {
       "test_id": "laptop_24",
       "user_query": "Looking for a new (refurb OK if like-new) laptop in the US for $1500, stretchable to $2000, prioritizing strong CPU performance and good battery life with reasonable portability. Needs 14\u201316\" non-touch, non-OLED display ideally 1440p/60Hz, M.2 SSD with at least 512GB and upgradeable to 1TB+, and at least 16GB RAM (prefer 32GB if non-upgradable). Should handle light\u2013moderate gaming (LoL, Slay the Spire, modded Minecraft at 1440p ~60fps) and programming/LaTeX, with USB-C DP Alt Mode and preferably a headphone jack.",
-      "agent_message": "Which brand do you prefer for your new laptop? Feel free to also share Brand.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a new (refurb OK if like-new) laptop in the US for $1500, stretchable to $2000, prioritizing strong CPU performance and good battery life with reasonable portability. Needs 14\u201316\" non-touch, non-OLED display ideally 1440p/60Hz, M.2 SSD with at least 512GB and upgradeable to 1TB+, and at least 16GB RAM (prefer 32GB if non-upgradable). Should handle light\u2013moderate gaming (LoL, Slay the Spire, modded Minecraft at 1440p ~60fps) and programming/LaTeX, with USB-C DP Alt Mode and preferably a headphone jack.",
+      "agent_message": "**HP OmniBook X Flip 16\" 2K Touch Laptop** is the best value pick:\n\n- **Priced at $849** \u2014 $56 below the average of your results, great value for money\n- **Top-rated at 4.7/5** from 1,200 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_25",
       "user_query": "Looking for a laptop in the $2000\u2013$2500 budget range. Primary use is gaming, with some schoolwork.",
-      "agent_message": "What's the minimum RAM you want for your gaming laptop? Feel free to also share Screen Size, Brand",
+      "conversation_input": "User (turn 1): Looking for a laptop in the $2000\u2013$2500 budget range. Primary use is gaming, with some schoolwork.",
+      "agent_message": "How much RAM do you need at minimum? Feel free to also share your preferences for screen size, brand.",
       "recommendations_summary": null,
       "response_type": "question"
     },
     {
       "test_id": "laptop_26",
       "user_query": "Looking for a lightweight 2-in-1 tablet-style Windows/Android device under $400 in the US (refurb/used OK) for on-the-go reading, writing, and photo/video editing. Must support touchscreen + pen and preferably have a removable keyboard, with better performance and higher RAM than a Surface Go to avoid lag when multitasking.",
-      "agent_message": "\u2022 HP 11 G9 EE 11.6\" Chromebook \u2014 budget-friendly and ultra-compact, good for light tasks on the go.  \n\u2022 Laptop Tulasi 15.6\" Windows 11 PC Intel N5095 4c4t 16gb+512gb, Notebook Grey \u2014 strong RAM and big SSD for multitasking and media work at a great price.  \n\u2022 Lenovo IdeaPad 3 Chromebook 15.6\" Touchscreen \u2014 affordable touchscreen option, but Chrome OS limits creative apps.  \n\u2022 Hp Chromebook x360 14\" Touchscreen Laptop Intel Celeron N4020 4GB Ram \u2014 versatile 2-in-1, but modest performance.  \n\u2022 Recertified Dell Latitude 7480 \u2014 durable 14\" workspace laptop with 8GB, 128GB, i7-style older gen performance.  \n\u2022 HP 15.6\" Full HD Laptop \u2014 larger display and solid everyday performance at $359.  \n\nBest pick: Laptop Tulasi 15.6\" Windows 11 PC Intel N5095 4c4t 16gb+512gb \u2014 best balance of RAM, storage, and real Windows app capability for creative use within budget.",
-      "recommendations_summary": "2 row(s), 6 item(s)",
+      "conversation_input": "User (turn 1): Looking for a lightweight 2-in-1 tablet-style Windows/Android device under $400 in the US (refurb/used OK) for on-the-go reading, writing, and photo/video editing. Must support touchscreen + pen and preferably have a removable keyboard, with better performance and higher RAM than a Surface Go to avoid lag when multitasking.",
+      "agent_message": "**Microsoft Surface Laptop Go 12.4\" Touchscreen, Intel Core i5-1035G1 Processor, 4 GB RAM, 256GB PCIe SSD, Up to 13Hr Battery Life, WiFi, Webcam, Windows 11 Pro, Platinum Silver** is the best value pick:\n\n- **Lowest price** in your results at $349 \u2014 best affordability out of 2 options\n- **Well-rated at 4.2/5** from 193 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "1 row(s), 2 item(s)",
       "response_type": "recommendations"
     },
     {
       "test_id": "laptop_27",
       "user_query": "Looking for a basic, cheap laptop under $350 (USD) for web browsing, Microsoft Office, and reading PDFs. Performance and battery life are the top priorities, and lighter/smaller is preferred. Must have a backlit keyboard, a USB port for a flash drive, and a trackpad; open to refurbished/used if from a reputable seller and under warranty.",
-      "agent_message": "What will be your primary use for the laptop? Feel free to also share Minimum RAM, Screen Size, Brand",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a basic, cheap laptop under $350 (USD) for web browsing, Microsoft Office, and reading PDFs. Performance and battery life are the top priorities, and lighter/smaller is preferred. Must have a backlit keyboard, a USB port for a flash drive, and a trackpad; open to refurbished/used if from a reputable seller and under warranty.",
+      "agent_message": "**Microsoft Surface Laptop Go 12.4 inch Touchscreen Notebook - 1536 x 1024 - Intel Core i5 (10th Gen) i5-1035G1 Quad-core (4 Core) 1 GHz - 16 GB RAM -** is the best value pick:\n\n- **Priced at $249** \u2014 $33 below the average of your results, great value for money\n- **Top-rated at 4.5/5** from 1,700 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_28",
       "user_query": "Looking for a $1200 laptop in the US for a finance major that can handle Excel-heavy schoolwork and gaming (Minecraft, Roblox, Valorant) at medium\u2013high settings around 60\u2013120 FPS. Prioritizes performance first, then build quality and battery life, with moderate portability and a 14\u201316 inch screen. Needs a good keyboard, reliable build, at least 16GB RAM, and 512GB+ SSD; open to certified refurbished with warranty and wants it to last 4+ years.",
-      "agent_message": "What brand would you prefer for your laptop? Feel free to also share Brand",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a $1200 laptop in the US for a finance major that can handle Excel-heavy schoolwork and gaming (Minecraft, Roblox, Valorant) at medium\u2013high settings around 60\u2013120 FPS. Prioritizes performance first, then build quality and battery life, with moderate portability and a 14\u201316 inch screen. Needs a good keyboard, reliable build, at least 16GB RAM, and 512GB+ SSD; open to certified refurbished with warranty and wants it to last 4+ years.",
+      "agent_message": "**Apple MacBook Pro With Touch Bar Intel Core i5, 13-inch, 8GB RAM, 256GB Storage Space Gray (Renewed)** is the best value pick:\n\n- **Lowest price** in your results at $617 \u2014 best affordability out of 6 options\n- **Well-rated at 4.2/5** from 195 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_29",
       "user_query": "Looking for a used/refurb traditional 14\u201316\" laptop in the US for under $1,000 with reliable build quality. Wants to game modern titles (indie to AAA) at medium settings around 60 FPS and also do music recording. Can reuse a 1TB drive and 32GB DDR5-4800 RAM from a prior laptop, so low storage/16GB configs are acceptable.",
-      "agent_message": "Which brand do you prefer for your 14\u201316\" gaming laptop? Feel free to also share Storage Type.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a used/refurb traditional 14\u201316\" laptop in the US for under $1,000 with reliable build quality. Wants to game modern titles (indie to AAA) at medium settings around 60 FPS and also do music recording. Can reuse a 1TB drive and 32GB DDR5-4800 RAM from a prior laptop, so low storage/16GB configs are acceptable.",
+      "agent_message": "**Dell Inspiron 15 3000 Business and Student Laptop (2021 Latest Model), 15.6\" HD Display, Intel N4020 Dual-Core Processor, 32GB RAM, 1TB SSD, Webcam, HDMI, Bluetooth, Wi-Fi, Black, Windows 10** is the best value pick:\n\n- **Lowest price** in your results at $569 \u2014 best affordability out of 6 options\n- **Rated 3.9/5** from 241 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n- \u26a0\ufe0f **Reviews are mixed (3.9/5)** \u2014 read user feedback before buying\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_30",
       "user_query": "Need a laptop for electrical engineering within a $1500 budget (used is OK). Primary use is CAD and programming; no gaming. Prefer quiet operation for library use and a decent keyboard.",
-      "agent_message": "What minimum RAM would you prefer for your laptop? Feel free to also share Screen Size and Brand.",
+      "conversation_input": "User (turn 1): Need a laptop for electrical engineering within a $1500 budget (used is OK). Primary use is CAD and programming; no gaming. Prefer quiet operation for library use and a decent keyboard.",
+      "agent_message": "How much RAM do you need at minimum? Feel free to also share your preferences for screen size, brand.",
       "recommendations_summary": null,
       "response_type": "question"
     },
     {
       "test_id": "laptop_31",
       "user_query": "Need a new laptop under $1000 for work and gaming/creative use, including Minecraft (possibly hosting a server), Roblox/Roblox Studio, and Blender. Prefer good performance, good battery life, and solid keyboard/touchpad with durable build quality. Wants a normal/professional look (no flashy RGB).",
-      "agent_message": "What minimum RAM do you want for smooth gaming/creative work (Minecraft server, Roblox/Studio, Blender)? Feel free to also share Screen Size, Brand.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Need a new laptop under $1000 for work and gaming/creative use, including Minecraft (possibly hosting a server), Roblox/Roblox Studio, and Blender. Prefer good performance, good battery life, and solid keyboard/touchpad with durable build quality. Wants a normal/professional look (no flashy RGB).",
+      "agent_message": "**Lenovo 320S Business Laptop PC 14\" LED-Backlit Display Intel i5-7200U Processor 8GB DDR4 RAM 256GB SSD Dolby Audio HDMI 802.11ac Webcam Bluetooth 3.7 lbs Windows 10-Silver** is the best value pick:\n\n- **Lowest price** in your results at $599 \u2014 best affordability out of 6 options\n- **Rated 3.9/5** from 61 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n- \u26a0\ufe0f **Reviews are mixed (3.9/5)** \u2014 read user feedback before buying\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_32",
       "user_query": "Looking for a new lightweight 12\u201313\" 2-in-1 with excellent pen support (palm rejection, color accuracy) for drawing and creative apps, plus enough performance to game. Budget is $2,000\u2013$2,400 and battery life should support ~8 hours of productivity use. Wants to run Photoshop/CSP/Illustrator (possibly Blender) and play Warframe at high/max settings around 60+ FPS.",
-      "agent_message": "What minimum RAM do you require for your 12\u201313\" 2-in-1 with strong pen input and delivery of Photoshop/CSP/Illustrator and Warframe at good settings? Feel free to also share Screen Size and Brand.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a new lightweight 12\u201313\" 2-in-1 with excellent pen support (palm rejection, color accuracy) for drawing and creative apps, plus enough performance to game. Budget is $2,000\u2013$2,400 and battery life should support ~8 hours of productivity use. Wants to run Photoshop/CSP/Illustrator (possibly Blender) and play Warframe at high/max settings around 60+ FPS.",
+      "agent_message": "**HP Victus Gaming Laptop, 16.1\" Full HD 144 Hz Display, NVIDIA GeForce RTX 3060 Graphics, Intel Core i5 12th Gen 12500H, 16GB RAM, 1TB SSD, Backlit Keyboard, 100% sRGB, Windows 11 Home** is the best value pick:\n\n- **Lowest price** in your results at $1,269 \u2014 best affordability out of 6 options\n- **Well-rated at 4.1/5** from 16 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_33",
       "user_query": "Need a portable college laptop (14in preferred, max 15in; under ~2.0kg) with strong performance and decent all-day battery life on a $1,200\u2013$1,500 USD budget. Primary use is competitive FPS gaming on an external 1080p monitor (Apex/OW/Valorant) targeting ~200+ FPS, plus occasional light photo/video editing. Good keyboard is a must; open to used/refurb but cautious about scams.",
-      "agent_message": "What is your minimum RAM requirement for the laptop? Feel free to also share Brand",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Need a portable college laptop (14in preferred, max 15in; under ~2.0kg) with strong performance and decent all-day battery life on a $1,200\u2013$1,500 USD budget. Primary use is competitive FPS gaming on an external 1080p monitor (Apex/OW/Valorant) targeting ~200+ FPS, plus occasional light photo/video editing. Good keyboard is a must; open to used/refurb but cautious about scams.",
+      "agent_message": "**HP Pavilion Laptop (2021 Latest Model), 17.3\" HD+ Narrow Bezel Touchscreen, AMD Ryzen 5 5500U Processor (Beats i7-1185G7), 16GB RAM, 512GB SSD, Long Battery Life, Win 10** is the best value pick:\n\n- **Lowest price** in your results at $759 \u2014 best affordability out of 6 options\n- **Well-rated at 4.4/5** from 82 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_34",
       "user_query": "Looking for a reliable, long-lasting laptop in the US with strong battery life for lectures and note-taking. Main use is multitasking for school/professional work: research with multiple tabs/windows, writing papers, creating presentations, and virtual meetings. Open to refurbished/used but prefers reliability; interested in repairable/upgradeable options like Framework.",
-      "agent_message": "What\u2019s your budget range for a durable, repairable laptop suited for school and professional multitasking (research, writing, presentations, meetings)? Feel free to also share Minimum RAM, Screen Size.",
+      "conversation_input": "User (turn 1): Looking for a reliable, long-lasting laptop in the US with strong battery life for lectures and note-taking. Main use is multitasking for school/professional work: research with multiple tabs/windows, writing papers, creating presentations, and virtual meetings. Open to refurbished/used but prefers reliability; interested in repairable/upgradeable options like Framework.",
+      "agent_message": "What is your budget? Feel free to also share your preferences for minimum ram, screen size.",
       "recommendations_summary": null,
       "response_type": "question"
     },
     {
       "test_id": "laptop_35",
       "user_query": "Need a reliable, long-battery-life laptop for an incoming US electrical engineering student, with enough performance for CAD and creative work (Blender, Onshape/SolidWorks, light video editing) plus some gaming. Prefers a portable 14-inch-ish laptop with good display for outdoor use, USB-C charging, and a microSD card slot, under $2000. Wants at least ~1TB fast storage and strong specs that will stay relevant for 4+ years.",
-      "agent_message": "What is the minimum RAM you want for your laptop (in GB)?",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Need a reliable, long-battery-life laptop for an incoming US electrical engineering student, with enough performance for CAD and creative work (Blender, Onshape/SolidWorks, light video editing) plus some gaming. Prefers a portable 14-inch-ish laptop with good display for outdoor use, USB-C charging, and a microSD card slot, under $2000. Wants at least ~1TB fast storage and strong specs that will stay relevant for 4+ years.",
+      "agent_message": "**HP OmniBook X Flip 16\" 2-in-1 Laptop Computer** is the best value pick:\n\n- **Lowest price** in your results at $1,049 \u2014 best affordability out of 6 options\n- **Top-rated at 4.7/5** from 498 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_36",
       "user_query": "Need the cheapest possible laptop around $250 (can go a bit higher), open to used/refurb. Main use is running a Roblox macro for Bee Swarm Simulator nearly 24/7 while plugged in, targeting ~60 FPS at lowest settings. Performance and thermals matter; size/weight/build quality do not, and Windows debloat or Linux is acceptable.",
-      "agent_message": "What minimum RAM would you consider for smooth Roblox macro performance at ~60 FPS on low settings (budget laptops under $300, open to used/refurb)? Feel free to also share Screen Size, Brand.",
+      "conversation_input": "User (turn 1): Need the cheapest possible laptop around $250 (can go a bit higher), open to used/refurb. Main use is running a Roblox macro for Bee Swarm Simulator nearly 24/7 while plugged in, targeting ~60 FPS at lowest settings. Performance and thermals matter; size/weight/build quality do not, and Windows debloat or Linux is acceptable.",
+      "agent_message": "What will you mainly use the laptop for? Feel free to also share your preferences for minimum ram, screen size, brand.",
       "recommendations_summary": null,
       "response_type": "question"
     },
     {
       "test_id": "laptop_37",
       "user_query": "Looking for a Windows laptop in the US around $1,500 (new only) for Photoshop/Illustrator and light-to-moderate Steam gaming (cozy games, modded Minecraft). Priorities are performance and reliable build, lighter weight than an XPS 15, ~15-inch screen with high color accuracy, and support for 2\u20133 external monitors while mostly plugged in. Prefer a normal-looking clamshell (no 2-in-1/gamer styling) and wants Nvidia graphics with at least 16GB RAM.",
-      "agent_message": "Which brand do you prefer for your Windows laptop?",
-      "recommendations_summary": null,
-      "response_type": "question"
-    },
-    {
-      "test_id": "laptop_38",
-      "user_query": "Looking for a ~$1500 laptop (can go slightly over; refurb/used OK from reputable sellers) prioritized for performance for CAD (SolidWorks/Autodesk), slicers, and some 1080p gaming (~60 FPS). Should be portable enough for school and support docking for peripherals, power delivery, and multiple external monitors.",
-      "agent_message": "What will you primarily use the laptop for?",
-      "recommendations_summary": null,
-      "response_type": "question"
-    },
-    {
-      "test_id": "laptop_39",
-      "user_query": "Need a lightweight, quiet, well-built laptop for work (Python, frequent Docker builds, Slack) with good battery life and strong Linux compatibility. Planning dual-boot Windows + Linux (Debian/Ubuntu/Arch), prefers x86 (not ARM), 14\u201316\" (12\" acceptable), and wants 16GB+ RAM. Prefer USB4/Thunderbolt and HDMI; budget up to $2500 and open to used/refurbished.",
-      "agent_message": "Which brand do you prefer for reliable Linux compatibility and solid build quality?",
-      "recommendations_summary": null,
-      "response_type": "question"
-    },
-    {
-      "test_id": "laptop_40",
-      "user_query": "Need a Windows laptop for music production with some casual gaming. Prioritize overall performance and reliability to stay useful for around 5 years. Requesting a couple of recommendations.",
-      "agent_message": "\u2022 Acer Chromebook 14\" \u2014 budget-friendly 14\" FHD touchscreen with IPS display.  \n\u2022 HP 15.6\" Intel Core i5 Laptop \u2014 solid mid-range performance for everyday creative tasks.  \n\u2022 Dell 14\" AMD Ryzen AI 5 Laptop \u2014 snappy Ryzen AI-5 power in a compact form.  \n\u2022 HP 15.6\" FHD Laptop \u2014 dependable full\u2011HD laptop for photo edits and browsing.  \n\u2022 Dell XPS 14 Laptop \u2014 premium build with a vivid display and strong performance.  \n\u2022 Lenovo ThinkPad X1 Carbon Gen 13 14\" \u2014 ultra-portable perfection for on\u2011the\u2011go work.  \n\nBest pick: Dell XPS 14 Laptop \u2014 strongest all-around mix of display quality, performance, and portability for creative work.",
+      "conversation_input": "User (turn 1): Looking for a Windows laptop in the US around $1,500 (new only) for Photoshop/Illustrator and light-to-moderate Steam gaming (cozy games, modded Minecraft). Priorities are performance and reliable build, lighter weight than an XPS 15, ~15-inch screen with high color accuracy, and support for 2\u20133 external monitors while mostly plugged in. Prefer a normal-looking clamshell (no 2-in-1/gamer styling) and wants Nvidia graphics with at least 16GB RAM.",
+      "agent_message": "**Dell 2023 Vostro 3520 15.6\" FHD Business Laptop Computer, 12th Gen Intel 10-Cores i7-1255U up to 4.7GHz, 8GB DDR4 RAM, 512GB PCIe SSD, 802.11ac WiFi, Bluetooth, Carbon Black, Windows 11 Pro** is the best value pick:\n\n- **Lowest price** in your results at $799 \u2014 best affordability out of 6 options\n- **Top-rated at 5.0/5** from 12 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
       "recommendations_summary": "2 row(s), 6 item(s)",
       "response_type": "recommendations"
     },
     {
+      "test_id": "laptop_38",
+      "user_query": "Looking for a ~$1500 laptop (can go slightly over; refurb/used OK from reputable sellers) prioritized for performance for CAD (SolidWorks/Autodesk), slicers, and some 1080p gaming (~60 FPS). Should be portable enough for school and support docking for peripherals, power delivery, and multiple external monitors.",
+      "conversation_input": "User (turn 1): Looking for a ~$1500 laptop (can go slightly over; refurb/used OK from reputable sellers) prioritized for performance for CAD (SolidWorks/Autodesk), slicers, and some 1080p gaming (~60 FPS). Should be portable enough for school and support docking for peripherals, power delivery, and multiple external monitors.",
+      "agent_message": "**ASUS TUF F16 FX607VJ-RL012W Gaming Laptop - Series 1 5 210H, 16GB, 512GB SSD, NVIDIA GeForce RTX 3050 6GB, 16\" WUXGA** is the best value pick:\n\n- **Lowest price** in your results at $790 \u2014 best affordability out of 6 options\n- **Top-rated at 4.5/5** from 1,000 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
+    },
+    {
+      "test_id": "laptop_39",
+      "user_query": "Need a lightweight, quiet, well-built laptop for work (Python, frequent Docker builds, Slack) with good battery life and strong Linux compatibility. Planning dual-boot Windows + Linux (Debian/Ubuntu/Arch), prefers x86 (not ARM), 14\u201316\" (12\" acceptable), and wants 16GB+ RAM. Prefer USB4/Thunderbolt and HDMI; budget up to $2500 and open to used/refurbished.",
+      "conversation_input": "User (turn 1): Need a lightweight, quiet, well-built laptop for work (Python, frequent Docker builds, Slack) with good battery life and strong Linux compatibility. Planning dual-boot Windows + Linux (Debian/Ubuntu/Arch), prefers x86 (not ARM), 14\u201316\" (12\" acceptable), and wants 16GB+ RAM. Prefer USB4/Thunderbolt and HDMI; budget up to $2500 and open to used/refurbished.",
+      "agent_message": "**Asus 2022 ASUS ROG Strix G15 15.6'' FHD 144Hz Gaming Laptop, AMD Ryzen 7-4800H, 32GB RAM, 2TB PCIe SSD, Backlit Keyboard, GeForce RTX 3060 Graphics, Windows 11 Home, Gray, 32GB USB Card** is the best value pick:\n\n- **Lowest price** in your results at $1,299 \u2014 best affordability out of 6 options\n- **Well-rated at 4.4/5** from 29 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
+    },
+    {
+      "test_id": "laptop_40",
+      "user_query": "Need a Windows laptop for music production with some casual gaming. Prioritize overall performance and reliability to stay useful for around 5 years. Requesting a couple of recommendations.",
+      "conversation_input": "User (turn 1): Need a Windows laptop for music production with some casual gaming. Prioritize overall performance and reliability to stay useful for around 5 years. Requesting a couple of recommendations.",
+      "agent_message": "What is your budget? Feel free to also share your preferences for minimum ram, screen size, brand.",
+      "recommendations_summary": null,
+      "response_type": "question"
+    },
+    {
       "test_id": "laptop_41",
       "user_query": "Need a well-built laptop with great battery life for a Mechanical Engineering BCS, budget $1500\u2013$2000, open to used/refurb. It should handle potential SolidWorks use and Lightroom for photo editing. Considering MacBook vs Lenovo ThinkPad or similar alternatives, and should be comfortable to carry in a backpack.",
-      "agent_message": "\u2022 Lenovo Yoga 7i 2-in-1 Laptop Touchscreen \u2014 Flexible 2-in-1 with solid all\u2011around performance for creative work ($1,049).  \n\u2022 Lenovo ThinkPad X1 Carbon 14\" Core i7 6600u \u2014 Ultra\u2011portable premium build, great on the go (generally lighter, older CPU).  \n\u2022 Lenovo IdeaPad Slim 3 15.6\" FHD Laptop \u2014 Strong value: 16 GB RAM and 1TB SSD for multitasking and storage ($1,099).  \n\u2022 Lenovo ThinkPad T14s Gen 2 14\" Laptop \u2014 Sleek, business\u2011class portability with solid performance ($1,499).  \n\u2022 Lenovo ThinkPad L14 \u2014 Robust, budget\u2011friendly workhorse with dependable performance ($1,599).  \n\u2022 Lenovo Yoga Slim 9i Copilot+ Laptop \u2014 Premium pick with 32 GB RAM for heavy creative workloads ($1,599).  \n\nBest pick: Lenovo Yoga Slim 9i Copilot+ Laptop \u2014 top performance and 32 GB RAM make it ideal for serious creative work.",
+      "conversation_input": "User (turn 1): Need a well-built laptop with great battery life for a Mechanical Engineering BCS, budget $1500\u2013$2000, open to used/refurb. It should handle potential SolidWorks use and Lightroom for photo editing. Considering MacBook vs Lenovo ThinkPad or similar alternatives, and should be comfortable to carry in a backpack.",
+      "agent_message": "**Apple MacBook Pro MLH32LL/A 15-inch Laptop with Touch Bar, 2.6GHz quad-core Intel Core i7, 256GB, Retina Display, Space Gray (Discontinued by Manufacturer)** is the best value pick:\n\n- **Lowest price** in your results at $1,020 \u2014 best affordability out of 6 options\n- **Well-rated at 4.1/5** from 75 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
       "recommendations_summary": "2 row(s), 6 item(s)",
       "response_type": "recommendations"
     },
     {
       "test_id": "laptop_42",
       "user_query": "Looking for a portable 11\u201313\" Windows 2-in-1 that can replace an iPad Pro as a tablet-first device, with excellent battery life and strong performance for creative work. Must support reliable, high-quality pen input/pressure for drawing and run programs like Adobe Suite, Toon Boom Harmony, and DaVinci Resolve. Budget is up to $1500 and open to refurbished/used.",
-      "agent_message": "What minimum RAM would you want for smooth creative work on a portable 11\u201313\" Windows 2-in-1? Feel free to also share Brand.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a portable 11\u201313\" Windows 2-in-1 that can replace an iPad Pro as a tablet-first device, with excellent battery life and strong performance for creative work. Must support reliable, high-quality pen input/pressure for drawing and run programs like Adobe Suite, Toon Boom Harmony, and DaVinci Resolve. Budget is up to $1500 and open to refurbished/used.",
+      "agent_message": "**Dell Latitude 7420 7000 (2023) 14\" FHD (Intel Core i5-1145G7 vPro, 16GB RAM, 512GB SSD) Business Laptop, Backlit, 13-hr Battery Life, Thunderbolt 4, Wi-Fi 6, 1080P IR Webcam, Carbon Fiber, Win 11 Pro** is the best value pick:\n\n- **Priced at $829** \u2014 $117 below the average of your results, great value for money\n- **Well-rated at 4.1/5** from 6 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_43",
       "user_query": "Looking for a new Windows 11 laptop around $1200 that\u2019s portable for frequent travel with a 14\u201315 inch screen. Needs strong performance and good battery life for PhD work using SAS, R, and large Excel datasets plus feed formulation software. Prefers good keyboard, build quality, and input devices; coming from a MacBook Air that can\u2019t run required programs.",
-      "agent_message": "What is the minimum RAM you require for your laptop? Feel free to also share Brand",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a new Windows 11 laptop around $1200 that\u2019s portable for frequent travel with a 14\u201315 inch screen. Needs strong performance and good battery life for PhD work using SAS, R, and large Excel datasets plus feed formulation software. Prefers good keyboard, build quality, and input devices; coming from a MacBook Air that can\u2019t run required programs.",
+      "agent_message": "\u26a0\ufe0f We couldn't find **Apple** laptops matching all your specs. Here are the best alternatives from other brands:\n\n**HP ENVY x360 Convertible 15-inch Laptop, AMD Ryzen 7 5825U processor, AMD Radeon Graphics, 8 GB RAM, 512 GB SSD, Windows 11 Home (15-eu1026nr, Nightfall black aluminum)** is the best value pick:\n\n- **Lowest price** in your results at $632 \u2014 best affordability out of 4 options\n- **Top-rated at 4.5/5** from 170 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 4 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_44",
       "user_query": "Need a non-ASUS 14-inch (max) laptop under $3000 for frequent travel, with at least 32GB RAM, dedicated GPU, and low noise during office use. Main uses are large office spreadsheets/files, video editing/processing, and secondary gaming while traveling.",
-      "agent_message": "Which brand do you prefer for a 14-inch laptop under $3000 with 32GB RAM and a dedicated GPU suitable for travel and quiet office use? Feel free to also share Storage Type.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Need a non-ASUS 14-inch (max) laptop under $3000 for frequent travel, with at least 32GB RAM, dedicated GPU, and low noise during office use. Main uses are large office spreadsheets/files, video editing/processing, and secondary gaming while traveling.",
+      "agent_message": "**ASUS Gaming Laptop TUF for Laptop Gamer, 2022 Upgraded Version, 15.6\" FHD 240Hz, Intel 12th Core i7-11370H, 16GB RAM, 1TB SSD, NVIDIA GeForce RTX 3070, Backlit Keyboard, Windows 11, LIONEYE MP** is the best value pick:\n\n- **Lowest price** in your results at $1,509 \u2014 best affordability out of 6 options\n- **Top-rated at 5.0/5** from 5 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_45",
       "user_query": "Need a new laptop under $750 focused on strong performance for video editing (DaVinci Resolve/Adobe Premiere) plus schoolwork and multitasking. Prefer reliable build quality, SSD storage, and at least 16GB RAM, with battery life moderately important. Screen size ideally 15 inches or larger, weight/thinness not a priority.",
-      "agent_message": "Which brand do you prefer for a laptop that excels at video editing and multitasking within your budget? Feel free to also share Brand",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Need a new laptop under $750 focused on strong performance for video editing (DaVinci Resolve/Adobe Premiere) plus schoolwork and multitasking. Prefer reliable build quality, SSD storage, and at least 16GB RAM, with battery life moderately important. Screen size ideally 15 inches or larger, weight/thinness not a priority.",
+      "agent_message": "**2016 HP Stream 13.3\" HD Touchscreen Laptop - Intel Dual-Core N3050 up to 2.16GHz, 2GB RAM, 32GB eMMC, 1-yr Office 365 Included, DTS Studio Sound, WLAN, Bluetooth, Webcam, Windows 10** is the best value pick:\n\n- **Lowest price** in your results at $399 \u2014 best affordability out of 6 options\n- **Rated 3.7/5** from 36 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n- \u26a0\ufe0f **Reviews are mixed (3.7/5)** \u2014 read user feedback before buying\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_46",
       "user_query": "Need a small, lightweight travel laptop to play Riot\u2019s 2XKO at low settings with a stable 60 FPS. Budget is up to $600 (cheaper preferred) and refurbished/used is acceptable but reliability is a concern. Preferred screen size is around 10\u201313 inches with performance prioritized over battery life.",
-      "agent_message": "What minimum RAM would you require for smooth gaming on a travel laptop (target 60 FPS on low settings)? Feel free to also share Brand",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Need a small, lightweight travel laptop to play Riot\u2019s 2XKO at low settings with a stable 60 FPS. Budget is up to $600 (cheaper preferred) and refurbished/used is acceptable but reliability is a concern. Preferred screen size is around 10\u201313 inches with performance prioritized over battery life.",
+      "agent_message": "**ASUS UX303LA-DS52T Laptop (Windows 8.1, Intel Core i5-5200U 2.20 GHz, 13\" LED-lit Screen, Storage: 256 GB, RAM: 8 GB) Silver** is the best value pick:\n\n- **Priced at $329** \u2014 $53 below the average of your results, great value for money\n- **Rated 3.5/5** from 590 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n- \u26a0\ufe0f **Reviews are mixed (3.5/5)** \u2014 read user feedback before buying\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_47",
       "user_query": "Looking for a well-built 15-inch laptop under $900 (US), preferably new (not refurb/used). Must support USB-C charging and ideally have an Intel CPU. Preferred brands are Lenovo or HP; shopping near Costco or Micro Center.",
-      "agent_message": "What will you primarily use the laptop for? Feel free to also share Primary Use and Minimum RAM.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a well-built 15-inch laptop under $900 (US), preferably new (not refurb/used). Must support USB-C charging and ideally have an Intel CPU. Preferred brands are Lenovo or HP; shopping near Costco or Micro Center.",
+      "agent_message": "**Lenovo V15 G4 IRU** is the best value pick:\n\n- **Lowest price** in your results at $625 \u2014 best affordability out of 2 options\n- **Top-rated at 4.6/5** from 1,800 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "1 row(s), 2 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_48",
       "user_query": "Need an inexpensive laptop ($500\u2013600, USA) that can connect to a Dell WD15 USB-C dock and extend the desktop to two Dell U2412Mc external monitors. It will mostly be used plugged in for tax software plus basic web and Office apps. Must have a 10-key numeric keypad; touchscreen is a nice-to-have.",
-      "agent_message": "What minimum RAM do you want in your new laptop? Feel free to also share Screen Size.",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Need an inexpensive laptop ($500\u2013600, USA) that can connect to a Dell WD15 USB-C dock and extend the desktop to two Dell U2412Mc external monitors. It will mostly be used plugged in for tax software plus basic web and Office apps. Must have a 10-key numeric keypad; touchscreen is a nice-to-have.",
+      "agent_message": "**2016 Dell Inspiron i5558-2148BLK 15.6\" Touch-screen Laptop (Intel i3-4030U/ 8GB Memory/1TB Hard Drive/Black/Windows 10)** is the best value pick:\n\n- **Lowest price** in your results at $300 \u2014 best affordability out of 6 options\n- **Rated 3.9/5** from 112 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n- \u26a0\ufe0f **Reviews are mixed (3.9/5)** \u2014 read user feedback before buying\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_49",
       "user_query": "Need a laptop for college plus gaming under $1700 (preferably less), open to refurbished. Wants strong performance and good battery life, with good cooling, at least 24\u201332GB RAM and 1TB storage, and at least 2 USB ports. Should run Helldivers 2 and War Thunder around 100\u2013120 FPS on medium, and future games ~80+ FPS on medium.",
-      "agent_message": "What screen size do you prefer for your college gaming laptop? Feel free to also share Brand",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Need a laptop for college plus gaming under $1700 (preferably less), open to refurbished. Wants strong performance and good battery life, with good cooling, at least 24\u201332GB RAM and 1TB storage, and at least 2 USB ports. Should run Helldivers 2 and War Thunder around 100\u2013120 FPS on medium, and future games ~80+ FPS on medium.",
+      "agent_message": "**HP Pavilion Laptop, 15.6\u201d Full HD Touchscreen, Intel Core i5-1135G7, 32GB RAM, 1TB SSD, Backlit Keyboard, Wi-Fi 6, HDMI, Webcam, Windows 10 Home, Grey** is the best value pick:\n\n- **Priced at $909** \u2014 $72 below the average of your results, great value for money\n- **Top-rated at 5.0/5** from 5 verified reviews \u2014 outstanding user satisfaction\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     },
     {
       "test_id": "laptop_50",
       "user_query": "Looking for a 15\u201317\" laptop under $1000 in the US (California), preferably from Best Buy or Costco, and open to refurbished/used. Needs good battery life and to be reasonably future-proof for office work and basic photo editing (e.g., making Christmas cards). Touchscreen is not needed; a full number pad is nice to have but not required.",
-      "agent_message": "What minimum RAM do you want in GB for your new laptop?",
-      "recommendations_summary": null,
-      "response_type": "question"
+      "conversation_input": "User (turn 1): Looking for a 15\u201317\" laptop under $1000 in the US (California), preferably from Best Buy or Costco, and open to refurbished/used. Needs good battery life and to be reasonably future-proof for office work and basic photo editing (e.g., making Christmas cards). Touchscreen is not needed; a full number pad is nice to have but not required.",
+      "agent_message": "**HP 17 Laptop, 17.3\" HD+ Screen, Intel Core i3-1115G4 Processor, 12GB RAM, 256GB PCIe SSD, Webcam, RJ-45, USB-A 3.0, HDMI, Windows 11 Home, Silver** is the best value pick:\n\n- **Lowest price** in your results at $549 \u2014 best affordability out of 6 options\n- **Well-rated at 4.3/5** from 19 verified reviews\n- **Best overall score** across price, rating, and performance in your current results\n\nHere are top laptops recommendations based on your preferences. What would you like to do next?",
+      "recommendations_summary": "2 row(s), 6 item(s)",
+      "response_type": "recommendations"
     }
   ],
   "test_cases": [

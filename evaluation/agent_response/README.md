@@ -1,12 +1,13 @@
 # Pipeline 1: Agent response evaluation (DeepEval LLM-as-judge)
 
-Evaluates chat agent responses using DeepEval's G-Eval (LLM-as-judge) for relevance and helpfulness.
+Evaluates chat agent responses using DeepEval's G-Eval (LLM-as-judge) for relevance and helpfulness. Supports **single-turn** and **multi-turn** conversations per test case.
 
 ## What the score is (the metric)
 
 The **score** is produced by **G-Eval**: an **LLM-as-judge** metric from DeepEval.
 
 - **Inputs to the judge:** (1) the user query, (2) the agent’s reply (exact text), (3) a short rubric (expected behavior).
+- For **multi-turn** test cases, the judge receives the full conversation (all user turns) and the concatenated agent responses, so it can evaluate coherence and helpfulness across turns.
 - **Rubric:** The response counts as helpful if it either gives laptop recommendations that match the user’s needs, or asks a **relevant** clarifying question (e.g. RAM, brand, screen size). It should be on-topic (laptops), coherent, and appropriate for a recommendation assistant.
 - **Output:** A single **scalar score in [0, 1]** from the judge model. We use **threshold 0.5** for pass/fail. So “score” = how relevant/helpful the judge considers the reply; higher = more on-topic and useful. **Not** parsing accuracy—we don’t parse the agent output; we send the raw message to the judge.
 
@@ -54,23 +55,29 @@ The baseline is **restricted to recommendations from the Supabase database** (sa
 python -m evaluation.agent_response.run_eval --baseline
 ```
 
-Writes `agent_response_eval_results_baseline.json` and `.csv`. Same test cases and G-Eval rubric. Use with the poster summary to get a Baseline vs Agent table.
+Writes `agent_response_eval_results_baseline.json` and `.csv`. Same test cases and G-Eval rubric. Use with `plot_eval_results --baseline` to generate comparison figures.
 
-## Poster summary (numeric table by query difficulty)
+## Eval figures (PNG)
 
-```bash
-python -m evaluation.agent_response.summarize_for_poster
-```
-
-Prints a compact table with **N**, **Avg score**, and **Pass %** for Quick (short queries), Long (long queries), and All. Optional: `--cutoff 200` to change the character cutoff for Quick vs Long (default 200).
-
-**Comparison table (Baseline vs Agent):** After running the agent eval and the baseline eval (`run_eval` and `run_eval --baseline`), run:
+`plot_eval_results` generates PNG figures from the eval results:
 
 ```bash
-python -m evaluation.agent_response.summarize_for_poster --baseline
+python -m evaluation.agent_response.plot_eval_results
 ```
 
-Prints a two-row table: **Baseline** and **Agent** with N, Avg score, Pass %. Optional: `--baseline /path/to/baseline_results.json` to point to a different baseline file.
+Writes to `evaluation/agent_response/results/` by default:
+
+- **agent_response_summary_table.png** — Table of N, Avg score, Pass %. Without baseline: by difficulty (Quick ≤200 chars, Long, All). With `--baseline`: two rows (Baseline vs Agent).
+- **agent_response_scores_by_query.png** — Score vs query number (x = query index, y = score). With `--baseline`, both Agent and Baseline are overlaid (two colors).
+- **agent_response_agent_vs_baseline.png** — Only when `--baseline` is used: scatter of Agent score (y) vs Baseline score (x); points above the diagonal mean the agent scored higher.
+
+**With baseline comparison** (run agent and baseline evals first):
+
+```bash
+python -m evaluation.agent_response.plot_eval_results --baseline
+```
+
+Options: `--json path/to/agent_results.json`, `--baseline [path/to/baseline.json]`, `--cutoff 200` (Quick/Long split), `--outdir path` (where to write PNGs).
 
 ## Pytest
 
@@ -82,4 +89,36 @@ pytest evaluation/agent_response/test_agent_response_eval.py -v
 
 ## Test cases
 
-Edit `test_cases.json`: each entry has `test_id`, `user_query`, and optional `expected_topic_or_criteria` used by the judge.
+Edit `test_cases.json`: each entry has `test_id`, optional `user_query`, and optional `expected_topic_or_criteria` used by the judge.
+
+### Single-turn (backward compatible)
+
+Use `user_query` for one message; the pipeline runs one turn and passes that response to the judge.
+
+```json
+{ "test_id": "greeting_1", "user_query": "Hi", "expected_topic_or_criteria": "..." }
+```
+
+### Multi-turn
+
+Use `messages`: a list of user messages in order. The pipeline runs the full conversation with one **session_id** per test case (so the agent keeps state across turns), then passes the full conversation (all user messages) and the concatenation of all agent responses to the judge.
+
+```json
+{
+  "test_id": "laptop_multiturn_1",
+  "messages": [
+    "I need a laptop for programming under $1000",
+    "16GB RAM is fine",
+    "Yes, show me some options"
+  ],
+  "expected_topic_or_criteria": "Agent should clarify needs then provide relevant laptop recommendations."
+}
+```
+
+- **Backward compatibility:** If a test case has only `user_query` (no `messages`), it is treated as a single message and runs one turn.
+- **Dynamic multi-turn (response-based):** For cases with a single initial message (e.g. from CSV), set **`MULTI_TURN_DYNAMIC_TURNS=2`** (or 1, 3) so the pipeline runs extra turns. After each agent response, an LLM **generates** the next user message from the conversation (e.g. answers a clarifying question or says "show me options"). No hardcoded follow-ups—the next user message is always derived from the agent's last reply.
+  ```bash
+  MULTI_TURN_DYNAMIC_TURNS=2 python -m evaluation.agent_response.run_eval
+  ```
+  Total user turns = 1 + `MULTI_TURN_DYNAMIC_TURNS`. The judge still receives the full conversation and all agent responses (same G-Eval as today).
+- **DeepEval multi-turn:** DeepEval also provides [ConversationalTestCase](https://deepeval.com/docs/evaluation-multiturn-test-cases) with `turns=[Turn(role, content), ...]` and conversational metrics (e.g. TurnRelevancyMetric). This pipeline uses a single `LLMTestCase` with the full conversation as input and concatenated agent output; you can switch to `ConversationalTestCase` + conversational metrics if you want per-turn evaluation.

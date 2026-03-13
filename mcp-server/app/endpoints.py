@@ -1966,6 +1966,8 @@ async def search_products(
         if not return_policy_val:
             return_policy_val = "Standard return policy applies. Contact seller for details."
 
+        # Include product_type and attributes (specs) so eval and clients can score/display hard constraints
+        attrs = getattr(product, 'attributes', None) or {}
         summary = ProductSummary(
             product_id=str(product.product_id),
             name=product.name,
@@ -1981,6 +1983,8 @@ async def search_products(
             return_policy=return_policy_val,
             warranty=warranty_val,
             promotion_info=promotion_val,
+            product_type=getattr(product, 'product_type', None),
+            metadata=attrs if isinstance(attrs, dict) else {},
         )
         products_with_scores.append((summary, product))
     

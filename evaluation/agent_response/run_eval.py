@@ -46,6 +46,63 @@ def load_test_cases() -> list:
         return json.load(f)
 
 
+def get_messages_from_test_case(test_case: dict) -> list:
+    """Return the list of user messages for this test case (multi-turn or single).
+    - If test_case has "messages" (non-empty list), use it.
+    - Else use "user_query" as a single message (backward compatible).
+    """
+    messages = test_case.get("messages")
+    if isinstance(messages, list) and len(messages) > 0:
+        return [str(m).strip() for m in messages if str(m).strip()]
+    user_query = test_case.get("user_query", "").strip()
+    if user_query:
+        return [user_query]
+    return []
+
+
+def generate_follow_up_user_message(
+    initial_query: str,
+    user_messages: list,
+    agent_messages: list,
+) -> str:
+    """Generate one short, plausible user reply given the conversation so far.
+    Used for dynamic multi-turn: the next user message is based on the agent's
+    last response (e.g. answer a clarifying question, or ask to see recommendations).
+    Not hardcoded—uses a small LLM call.
+    """
+    if not agent_messages:
+        return ""
+    from openai import OpenAI
+    client = OpenAI()
+    last_agent = (agent_messages[-1] or "").strip()[:1500]
+    convo = ""
+    for t, (u, a) in enumerate(zip(user_messages, agent_messages)):
+        convo += f"User: {u}\nAssistant: {(a or '')[:400]}\n"
+    prompt = (
+        "You are simulating a user in a laptop recommendation chat. The user's initial request was:\n"
+        f'"{initial_query[:300]}"\n\n'
+        "Conversation so far:\n" + convo + "\n"
+        "The assistant just said (last message):\n" + last_agent + "\n\n"
+        "Write exactly one short, natural user reply (1-2 sentences). "
+        "If the assistant asked a clarifying question (e.g. RAM, budget, screen size), have the user answer it. "
+        "If the assistant offered recommendations, have the user say they want to see them or thanks. "
+        "Stay on-topic; do not introduce new requests. Reply with only the user's message, no quotes or labels."
+    )
+    try:
+        completion = client.chat.completions.create(
+            model=_OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": "You output only the next user message, nothing else."},
+                {"role": "user", "content": prompt},
+            ],
+            max_completion_tokens=120,
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+        return raw[:500] if raw else ""
+    except Exception:
+        return ""
+
+
 def load_laptop_test_cases_from_csv() -> list:
     """Load laptop-only test cases from testing/query_data_enriched.csv.
     Uses shortened_query as user_query. All rows in this CSV are laptop queries (SuggestALaptop).
@@ -237,28 +294,81 @@ def run_baseline(test_case: dict) -> dict:
 
 
 async def run_one(test_case: dict) -> dict:
-    """Call process_chat for one test case and return result row (no score yet)."""
-    req = ChatRequest(message=test_case["user_query"].strip())
+    """Run a full conversation (one or multiple turns) for one test case and return result row (no score yet).
+    Uses a single session_id per test case so the agent keeps state across turns.
+    When test case has only one message and MULTI_TURN_DYNAMIC_TURNS is set (e.g. 2), additional user
+    messages are generated dynamically from the agent's responses (no hardcoded follow-ups).
+    """
+    messages = get_messages_from_test_case(test_case)
+    first_user_query = test_case.get("user_query", "").strip() or (messages[0] if messages else "")
+
+    if not messages:
+        return {
+            "test_id": test_case["test_id"],
+            "user_query": first_user_query,
+            "conversation_input": "",
+            "agent_message": "",
+            "error": "no user messages in test case",
+            "recommendations_summary": None,
+            "response_type": None,
+        }
+
+    # Dynamic multi-turn: if only one message and env set, add that many extra turns by generating
+    # the next user message from the agent's last response (LLM-based, not hardcoded).
+    num_dynamic = 0
     try:
-        response = await process_chat(req)
-        agent_message = response.message or ""
-        recs = response.recommendations
+        num_dynamic = max(0, int(os.environ.get("MULTI_TURN_DYNAMIC_TURNS", "0") or "0"))
+    except (TypeError, ValueError):
+        pass
+    if len(messages) == 1 and num_dynamic > 0:
+        total_turns = 1 + num_dynamic
+    else:
+        total_turns = len(messages)
+
+    session_id = None
+    agent_messages = []
+    last_response = None
+    try:
+        for turn_idx in range(total_turns):
+            if turn_idx < len(messages):
+                user_msg = messages[turn_idx]
+            else:
+                user_msg = generate_follow_up_user_message(first_user_query, messages, agent_messages)
+                if not user_msg:
+                    break
+                messages.append(user_msg)
+            req = ChatRequest(message=user_msg.strip(), session_id=session_id)
+            response = await process_chat(req)
+            session_id = response.session_id
+            agent_messages.append(response.message or "")
+            last_response = response
+        recs = last_response.recommendations if last_response else None
         rec_summary = None
         if recs:
             flat = [item for row in recs for item in row]
             rec_summary = f"{len(recs)} row(s), {len(flat)} item(s)"
+        # Format for judge: full conversation (user side) and full agent side
+        conversation_input = "\n\n".join(f"User (turn {t+1}): {m}" for t, m in enumerate(messages))
+        if len(agent_messages) == 1:
+            agent_message = agent_messages[0] or ""
+        else:
+            parts = [f"Assistant (turn {t+1}): {m}" for t, m in enumerate(agent_messages) if m]
+            agent_message = "\n\n---\n\n".join(parts) if parts else "\n\n---\n\n".join(agent_messages)
         return {
             "test_id": test_case["test_id"],
-            "user_query": test_case["user_query"],
+            "user_query": first_user_query,
+            "conversation_input": conversation_input,
             "agent_message": agent_message,
             "recommendations_summary": rec_summary,
-            "response_type": response.response_type,
+            "response_type": last_response.response_type if last_response else None,
         }
     except Exception as e:
+        conversation_input = "\n\n".join(f"User (turn {t+1}): {m}" for t, m in enumerate(messages))
         return {
             "test_id": test_case["test_id"],
-            "user_query": test_case["user_query"],
-            "agent_message": "",
+            "user_query": first_user_query,
+            "conversation_input": conversation_input,
+            "agent_message": "\n\n---\n\n".join(agent_messages) if agent_messages else "",
             "error": str(e),
             "recommendations_summary": None,
             "response_type": None,
@@ -266,7 +376,9 @@ async def run_one(test_case: dict) -> dict:
 
 
 def evaluate_with_deepeval(rows: list, test_cases: list) -> list:
-    """Run DeepEval G-Eval on each row and add score, passed, details."""
+    """Run DeepEval G-Eval on each row and add score, passed, details.
+    For multi-turn: input to the judge is the full conversation (conversation_input when present).
+    """
     from deepeval.test_case import LLMTestCase
 
     id_to_case = {tc["test_id"]: tc for tc in test_cases}
@@ -276,8 +388,10 @@ def evaluate_with_deepeval(rows: list, test_cases: list) -> list:
         test_id = row["test_id"]
         tc = id_to_case.get(test_id, {})
         expected = tc.get("expected_topic_or_criteria") or ""
+        # Use full conversation as judge input when multi-turn, else single user_query
+        judge_input = row.get("conversation_input") or row.get("user_query") or ""
         test_case = LLMTestCase(
-            input=row["user_query"],
+            input=judge_input,
             actual_output=row.get("agent_message") or "",
             expected_output=expected,
         )

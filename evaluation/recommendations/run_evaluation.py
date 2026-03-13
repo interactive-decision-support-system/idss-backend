@@ -36,6 +36,7 @@ if _MCP not in sys.path:
 from evaluation.recommendations.schema import load_golden_dataset
 from evaluation.recommendations.runners import (
     run_query_to_ucp,
+    run_query_to_ucp_baseline,
     run_ucp_to_recs,
     run_baseline_eval,
 )
@@ -69,6 +70,7 @@ def run_all(golden_path: str, skip_baseline: bool = False, ucp_recs_only: bool =
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     query_to_ucp_results = []
+    query_to_ucp_baseline_results = []
     if not ucp_recs_only:
         # (a) Query -> UCP only
         query_to_ucp_results = [run_query_to_ucp(g) for g in items]
@@ -88,6 +90,21 @@ def run_all(golden_path: str, skip_baseline: bool = False, ucp_recs_only: bool =
         with open(RESULTS_DIR / f"query_to_ucp_results_{ts}.json", "w", encoding="utf-8") as f:
             json.dump(query_to_ucp_results, f, indent=2)
         print(f"Wrote query_to_ucp_results (CSV + JSON)")
+
+        # (a') Query -> UCP baseline (Shopping Agent baseline)
+        query_to_ucp_baseline_results = [run_query_to_ucp_baseline(g) for g in items]
+        out_ucp_baseline = [
+            {"query_id": r["query_id"], "query": r["query"], "expected_ucp_match": r["expected_ucp_match"]}
+            for r in query_to_ucp_baseline_results
+        ]
+        write_csv(
+            RESULTS_DIR / f"query_to_ucp_baseline_results_{ts}.csv",
+            out_ucp_baseline,
+            ["query_id", "query", "expected_ucp_match"],
+        )
+        with open(RESULTS_DIR / f"query_to_ucp_baseline_results_{ts}.json", "w", encoding="utf-8") as f:
+            json.dump(query_to_ucp_baseline_results, f, indent=2)
+        print(f"Wrote query_to_ucp_baseline_results (CSV + JSON)")
 
     # (b) UCP -> recs only
     async def _ucp_recs():
@@ -164,6 +181,7 @@ def run_all(golden_path: str, skip_baseline: bool = False, ucp_recs_only: bool =
         "ucp_recs_only": ucp_recs_only,
         "aggregates": {
             "query_to_ucp": agg_ucp("query_to_ucp", query_to_ucp_results) if not ucp_recs_only else None,
+            "query_to_ucp_baseline": agg_ucp("query_to_ucp_baseline", query_to_ucp_baseline_results) if not ucp_recs_only else None,
             "ucp_to_recs": agg_recs("ucp_to_recs", ucp_recs_results),
             "baseline": agg_recs("baseline", baseline_results) if not ucp_recs_only and not skip_baseline else None,
         },

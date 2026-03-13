@@ -39,13 +39,35 @@ def _parse_bool(s) -> bool | None:
     return None
 
 
+def _derive_use_case(criteria: dict, ucp: dict) -> str | None:
+    """Derive use_case for _soft_preferences from criteria or from good_for_* in ucp."""
+    use_case = criteria.get("use_case") if criteria else None
+    if isinstance(use_case, str) and use_case.strip():
+        return use_case.strip()
+    if ucp.get("good_for_gaming"):
+        return "gaming"
+    if ucp.get("good_for_ml"):
+        return "ml"
+    if ucp.get("good_for_creative"):
+        return "creative"
+    if ucp.get("good_for_web_dev"):
+        return "web_dev"
+    category = (criteria or {}).get("category") or ""
+    if isinstance(category, str) and "school" in category.lower():
+        return "school"
+    if isinstance(category, str) and "office" in category.lower():
+        return "business"
+    return "general"
+
+
 def criteria_to_expected_ucp(criteria: dict) -> dict:
-    """Map extracted_criteria JSON to expected_ucp (hard keys for scoring)."""
+    """Map extracted_criteria JSON to expected_ucp (hard keys for scoring) and _soft_preferences."""
     ucp = {
         "category": "Electronics",
         "product_type": "laptop",
     }
     if not criteria:
+        ucp["_soft_preferences"] = {"use_case": "general"}
         return ucp
 
     # price -> price_max_cents
@@ -91,6 +113,14 @@ def criteria_to_expected_ucp(criteria: dict) -> dict:
         if b is True:
             ucp[key] = True
 
+    # Non-hard constraints: _soft_preferences (use_case, liked_features for ranking / agent alignment)
+    use_case = _derive_use_case(criteria, ucp)
+    soft: dict = {"use_case": use_case}
+    features = criteria.get("features") or criteria.get("liked_features")
+    if features is not None:
+        soft["liked_features"] = [features] if isinstance(features, str) else (features if isinstance(features, list) else [])
+    ucp["_soft_preferences"] = soft
+
     return ucp
 
 
@@ -119,11 +149,53 @@ def load_golden_items_from_csv(csv_path: Path) -> list[dict]:
     return items
 
 
+def _derive_use_case_from_expected_ucp(expected_ucp: dict) -> str:
+    """Derive use_case for _soft_preferences from existing expected_ucp (good_for_* only)."""
+    if expected_ucp.get("good_for_gaming"):
+        return "gaming"
+    if expected_ucp.get("good_for_ml"):
+        return "ml"
+    if expected_ucp.get("good_for_creative"):
+        return "creative"
+    if expected_ucp.get("good_for_web_dev"):
+        return "web_dev"
+    return "general"
+
+
+def enrich_golden_with_soft_preferences(golden_path: Path) -> int:
+    """Add _soft_preferences to each expected_ucp in an existing golden_dataset.json (in place)."""
+    with open(golden_path, "r", encoding="utf-8") as f:
+        items = json.load(f)
+    for item in items:
+        ucp = item.get("expected_ucp") or {}
+        existing = ucp.get("_soft_preferences")
+        use_case = _derive_use_case_from_expected_ucp(ucp) if not existing else existing.get("use_case", "general")
+        liked = (existing or {}).get("liked_features")
+        if liked is None:
+            liked = []
+        ucp["_soft_preferences"] = {"use_case": use_case, "liked_features": liked if isinstance(liked, list) else [liked] if liked else []}
+    with open(golden_path, "w", encoding="utf-8") as f:
+        json.dump(items, f, indent=2)
+    print(f"Enriched {len(items)} items with _soft_preferences")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build golden_dataset.json from agent_response laptop CSV")
     parser.add_argument("--csv", type=Path, default=DEFAULT_CSV, help="Path to query_data_enriched.csv")
     parser.add_argument("--golden", type=Path, default=DEFAULT_GOLDEN, help="Output golden_dataset.json path")
+    parser.add_argument(
+        "--enrich-existing",
+        action="store_true",
+        help="Add _soft_preferences to each expected_ucp in existing golden file (in place)",
+    )
     args = parser.parse_args()
+
+    if args.enrich_existing:
+        if not args.golden.is_file():
+            print(f"Error: golden file not found: {args.golden}", file=sys.stderr)
+            return 1
+        return enrich_golden_with_soft_preferences(args.golden)
 
     if not args.csv.is_file():
         print(f"Error: CSV not found: {args.csv}", file=sys.stderr)

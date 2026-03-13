@@ -63,7 +63,7 @@ def _product_matches_hard_constraint(product: Dict[str, Any], key: str, value: A
             return False
     if key in ("min_screen_size", "max_screen_size"):
         attrs = product.get("attributes") or {}
-        screen = attrs.get("screen_size")
+        screen = attrs.get("screen_size") or attrs.get("screen_size_inches")
         try:
             s = float(screen or 0)
             if key == "min_screen_size":

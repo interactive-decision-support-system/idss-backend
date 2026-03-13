@@ -11,7 +11,14 @@
       "min_screen_size": 15.1,
       "max_screen_size": 16.1
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "6c5193f7-9984-4492-a253-6acdd6d3b4da",
+      "6054fc10-c44e-4b33-9024-4a850d2e66ca",
+      "def677dc-e665-464d-97d2-620899348acc",
+      "a1f334e8-3d9e-4682-a617-5bb58bd8e209",
+      "28eb810f-5209-4298-be3b-c39ca2ccaed5",
+      "d78fc92f-d40f-41a1-abb0-55882f63b4e7"
+    ]
   },
   {
     "query_id": "laptop_2",
@@ -63,7 +70,18 @@
       "min_screen_size": 13.5,
       "max_screen_size": 14.5
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "9f09bf27-4a97-4a6a-afe7-ccfbbe956212",
+      "9638137a-81bb-418e-887d-84ddb31232b8",
+      "ba7c7292-9e35-49b0-b8a5-582c5a00a732",
+      "586b9f87-71d5-4531-883a-c9050a52bd01",
+      "eedce8ed-7314-49de-b73c-0433047b305b",
+      "8fc3b53b-96b0-440e-b64c-044d7129493a",
+      "1cc191cd-2857-48f1-9357-fa440caa08e8",
+      "7483ed02-18f9-40a7-8098-367324253eda",
+      "0952af0b-ff19-4310-80a3-788cfcfae4c3"
+    ]
   },
   {
     "query_id": "laptop_6",
@@ -86,7 +104,18 @@
       "min_screen_size": 13.5,
       "max_screen_size": 14.5
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "7483ed02-18f9-40a7-8098-367324253eda",
+      "9638137a-81bb-418e-887d-84ddb31232b8",
+      "995c709e-1d98-4832-b216-9a1cbf64222b",
+      "c8020c96-aeec-46f6-9795-3be98dccf2f0",
+      "8fc3b53b-96b0-440e-b64c-044d7129493a",
+      "1cc191cd-2857-48f1-9357-fa440caa08e8",
+      "66bc4654-d802-4ebb-a0bc-3ab9e989f43f",
+      "a09252bf-4c43-471d-9d47-fe874d277e61",
+      "ac1333ac-ba56-4476-a62d-f555a08a8ff5"
+    ]
   },
   {
     "query_id": "laptop_8",
@@ -161,7 +190,18 @@
       "min_screen_size": 14.0,
       "max_screen_size": 15.0
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "742fe38b-0065-4006-b7b5-6106c62a69a8",
+      "9638137a-81bb-418e-887d-84ddb31232b8",
+      "0952af0b-ff19-4310-80a3-788cfcfae4c3",
+      "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "43c81cd9-80dc-42b2-8520-f4dd32e368a3",
+      "9cf8669c-261c-421d-9455-af4f798f6a29",
+      "c8020c96-aeec-46f6-9795-3be98dccf2f0",
+      "8fc3b53b-96b0-440e-b64c-044d7129493a",
+      "1cc191cd-2857-48f1-9357-fa440caa08e8",
+      "f9496461-a450-4a16-aa4f-bfe9157394b4"
+    ]
   },
   {
     "query_id": "laptop_14",
@@ -214,7 +254,18 @@
       "min_screen_size": 15.5,
       "max_screen_size": 16.5
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "f0e10701-99c7-4249-b117-886b006a5ff2",
+      "0ae88c4b-ae6f-4bb3-ac09-c5b8ebda5e09",
+      "24f47dfd-1809-43d8-aa9a-21237465bdb2",
+      "eaf5cc40-d7b0-4d74-824a-d5b86af58ddd",
+      "fef912c2-91a0-492c-ae03-021f0c9b56cc",
+      "06d3f4d2-47e4-4218-bf2f-14938f9ceaa4",
+      "bdca0b1e-c04e-496c-b424-af29894bbe25",
+      "2497df8b-5528-4e75-a61f-37bdcc2a003f",
+      "b84ac4e2-6ab6-4601-83a6-d55b7f6e4ee6",
+      "f30e7230-a411-4df5-81a9-c9ba370d4174"
+    ]
   },
   {
     "query_id": "laptop_18",
@@ -225,7 +276,11 @@
       "price_max_cents": 200000,
       "good_for_creative": true
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
+      "398a53ff-da8b-4955-92ad-c4d8eb9c31a9",
+      "6a7d51d9-78d9-4c90-a002-7b89cc7a894c"
+    ]
   },
   {
     "query_id": "laptop_19",
@@ -314,7 +369,10 @@
       "price_max_cents": 250000,
       "good_for_gaming": true
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "00d7d336-f17a-472b-8f0a-02f6b2cbbd25",
+      "6ba261e8-800b-4750-b19a-3e2a576a5c2a"
+    ]
   },
   {
     "query_id": "laptop_26",
@@ -335,7 +393,18 @@
       "product_type": "laptop",
       "price_max_cents": 35000
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "742fe38b-0065-4006-b7b5-6106c62a69a8",
+      "0952af0b-ff19-4310-80a3-788cfcfae4c3",
+      "bd14b5b1-4fe5-4557-81f6-bddfc6abe622",
+      "ed84af18-8a1c-48df-8ec6-9bbaa71853e8",
+      "8863ce9a-201a-4ca5-895d-976ecb65dca0",
+      "aaae5c14-1a66-40a7-b156-453bc42600a3",
+      "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "c1ae975b-8aec-4f3e-b145-883daa75ab8a",
+      "8b36dc17-88cf-4b36-9832-d9e66e2848f1",
+      "26776e64-e3b8-400a-9b20-ee1381cf91f7"
+    ]
   },
   {
     "query_id": "laptop_28",
@@ -373,7 +442,10 @@
       "price_max_cents": 150000,
       "good_for_creative": true
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
+      "6a7d51d9-78d9-4c90-a002-7b89cc7a894c"
+    ]
   },
   {
     "query_id": "laptop_31",
@@ -424,7 +496,10 @@
       "good_for_creative": true,
       "good_for_web_dev": true
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
+      "398a53ff-da8b-4955-92ad-c4d8eb9c31a9"
+    ]
   },
   {
     "query_id": "laptop_35",
@@ -502,7 +577,12 @@
       "good_for_gaming": true,
       "good_for_creative": true
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "406a9be0-2aa4-47b0-b49f-e4c3b7faa4e4",
+      "5d213ac7-dfb5-4bab-a972-78adb494adc5",
+      "25f6ed92-2db4-444c-a7a5-eddbc0349ca4",
+      "6ba261e8-800b-4750-b19a-3e2a576a5c2a"
+    ]
   },
   {
     "query_id": "laptop_41",
@@ -513,7 +593,11 @@
       "price_max_cents": 200000,
       "good_for_creative": true
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
+      "398a53ff-da8b-4955-92ad-c4d8eb9c31a9",
+      "6a7d51d9-78d9-4c90-a002-7b89cc7a894c"
+    ]
   },
   {
     "query_id": "laptop_42",
@@ -538,7 +622,18 @@
       "min_screen_size": 14.5,
       "max_screen_size": 15.5
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "4e2c9e4f-8476-42f1-9d5e-3acbf01fe12c",
+      "f5617aae-253d-4f1b-a34f-3791f359d402",
+      "7546aefb-dca3-4b9f-a00d-6f1fc28a5b83",
+      "99c2d4e2-a049-4e4a-86b2-191170f6d38e",
+      "3fab14a9-5807-49ec-8663-8a82e8873638",
+      "cbcbe1c4-1b1d-4e05-af1b-060651982bd8",
+      "2a95f9fe-3fe8-44aa-8645-a903cf350d21",
+      "b5d4d16e-5f3e-45b3-98ac-0fe43ef87364",
+      "c18a6c2a-032a-443a-92df-49b23b43d552",
+      "2dac4c20-8cdd-4f71-8ac2-8dce8880be35"
+    ]
   },
   {
     "query_id": "laptop_44",
@@ -594,7 +689,18 @@
       "min_screen_size": 14.5,
       "max_screen_size": 15.5
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "ece73516-a1ab-4d4f-b689-8189023083d6",
+      "fe9a4e0f-c753-486b-bfd7-d296ac9aec53",
+      "a2b5aa21-153f-45f0-84b8-1e505387afdf",
+      "f2ab6e50-725c-4305-96d9-bc6b9ef5fddf",
+      "16279257-1428-4992-bb52-14c0b598bdf8",
+      "fe94c013-37f9-4595-8e55-36f2aa258fb8",
+      "43bcc47e-e446-473c-83f0-1481a4badd05",
+      "3f302b05-29b2-4e9e-82a5-c29c9cd796b0",
+      "46b40ca4-4176-471b-832b-57f19d056195",
+      "ceacedf5-b33e-49d1-9a2d-9ca41aaf8acf"
+    ]
   },
   {
     "query_id": "laptop_48",
@@ -606,7 +712,18 @@
       "min_screen_size": 13.5,
       "max_screen_size": 14.5
     },
-    "ground_truth_product_ids": []
+    "ground_truth_product_ids": [
+      "ac82562e-3232-4f40-8f6e-40cb416a0347",
+      "742fe38b-0065-4006-b7b5-6106c62a69a8",
+      "0952af0b-ff19-4310-80a3-788cfcfae4c3",
+      "eedce8ed-7314-49de-b73c-0433047b305b",
+      "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
+      "9638137a-81bb-418e-887d-84ddb31232b8",
+      "010d5cc9-1f17-43c8-bd55-3b8e4ead8325",
+      "59a461f3-5d13-41de-9cfc-3fbfcf8911b1",
+      "1979a488-15a9-480d-b29b-a94dc844dcd2",
+      "586b9f87-71d5-4531-883a-c9050a52bd01"
+    ]
   },
   {
     "query_id": "laptop_49",

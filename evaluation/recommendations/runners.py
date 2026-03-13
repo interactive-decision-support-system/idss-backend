@@ -22,6 +22,7 @@ if _MCP not in sys.path:
 
 from evaluation.recommendations.schema import GoldenItem, load_golden_dataset
 from evaluation.recommendations.scoring import (
+    HARD_KEYS,
     hard_constraint_pass_rate,
     mean_soft_similarity,
     score_recommendations,
@@ -29,7 +30,7 @@ from evaluation.recommendations.scoring import (
 
 
 def _normalize_filters(f: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize filter dict for comparison (e.g. list vs single value)."""
+    """Normalize filter dict for comparison (e.g. list vs single value). Skips keys starting with _."""
     out = {}
     for k, v in f.items():
         if k.startswith("_"):
@@ -43,29 +44,59 @@ def _normalize_filters(f: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _ucp_match_rate(produced: Dict[str, Any], expected: Dict[str, Any]) -> float:
-    """
-    Key-wise match: for each key in expected, produced has same value (or equivalent).
-    Returns fraction of expected keys that match.
-    """
-    exp = _normalize_filters(expected)
-    prod = _normalize_filters(produced)
-    if not exp:
-        return 1.0
+def _soft_preferences_match(produced: Dict[str, Any], expected: Dict[str, Any]) -> Tuple[int, int]:
+    """Compare _soft_preferences sub-dicts. Returns (matches, total expected soft keys)."""
+    exp_soft = expected.get("_soft_preferences") or {}
+    prod_soft = dict(produced.get("_soft_preferences") or {})
+    if not exp_soft:
+        return 0, 0
+    # Normalize: missing liked_features in produced treated as []
+    if "liked_features" in exp_soft and "liked_features" not in prod_soft:
+        prod_soft["liked_features"] = []
     matches = 0
-    for k, v in exp.items():
-        pv = prod.get(k)
+    for k, v in exp_soft.items():
+        pv = prod_soft.get(k)
         if v is None and pv is None:
             matches += 1
         elif v is None:
             continue
-        elif isinstance(v, (list, tuple)) and isinstance(pv, (list, tuple)):
-            matches += 1 if set(str(x) for x in v) == set(str(x) for x in pv) else 0
+        elif isinstance(v, (list, tuple)):
+            pv_list = pv if isinstance(pv, (list, tuple)) else ([pv] if pv is not None else [])
+            matches += 1 if set(str(x) for x in v) == set(str(x) for x in pv_list) else 0
         elif str(v).lower() == str(pv).lower():
             matches += 1
         elif v == pv:
             matches += 1
-    return matches / len(exp)
+    return matches, len([x for x in exp_soft.values() if x is not None])
+
+
+def _ucp_match_rate(produced: Dict[str, Any], expected: Dict[str, Any]) -> float:
+    """
+    Key-wise match: hard keys (non-_) plus _soft_preferences (use_case, liked_features).
+    Returns fraction of expected keys that match.
+    """
+    exp = _normalize_filters(expected)
+    prod = _normalize_filters(produced)
+    hard_matches = 0
+    hard_total = len(exp)
+    for k, v in exp.items():
+        pv = prod.get(k)
+        if v is None and pv is None:
+            hard_matches += 1
+        elif v is None:
+            continue
+        elif isinstance(v, (list, tuple)) and isinstance(pv, (list, tuple)):
+            hard_matches += 1 if set(str(x) for x in v) == set(str(x) for x in pv) else 0
+        elif str(v).lower() == str(pv).lower():
+            hard_matches += 1
+        elif v == pv:
+            hard_matches += 1
+    soft_matches, soft_total = _soft_preferences_match(produced, expected)
+    total_matches = hard_matches + soft_matches
+    total_keys = hard_total + soft_total
+    if total_keys == 0:
+        return 1.0
+    return total_matches / total_keys
 
 
 # ---------------------------------------------------------------------------
@@ -96,9 +127,52 @@ def run_query_to_ucp(golden: GoldenItem) -> Dict[str, Any]:
     }
 
 
+def run_query_to_ucp_baseline(golden: GoldenItem) -> Dict[str, Any]:
+    """
+    Baseline for Shopping Agent (query→UCP): extract filters via LLM (same as recs baseline),
+    then compare produced filters to expected_ucp. No agent; uses OPENAI_MODEL from .env.
+    """
+    from evaluation.recommendations.baseline import _extract_baseline_filters_ucp
+
+    produced = _extract_baseline_filters_ucp(golden.user_query)
+    match_rate = _ucp_match_rate(produced, golden.expected_ucp)
+    return {
+        "query_id": golden.query_id,
+        "query": golden.user_query,
+        "expected_ucp_match": match_rate,
+        "produced_ucp": produced,
+        "expected_ucp": golden.expected_ucp,
+    }
+
+
 # ---------------------------------------------------------------------------
 # (b) UCP -> recs only
 # ---------------------------------------------------------------------------
+
+def _normalize_expected_ucp_for_search(expected_ucp: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build search filters from expected_ucp using only UCP hard-filter keys (HARD_KEYS).
+    Map to what search_products expects:
+    - min_screen_size / max_screen_size -> min_screen_inches (endpoint has no max; scoring still enforces it)
+    - good_for_*: true -> use_cases list
+    """
+    filters = {k: v for k, v in expected_ucp.items() if k in HARD_KEYS and v is not None}
+    if filters.get("min_screen_size") is not None and "min_screen_inches" not in filters:
+        filters["min_screen_inches"] = filters.pop("min_screen_size")
+    if filters.get("max_screen_size") is not None:
+        filters.pop("max_screen_size")  # endpoint has no max_screen filter; scoring still enforces it
+    use_cases = []
+    for key in ("good_for_gaming", "good_for_ml", "good_for_creative", "good_for_web_dev"):
+        if filters.pop(key, None):
+            uc = key.replace("good_for_", "")
+            if uc == "ml":
+                use_cases.append("ml")
+            else:
+                use_cases.append(uc)
+    if use_cases:
+        filters["use_cases"] = use_cases
+    return filters
+
 
 async def run_ucp_to_recs(golden: GoldenItem, limit: int = 10) -> Dict[str, Any]:
     """
@@ -109,7 +183,7 @@ async def run_ucp_to_recs(golden: GoldenItem, limit: int = 10) -> Dict[str, Any]
     from app.schemas import SearchProductsRequest
     from app.database import SessionLocal
 
-    filters = dict(golden.expected_ucp)
+    filters = _normalize_expected_ucp_for_search(golden.expected_ucp)
     filters.setdefault("category", "Electronics")
     filters.setdefault("product_type", "laptop")
     req = SearchProductsRequest(query="", filters=filters, limit=limit)
@@ -238,11 +312,11 @@ async def run_full_system(golden: GoldenItem, n_rows: int = 2, n_per_row: int = 
 # ---------------------------------------------------------------------------
 
 def run_baseline_eval(golden: GoldenItem, limit: int = 10) -> Dict[str, Any]:
-    """Run baseline LLM recommender; score with same hard + soft."""
+    """Run baseline: extract filters via LLM (OPENAI_MODEL from .env), search Supabase only; score with same hard + soft."""
     from app.tools.supabase_product_store import get_product_store
-    from evaluation.recommendations.baseline import baseline_recommendations_with_products
+    from evaluation.recommendations.baseline import baseline_ucp_recs_supabase_only
 
-    ids, products = baseline_recommendations_with_products(golden.user_query, get_product_store())
+    ids, products = baseline_ucp_recs_supabase_only(golden.user_query, get_product_store(), limit=limit)
     if not products:
         return {
             "query_id": golden.query_id,

@@ -23,5 +23,15 @@
     "test_id": "reset_1",
     "user_query": "Start over",
     "expected_topic_or_criteria": "Agent should reset and ask what the user is looking for today."
+  },
+  {
+    "test_id": "laptop_multiturn_1",
+    "messages": [
+      "I need a laptop for programming under $1000",
+      "16GB RAM is fine",
+      "Yes, show me some options"
+    ],
+    "user_query": "I need a laptop for programming under $1000",
+    "expected_topic_or_criteria": "Agent should clarify needs (e.g. RAM), then provide relevant laptop recommendations matching budget and use case."
   }
 ]

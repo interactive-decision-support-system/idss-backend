@@ -1,10 +1,10 @@
-# Agent Response Evaluation: Failed Cases Report
+# Agent Response Evaluation: Case Report
 
-This report summarizes the **8 test cases** (out of 50) where the agent failed the G-Eval relevance/helpfulness threshold (0.5).
+This report summarizes (1) the **8 test cases** where the agent failed the G-Eval threshold (0.5), and (2) **themes among cases where the baseline outscores the agent** (including where the agent passed but the baseline did better).
 
 ---
 
-## Summary
+## Summary (agent only)
 
 - **Total cases:** 50
 - **Passed:** 42
@@ -143,4 +143,33 @@ Best pick: HP 15.6" FHD Touchscreen Laptop
 
 ---
 
-*Report generated from `evaluation/agent_response/results/agent_response_eval_results.json`.*
+## Cases where the baseline outscores the agent
+
+Across the 50 test cases, the **baseline scores higher than the agent in 26 cases**. In **18 of those**, the agent *passed* (score ≥ 0.5) but the baseline did better.
+
+### Agent passed but baseline did better (18 cases)
+
+**Common threads:**
+
+1. **Agent asks a clarifying question; baseline gives direct recommendations.**  
+   In most of these 18 cases (14/18), the agent's response type is **question** (e.g. "What minimum RAM?", "What will you primarily use it for?", "What brand?"). The judge accepts that as helpful enough to pass. The baseline, by contrast, **extracts filters from the query, searches the catalog, and returns concrete product recommendations** with price and specs. The judge consistently rewards that direct, recommendation-style response more than a single clarifying question when the user has already given a reasonably specific request (budget, use case, size).
+
+2. **Well-specified queries favor the baseline.**  
+   When the user has already stated budget, use case (e.g. college, CAD, engineering, gaming), and often screen size or brand, the baseline's "extract → search → format" pipeline produces a focused list of options. The agent often asks one more thing (RAM, brand, primary use) instead of going straight to recs. For queries like "college laptop under $1400 for SolidWorks/coding/gaming" or "work laptop under $1000 with 6+ hours battery," **direct recs score higher than passing-but-generic questions.**
+
+3. **Redundant or off-note questions.**  
+   In a few cases the agent asks something the user already answered (e.g. "What will you primarily use it for?" when the user said software engineering, Phoenix server, Claude Code), or asks "primary use" when the query already lists CAD, gaming, and programming. The baseline avoids that by not asking—it just returns catalog-backed recs—and scores higher.
+
+4. **When both give recommendations, baseline can still win.**  
+   In 4 of the 18 cases the agent gave **recommendations** (laptop_20, laptop_23, laptop_26, laptop_41). The baseline's replies tend to be more explicit about matching the ask (e.g. calling out battery life, build quality, or "no 14-inch options" and offering the closest fit), or to avoid including Chromebooks when the user asked for Windows/Android, which the judge penalizes when the agent does it.
+
+### General themes when baseline outscores the agent (all 26 cases)
+
+- **Direct, catalog-anchored recommendations** (with price/specs and clear "why this fits") consistently score well. The baseline always does that when it has catalog hits.
+- **Clarifying questions** are accepted as helpful but often score lower than a solid list of recs for the same query—especially when the query is already specific.
+- **Acknowledging gaps** (e.g. "we don't have 14-inch options" or "RAM not listed in catalog") in the baseline's reply can improve scores compared to the agent giving recs that ignore a stated constraint (e.g. 16GB RAM, Windows-only) or mixing in unsuitable products (Chromebooks for Windows-only use cases).
+- The **remaining 8** of the 26 are the **agent-failed** cases (e.g. laptop_1, laptop_5, laptop_6): the agent failed the threshold and the baseline passed, often by giving recs that at least acknowledge constraints or by avoiding generic questions when the user was already detailed.
+
+---
+
+*Report generated from `evaluation/agent_response/results/agent_response_eval_results.json` and `agent_response_eval_results_baseline.json`.*

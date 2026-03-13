@@ -1,0 +1,230 @@
+[
+  {
+    "query_id": "laptop_1",
+    "query": "Need an HP laptop for everyday use under $650. Prefer a 15.6-inch touchscreen with at least 16GB RAM.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.6439222454535727,
+    "recommended_ids": [
+      "1a9612f5-4a0f-57c8-b6b6-d48de0489e79",
+      "085e8b52-8e9d-5489-bd04-d812c3391574",
+      "1724a182-1f2b-527a-bc9f-6f95bb0da26d",
+      "09207729-b20a-5832-bd2e-89e1ad60c0bb",
+      "08518fb7-d7b2-5227-ab86-49468d561a90",
+      "138fe120-d219-5e7b-8e19-50971ac952ba",
+      "0425a395-228e-5629-ad5c-bf62246e09fc",
+      "0559b9a6-e849-5bd4-92ec-7af9443bcdf0",
+      "1b1fe80c-8ce1-50c6-bab1-bfe2b8b0c881",
+      "186c6fc1-fb58-5694-914c-014cb00a1697"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_5",
+    "query": "Looking for a Windows laptop for a neuroscience/business student under $1200 with a ~14-inch matte, non-touchscreen display. Priorities are fast performance for heavy multitasking (Office + streaming + 20+ browser tabs), durability, light weight, and 8+ hours of battery life. Considering Lenovo ThinkPad X1 (2024) or Surface Laptop 7, but not a MacBook.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.5792510183051347,
+    "recommended_ids": [
+      "05f35a8c-4c47-5cdc-83c8-fdd954fb442e",
+      "06b18fe2-7fbe-5419-bd18-832735043a07",
+      "011fb111-54d9-58b6-9ddd-2c45f7430055",
+      "066a789c-4129-5660-b2eb-03a8f032e69e",
+      "0602968b-380e-54dd-9055-9266d3c612a7",
+      "005f9957-0764-50db-813c-bbed5cf3b36c",
+      "04ea89aa-3760-52a4-b6ef-e15bd7d36794",
+      "053c55b9-b8a6-5307-a66d-1f2ee1535aaf",
+      "0359c757-b175-55dd-a2c4-380065287795",
+      "03d1cfda-cc03-57eb-abe5-fc9fa9710288"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_7",
+    "query": "Need a portable ~14\" laptop for an incoming biology major, with good battery life and a good keyboard. Prefer a touchscreen for digital note-taking (open to 2-in-1), and open to used/refurb options under $1000. Fingerprint reader and backlit keyboard/build quality are nice-to-haves.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.600617649254165,
+    "recommended_ids": [
+      "02aea49d-21c4-59d8-88c1-10862d4931db",
+      "005f9957-0764-50db-813c-bbed5cf3b36c",
+      "05daa0bb-75f5-5eaf-9b3b-df08fb6a52a7",
+      "029f97ef-93ed-4908-a01e-bb550d38e916",
+      "01507ed9-0a18-5209-af40-d94c71dfb074",
+      "001dc53a-9018-5328-9310-02b147bdba03",
+      "00e221d4-b37b-565d-85d1-b6ceceb48567",
+      "055297ed-5286-5d37-b96e-a17a779ffcf4",
+      "032a504d-1609-5cc6-88dc-54bc77ad911f",
+      "03d1cfda-cc03-57eb-abe5-fc9fa9710288"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_13",
+    "query": "Looking for a new work laptop under $1,000 USD with strong battery life (at least 6 hours) and high reliability. Prefer a 14\u201315 inch screen with the webcam at the top bezel, plus at least two USB ports and a headphone jack. Used mainly for Zoom and Microsoft Office; lightweight preferred but not required.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.5880824595738066,
+    "recommended_ids": [
+      "0296eb80-ff35-53de-a2df-8d66da1038a2",
+      "04e1a255-1bd4-5dc9-b411-a587f67dea69",
+      "00f10418-30b3-529d-a54e-19d4f4d74cf1",
+      "06242ea7-8cd7-5d09-9b0f-c94b04c5984f",
+      "0313c32a-08fe-5917-b5b8-9f681101cfbe",
+      "020ed84c-c126-51b6-bbd8-57607efeeb3d",
+      "063453a3-0f15-58cb-a080-de4537ef9c79",
+      "00e221d4-b37b-565d-85d1-b6ceceb48567",
+      "046cb6d1-0bd4-5d04-981b-0f432529655e",
+      "0597998d-4f28-5496-ade6-ee98e2a0892c"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_17",
+    "query": "Looking for a laptop in the US for $500 or less (refurb/used OK) that can run Foundry VTT at recommended settings for Lancer/DnD. Prefers a 16-inch or larger screen and would like somewhat rugged build if possible. Linux compatibility is preferred but not required.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.6541557401912973,
+    "recommended_ids": [
+      "00590664-2cf1-5144-9cb3-3921105828e6",
+      "027c4233-8b0a-5d8d-931c-d5525e16d79e",
+      "06b44bfe-eb9a-53b4-a794-66311aca4627",
+      "06d3f4d2-47e4-4218-bf2f-14938f9ceaa4",
+      "05198984-9699-58ba-829d-fb51b84b063f",
+      "0047d959-2aea-5edf-8a8b-712d9f701526",
+      "08004529-0b03-5da4-ae39-9f80475134f7",
+      "073da7a4-d954-4604-8548-08267f0a6160",
+      "0121050a-a60b-5208-827d-9ca11702d76b",
+      "0126f796-ec86-5e11-9969-970e3c9cea39"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_18",
+    "query": "US aerospace engineering student with a ~$2000 budget wants a Windows 2-in-1 laptop with touchscreen/stylus note-taking to replace a MacBook Air/iPad setup. Needs enough performance for SolidWorks, MATLAB, and other engineering/CAD software, and should work well with a USB-C monitor/keyboard and Bluetooth mouse setup.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.5518127217403884,
+    "recommended_ids": [
+      "0318a190-089e-4ab3-b635-ef6d956ccf8f",
+      "033b28d6-89af-57cc-b4a6-3f6c53922564",
+      "0637c21b-c979-5657-8be3-a64f630d7e75",
+      "0769e57e-bd5b-5318-b55e-c2f46541178d",
+      "072d00d1-a5b8-5d2f-9da3-614009c631b4",
+      "01d1ad6e-3e5f-5e14-84e4-15e3ac88a034",
+      "0480f170-2642-5578-9938-d8b28b7898c7",
+      "0a68ac22-6958-43bf-ba52-d145d163998b",
+      "07e9ceb2-7988-50dc-a3cb-719e5c104e97",
+      "08eef73d-ec2c-50ba-b635-0c582456cd93"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_27",
+    "query": "Looking for a basic, cheap laptop under $350 (USD) for web browsing, Microsoft Office, and reading PDFs. Performance and battery life are the top priorities, and lighter/smaller is preferred. Must have a backlit keyboard, a USB port for a flash drive, and a trackpad; open to refurbished/used if from a reputable seller and under warranty.",
+    "hard_pass_rate": 1.0,
+    "mean_soft_similarity": 0.5725766228494318,
+    "recommended_ids": [
+      "07f2b35b-7818-53d0-8597-f96be9691fca",
+      "02670217-522e-56a1-bfa6-bf65a6623018",
+      "078240f2-6bd3-56a9-aea5-057f183e2df0",
+      "073da7a4-d954-4604-8548-08267f0a6160",
+      "005d205b-741d-59fb-a55d-01b2b3d7eba3",
+      "03457ed9-5f37-5476-8580-906a384e4d3d",
+      "08aa84c4-fcf7-5bd9-bc54-a090c234c67c",
+      "00f25135-6d20-54ba-885e-7a91db2eb838",
+      "08ac1f8e-5466-55d3-90eb-894f8f199447",
+      "00e464f1-9469-5f5b-9c75-eaf6241dd4b6"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_40",
+    "query": "Need a Windows laptop for music production with some casual gaming. Prioritize overall performance and reliability to stay useful for around 5 years. Requesting a couple of recommendations.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.5463721224885137,
+    "recommended_ids": [
+      "01634bd5-56bd-422e-982f-8113dd3c391e",
+      "011cecab-2124-5056-afe4-b3a7e87a4499",
+      "00ee12d6-43a9-5391-9ffc-c4f8d783b0fd",
+      "009d6ef6-46da-5dcd-99b8-9fac2d5da60c",
+      "0201e1d9-8cc9-5595-b4b7-158a22b11c87",
+      "00487f7a-73e2-5a96-a6af-68ca294a1546",
+      "0087b9ad-5566-5009-a8fc-5e768b17a171",
+      "005ae6ae-b54e-539e-9354-c4e43214f86c",
+      "0023816d-c3f2-57fa-b384-f10047b8dc26",
+      "00d7d336-f17a-472b-8f0a-02f6b2cbbd25"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_41",
+    "query": "Need a well-built laptop with great battery life for a Mechanical Engineering BCS, budget $1500\u2013$2000, open to used/refurb. It should handle potential SolidWorks use and Lightroom for photo editing. Considering MacBook vs Lenovo ThinkPad or similar alternatives, and should be comfortable to carry in a backpack.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.5376147462311274,
+    "recommended_ids": [
+      "01bc5fcd-0ddd-4b82-8b30-b4d3034fbbaf",
+      "027d03fe-de45-543a-9424-5b78e7ae6a5f",
+      "0bc9f425-ecd8-4c08-b009-3a45eb2dccce",
+      "08de5c10-c516-4d69-a9c8-7c8dc75253d3",
+      "0318a190-089e-4ab3-b635-ef6d956ccf8f",
+      "017b381d-95d8-4eca-bf81-fd786a6d9c00",
+      "03564221-8e04-5251-9489-52c118fb0d08",
+      "0784a78d-f580-5d11-a008-f41f7a7c7d0a",
+      "072d00d1-a5b8-5d2f-9da3-614009c631b4",
+      "0a68ac22-6958-43bf-ba52-d145d163998b"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_43",
+    "query": "Looking for a new Windows 11 laptop around $1200 that\u2019s portable for frequent travel with a 14\u201315 inch screen. Needs strong performance and good battery life for PhD work using SAS, R, and large Excel datasets plus feed formulation software. Prefers good keyboard, build quality, and input devices; coming from a MacBook Air that can\u2019t run required programs.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.6176346228545346,
+    "recommended_ids": [
+      "06b18fe2-7fbe-5419-bd18-832735043a07",
+      "0506fded-f77e-55de-a6bc-1ee1aa3f226e",
+      "03d1cfda-cc03-57eb-abe5-fc9fa9710288",
+      "004b7ec7-615c-48dd-8d46-301c5b8bf9bc",
+      "05a604ff-f009-5496-bbf8-dad4b1cec28a",
+      "035d3695-90d9-5383-8f4f-0da682ec27ca",
+      "022d37f8-d978-59b8-99db-80c7bea3dff3",
+      "04e1a255-1bd4-5dc9-b411-a587f67dea69",
+      "04a3e6b5-4b61-53dd-871b-45df205e5a22",
+      "00e221d4-b37b-565d-85d1-b6ceceb48567"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_47",
+    "query": "Looking for a well-built 15-inch laptop under $900 (US), preferably new (not refurb/used). Must support USB-C charging and ideally have an Intel CPU. Preferred brands are Lenovo or HP; shopping near Costco or Micro Center.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.6119983921030143,
+    "recommended_ids": [
+      "1e4e6f9d-31a7-5914-9dc7-bd41a067d4ff",
+      "014869c0-ce7f-4b63-abaa-7dda5ae075d1",
+      "1e7be909-c8a6-50d7-99b4-13738239dad5",
+      "22ed1dc2-bad5-502d-8247-ed7c488b9aeb",
+      "1e4b5098-8f05-58a2-8f52-f2578efea358",
+      "10728e79-78a7-5330-bb10-68970c8da6ff",
+      "005f9957-0764-50db-813c-bbed5cf3b36c",
+      "15752e83-b606-5529-8d8c-d0946e9fc2bb",
+      "0bf969ea-134b-4d93-b96b-066e3e26c6c2",
+      "13b6c294-b4e4-5b30-9b86-8eb3b17fbfa3"
+    ],
+    "recommended_count": 10
+  },
+  {
+    "query_id": "laptop_48",
+    "query": "Need an inexpensive laptop ($500\u2013600, USA) that can connect to a Dell WD15 USB-C dock and extend the desktop to two Dell U2412Mc external monitors. It will mostly be used plugged in for tax software plus basic web and Office apps. Must have a 10-key numeric keypad; touchscreen is a nice-to-have.",
+    "hard_pass_rate": 0.0,
+    "mean_soft_similarity": 0.598156093571319,
+    "recommended_ids": [
+      "0201e1d9-8cc9-5595-b4b7-158a22b11c87",
+      "01507ed9-0a18-5209-af40-d94c71dfb074",
+      "090f533d-3fe1-56c9-a1c8-800648a0f3ed",
+      "04d83f80-918c-4826-975f-6e097a9bc3f2",
+      "06d3f4d2-47e4-4218-bf2f-14938f9ceaa4",
+      "020650c6-dd8c-5ba8-b175-bb5936328351",
+      "085e8b52-8e9d-5489-bd04-d812c3391574",
+      "020a6453-2674-5319-bae4-d80863c6234d",
+      "00a65023-9f18-5af3-85cf-4a77b1cc265c",
+      "066433eb-32c0-50c0-877c-7a4940e9d877"
+    ],
+    "recommended_count": 10
+  }
+]

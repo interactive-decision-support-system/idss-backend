@@ -9,7 +9,11 @@
       "brand": "HP",
       "min_ram_gb": 16,
       "min_screen_size": 15.1,
-      "max_screen_size": 16.1
+      "max_screen_size": 16.1,
+      "_soft_preferences": {
+        "use_case": "general",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "6c5193f7-9984-4492-a253-6acdd6d3b4da",
@@ -29,7 +33,11 @@
       "price_max_cents": 80000,
       "min_screen_size": 14.5,
       "max_screen_size": 15.5,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -44,7 +52,11 @@
       "min_screen_size": 13.5,
       "max_screen_size": 14.5,
       "good_for_creative": true,
-      "good_for_web_dev": true
+      "good_for_web_dev": true,
+      "_soft_preferences": {
+        "use_case": "creative",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -56,7 +68,11 @@
       "product_type": "laptop",
       "price_max_cents": 150000,
       "good_for_gaming": true,
-      "good_for_ml": true
+      "good_for_ml": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -68,7 +84,11 @@
       "product_type": "laptop",
       "price_max_cents": 120000,
       "min_screen_size": 13.5,
-      "max_screen_size": 14.5
+      "max_screen_size": 14.5,
+      "_soft_preferences": {
+        "use_case": "general",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
@@ -90,7 +110,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "price_max_cents": 50000,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "creative",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -102,7 +126,11 @@
       "product_type": "laptop",
       "price_max_cents": 100000,
       "min_screen_size": 13.5,
-      "max_screen_size": 14.5
+      "max_screen_size": 14.5,
+      "_soft_preferences": {
+        "use_case": "general",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "ea2f9fa4-6c4a-465d-a479-cd9f665852e5",
@@ -124,7 +152,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "price_max_cents": 100000,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -138,7 +170,11 @@
       "brand": "Lenovo",
       "min_ram_gb": 16,
       "min_screen_size": 14.5,
-      "max_screen_size": 15.5
+      "max_screen_size": 15.5,
+      "_soft_preferences": {
+        "use_case": "general",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -150,7 +186,11 @@
       "product_type": "laptop",
       "price_max_cents": 100000,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -163,7 +203,11 @@
       "price_max_cents": 65000,
       "min_screen_size": 14.5,
       "max_screen_size": 15.5,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -176,7 +220,11 @@
       "price_max_cents": 200000,
       "min_screen_size": 15.5,
       "max_screen_size": 16.5,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -188,7 +236,11 @@
       "product_type": "laptop",
       "price_max_cents": 100000,
       "min_screen_size": 14.0,
-      "max_screen_size": 15.0
+      "max_screen_size": 15.0,
+      "_soft_preferences": {
+        "use_case": "general",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "742fe38b-0065-4006-b7b5-6106c62a69a8",
@@ -211,7 +263,11 @@
       "product_type": "laptop",
       "price_max_cents": 100000,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -227,7 +283,11 @@
       "max_screen_size": 15.5,
       "good_for_gaming": true,
       "good_for_creative": true,
-      "good_for_web_dev": true
+      "good_for_web_dev": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -240,7 +300,11 @@
       "price_max_cents": 100000,
       "min_screen_size": 12.5,
       "max_screen_size": 13.5,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -252,7 +316,11 @@
       "product_type": "laptop",
       "price_max_cents": 50000,
       "min_screen_size": 15.5,
-      "max_screen_size": 16.5
+      "max_screen_size": 16.5,
+      "_soft_preferences": {
+        "use_case": "general",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "f0e10701-99c7-4249-b117-886b006a5ff2",
@@ -274,7 +342,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "price_max_cents": 200000,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "creative",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
@@ -289,7 +361,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "price_max_cents": 80000,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -303,7 +379,11 @@
       "min_screen_size": 15.5,
       "max_screen_size": 16.5,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -315,7 +395,11 @@
       "product_type": "laptop",
       "price_max_cents": 70000,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -329,7 +413,11 @@
       "brand": "Apple",
       "min_screen_size": 15.5,
       "max_screen_size": 16.5,
-      "good_for_web_dev": true
+      "good_for_web_dev": true,
+      "_soft_preferences": {
+        "use_case": "web_dev",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -341,7 +429,11 @@
       "product_type": "laptop",
       "brand": "Apple",
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -356,7 +448,11 @@
       "min_screen_size": 13.5,
       "max_screen_size": 14.5,
       "good_for_gaming": true,
-      "good_for_web_dev": true
+      "good_for_web_dev": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -367,7 +463,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "price_max_cents": 250000,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "00d7d336-f17a-472b-8f0a-02f6b2cbbd25",
@@ -381,7 +481,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "price_max_cents": 40000,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "creative",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -391,7 +495,11 @@
     "expected_ucp": {
       "category": "Electronics",
       "product_type": "laptop",
-      "price_max_cents": 35000
+      "price_max_cents": 35000,
+      "_soft_preferences": {
+        "use_case": "general",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "742fe38b-0065-4006-b7b5-6106c62a69a8",
@@ -414,7 +522,11 @@
       "product_type": "laptop",
       "price_max_cents": 120000,
       "min_ram_gb": 16,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -429,7 +541,11 @@
       "min_screen_size": 14.5,
       "max_screen_size": 15.5,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -440,7 +556,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "price_max_cents": 150000,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "creative",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
@@ -455,7 +575,11 @@
       "product_type": "laptop",
       "price_max_cents": 100000,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -469,7 +593,11 @@
       "min_screen_size": 12.5,
       "max_screen_size": 13.5,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -483,7 +611,11 @@
       "min_screen_size": 13.5,
       "max_screen_size": 14.5,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -494,7 +626,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "good_for_creative": true,
-      "good_for_web_dev": true
+      "good_for_web_dev": true,
+      "_soft_preferences": {
+        "use_case": "creative",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
@@ -511,7 +647,11 @@
       "min_screen_size": 13.5,
       "max_screen_size": 14.5,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -522,7 +662,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "price_max_cents": 25000,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -538,7 +682,11 @@
       "min_screen_size": 14.5,
       "max_screen_size": 15.5,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -550,7 +698,11 @@
       "product_type": "laptop",
       "price_max_cents": 150000,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -564,7 +716,11 @@
       "min_ram_gb": 16,
       "min_screen_size": 14.5,
       "max_screen_size": 15.5,
-      "good_for_web_dev": true
+      "good_for_web_dev": true,
+      "_soft_preferences": {
+        "use_case": "web_dev",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -575,7 +731,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "406a9be0-2aa4-47b0-b49f-e4c3b7faa4e4",
@@ -591,7 +751,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "price_max_cents": 200000,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "creative",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "5ec798c5-cda1-4e84-bd89-f51f9829e4cf",
@@ -608,7 +772,11 @@
       "price_max_cents": 150000,
       "min_screen_size": 11.5,
       "max_screen_size": 12.5,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "creative",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -620,7 +788,11 @@
       "product_type": "laptop",
       "price_max_cents": 120000,
       "min_screen_size": 14.5,
-      "max_screen_size": 15.5
+      "max_screen_size": 15.5,
+      "_soft_preferences": {
+        "use_case": "general",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "4e2c9e4f-8476-42f1-9d5e-3acbf01fe12c",
@@ -646,7 +818,11 @@
       "min_screen_size": 13.5,
       "max_screen_size": 14.5,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -661,7 +837,11 @@
       "min_screen_size": 14.5,
       "max_screen_size": 15.5,
       "good_for_gaming": true,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -674,7 +854,11 @@
       "price_max_cents": 60000,
       "min_screen_size": 12.5,
       "max_screen_size": 13.5,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -687,7 +871,11 @@
       "price_max_cents": 90000,
       "brand": "Lenovo",
       "min_screen_size": 14.5,
-      "max_screen_size": 15.5
+      "max_screen_size": 15.5,
+      "_soft_preferences": {
+        "use_case": "general",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "ece73516-a1ab-4d4f-b689-8189023083d6",
@@ -710,7 +898,11 @@
       "product_type": "laptop",
       "price_max_cents": 60000,
       "min_screen_size": 13.5,
-      "max_screen_size": 14.5
+      "max_screen_size": 14.5,
+      "_soft_preferences": {
+        "use_case": "general",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": [
       "ac82562e-3232-4f40-8f6e-40cb416a0347",
@@ -733,7 +925,11 @@
       "product_type": "laptop",
       "price_max_cents": 170000,
       "min_ram_gb": 32,
-      "good_for_gaming": true
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   },
@@ -744,7 +940,11 @@
       "category": "Electronics",
       "product_type": "laptop",
       "price_max_cents": 100000,
-      "good_for_creative": true
+      "good_for_creative": true,
+      "_soft_preferences": {
+        "use_case": "creative",
+        "liked_features": []
+      }
     },
     "ground_truth_product_ids": []
   }

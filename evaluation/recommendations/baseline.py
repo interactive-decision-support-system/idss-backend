@@ -1,8 +1,12 @@
 """
 Baseline: out-of-the-box LLM with DB schema and user query.
 
-Loads product table schema + short description (or sample rows), prompts the LLM
-to return recommended product IDs (or names resolved to IDs). Same scoring as main system.
+Two modes:
+1. run_baseline / baseline_recommendations_with_products: LLM sees schema + samples,
+   returns product_ids (may hallucinate IDs). Legacy.
+2. baseline_ucp_recs_supabase_only: Same model as .env (OPENAI_MODEL). Extract filters
+   from query via LLM, then search only the Supabase product store. All recs come from
+   the database (no invented IDs). Used for UCP->recs baseline evaluation.
 """
 
 from __future__ import annotations
@@ -11,7 +15,7 @@ import json
 import os
 import re
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _REPO_ROOT not in sys.path:
@@ -22,6 +26,100 @@ if _MCP not in sys.path:
 
 from openai import OpenAI
 
+# Same model as .env (OPENAI_MODEL); used for filter extraction and legacy baseline.
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+
+# ---------------------------------------------------------------------------
+# UCP->recs baseline: Supabase-only (like agent_response baseline)
+# ---------------------------------------------------------------------------
+
+def _extract_baseline_filters_ucp(user_query: str) -> Dict[str, Any]:
+    """Extract search filters and _soft_preferences from the user query via LLM. Uses OPENAI_MODEL from .env."""
+    client = OpenAI()
+    completion = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Extract from the user's laptop request and reply with ONLY a JSON object (no markdown):\n"
+                    "(1) price_max_dollars: number or null (max budget in dollars)\n"
+                    "(2) brand: string or null (e.g. HP, Dell, Lenovo, Apple)\n"
+                    "(3) use_case: one of 'gaming', 'ml', 'creative', 'web_dev', 'school', 'business', 'general' or null\n"
+                    "(4) liked_features: list of strings (specific features they want, e.g. touchscreen, backlit keyboard) or null\n"
+                    "Example: {\"price_max_dollars\": 800, \"brand\": \"HP\", \"use_case\": \"school\", \"liked_features\": [\"touchscreen\"]}"
+                ),
+            },
+            {"role": "user", "content": user_query},
+        ],
+        max_completion_tokens=120,
+    )
+    raw = (completion.choices[0].message.content or "").strip()
+    try:
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        out = json.loads(raw)
+        price_max_dollars = out.get("price_max_dollars")
+        brand = out.get("brand")
+        filters: Dict[str, Any] = {"category": "Electronics", "product_type": "laptop"}
+        if isinstance(price_max_dollars, (int, float)) and price_max_dollars > 0:
+            filters["price_max_cents"] = int(round(price_max_dollars * 100))
+        if isinstance(brand, str) and brand.strip():
+            filters["brand"] = brand.strip()
+        use_case = out.get("use_case")
+        liked_features = out.get("liked_features")
+        soft: Dict[str, Any] = {"use_case": use_case if isinstance(use_case, str) and use_case.strip() else "general"}
+        if liked_features is not None:
+            soft["liked_features"] = liked_features if isinstance(liked_features, list) else [liked_features] if liked_features else []
+        else:
+            soft["liked_features"] = []
+        filters["_soft_preferences"] = soft
+        return filters
+    except (json.JSONDecodeError, TypeError):
+        return {
+            "category": "Electronics",
+            "product_type": "laptop",
+            "_soft_preferences": {"use_case": "general", "liked_features": []},
+        }
+
+
+def _normalize_product_for_scoring(p: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure product dict has price_cents and shape expected by score_recommendations."""
+    out = dict(p)
+    if "price_cents" not in out and "price" in out:
+        try:
+            out["price_cents"] = int(round(float(out["price"]) * 100))
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def baseline_ucp_recs_supabase_only(
+    user_query: str,
+    product_store: Any,
+    limit: int = 10,
+) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """
+    UCP->recs baseline: extract filters from query with LLM (OPENAI_MODEL from .env),
+    then return only products from the Supabase/product store. No schema/sample prompt;
+    all recommendations come from search_products(filters).
+    Returns (product_ids, product_dicts) for scoring.
+    """
+    filters = _extract_baseline_filters_ucp(user_query)
+    products = product_store.search_products(filters, limit=limit)
+    if not products:
+        return [], []
+    normalized = [_normalize_product_for_scoring(p) for p in products]
+    ids = [str(p.get("product_id") or p.get("id", "")) for p in normalized]
+    return ids, normalized
+
+
+# ---------------------------------------------------------------------------
+# Legacy baseline: schema + samples, LLM returns product_ids
+# ---------------------------------------------------------------------------
 
 SCHEMA_DESC = """
 Table: products (laptops / electronics)
@@ -75,7 +173,7 @@ def run_baseline(user_query: str, limit: int = 10) -> List[str]:
     samples = get_sample_products_text(limit=50)
     prompt = BASELINE_PROMPT.format(schema=schema, samples=samples, query=user_query)
     response = client.chat.completions.create(
-        model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        model=OPENAI_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
     )
