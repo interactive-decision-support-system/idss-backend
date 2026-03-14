@@ -147,6 +147,32 @@ _KNOWN_BRANDS = frozenset({
     "System76", "Toshiba", "LG",
 })
 
+_BRAND_EXCLUDE_SYSTEM = (
+    "You are a brand exclusion detector for an e-commerce search engine. "
+    "Given a user message, identify any laptop/computer brands the user wants to AVOID or EXCLUDE. "
+    "Detect ALL forms of exclusion:\n"
+    "  - Direct negation: 'no HP', 'not Dell', 'avoid Apple', 'hate ASUS', 'anything but Lenovo'\n"
+    "  - Indirect/experiential: 'bad experience with Dell', 'steer clear of HP', "
+    "'my last Lenovo broke', 'I don't trust Samsung', 'burned by Apple before'\n"
+    "  - Sarcastic: 'oh great another HP', 'yeah right Dell again'\n"
+    "  - Grouped: 'no HP or Acer', 'neither Dell nor ASUS'\n"
+    "  - Slang/informal: 'we hate mac', 'never mac', 'skip Apple'\n"
+    "Reply with ONLY a comma-separated list of canonical brand names from: "
+    "Apple, Dell, HP, Lenovo, ASUS, MSI, Razer, Microsoft, Samsung, Acer, Gigabyte, "
+    "Framework, System76, Toshiba, LG. "
+    "If no brand should be excluded, reply 'none'. "
+    "Examples:\n"
+    "  'no HP laptops'                        → HP\n"
+    "  'anything but Dell or ASUS'            → Dell,ASUS\n"
+    "  'had a terrible experience with Apple' → Apple\n"
+    "  'steer clear of Lenovo'                → Lenovo\n"
+    "  'my last Samsung kept crashing'        → Samsung\n"
+    "  'we hate mac'                          → Apple\n"
+    "  'I need a fast gaming laptop'          → none\n"
+    "  'show me Dell laptops under $800'      → none\n"
+    "Output ONLY brand names (comma-separated) or 'none' — no explanation, no punctuation."
+)
+
 
 def _extract_brand_semantic(message: str) -> Optional[str]:
     """
@@ -176,6 +202,37 @@ def _extract_brand_semantic(message: str) -> Optional[str]:
         return raw if raw in _KNOWN_BRANDS else None
     except Exception:
         return None
+
+
+def _extract_excluded_brands_semantic(message: str) -> List[str]:
+    """
+    Use a tiny LLM call to detect brands the user wants to EXCLUDE.
+
+    Handles ALL natural language forms: direct negation, indirect hints,
+    bad experiences, sarcasm, and informal phrasing ("we hate mac").
+
+    Falls back to [] on quota/network error — regex results still apply.
+    Cost: ~$0.000004 per call (gpt-4o-mini, max_tokens=20).
+    """
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": _BRAND_EXCLUDE_SYSTEM},
+                {"role": "user", "content": message},
+            ],
+            max_tokens=20,
+            temperature=0,
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        if raw.lower() in ("none", "no brand", "no brands", ""):
+            return []
+        # Parse comma-separated list; accept only known canonical brands
+        candidates = [b.strip().strip('"\'') for b in raw.split(",") if b.strip()]
+        return [b for b in candidates if b in _KNOWN_BRANDS]
+    except Exception:
+        return []
 
 
 # Model configuration — single model for all LLM calls, set via environment
@@ -852,6 +909,18 @@ class UniversalAgent:
                     new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
                 logger.info(f"Extracted filters (normalised): {new_filters}")
                 self.filters.update(new_filters)
+                # If user explicitly chose a brand, remove it from excluded_brands (mind change)
+                if "brand" in new_filters:
+                    _newly_preferred = new_filters["brand"]
+                    _excl = self.filters.get("excluded_brands")
+                    if _excl:
+                        if isinstance(_excl, list):
+                            self.filters["excluded_brands"] = [b for b in _excl if b.lower() != _newly_preferred.lower()] or None
+                        elif isinstance(_excl, str):
+                            self.filters["excluded_brands"] = [b.strip() for b in _excl.split(",") if b.strip().lower() != _newly_preferred.lower()] or None
+                        if not self.filters.get("excluded_brands"):
+                            self.filters.pop("excluded_brands", None)
+                        logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
 
             # Mirror regex fallback heuristic: if user provides ≥3 substantive criteria
             # in a single non-question message, they've stated their requirements →
@@ -951,10 +1020,21 @@ class UniversalAgent:
             parts = re.split(r'\s+(?:or|and)\s+|[,;]\s*', raw_group)
             for part in parts:
                 candidate = part.strip().split()[0]  # first word of each part
+                # Resolve through brand aliases so "mac"→"Apple", "macbook"→"Apple", etc.
+                candidate_normalized = _BRAND_VALUE_ALIASES.get(candidate.lower(), candidate)
                 for brand in _known_brands:
-                    if brand.lower() == candidate.lower():
+                    if brand.lower() == candidate_normalized.lower():
                         if brand not in excl_brands:
                             excl_brands.append(brand)
+
+        # LLM semantic exclusion: catches indirect phrases, bad experiences, sarcasm
+        # that the regex above can't handle ("steer clear of HP", "we hate mac", etc.)
+        _llm_excl = _extract_excluded_brands_semantic(message)
+        for _eb in _llm_excl:
+            if _eb not in excl_brands:
+                excl_brands.append(_eb)
+                logger.info(f"LLM exclusion detected: {_eb}")
+
         if excl_brands:
             criteria.append(SlotValue(slot_name="excluded_brands", value=",".join(excl_brands)))
 
@@ -978,7 +1058,14 @@ class UniversalAgent:
             text, re.IGNORECASE
         )
         if _scr:
-            criteria.append(SlotValue(slot_name="screen_size", value=_scr.group(1)))
+            # Ignore if negated: "I don't want a 14 inch", "no 14 inch screen"
+            _pre_context = text[max(0, _scr.start() - 40):_scr.start()]
+            _scr_negated = re.search(
+                r'(?:no|not|don.t\s+want|don.t\s+like|avoid|hate)',
+                _pre_context, re.IGNORECASE
+            )
+            if not _scr_negated:
+                criteria.append(SlotValue(slot_name="screen_size", value=_scr.group(1)))
 
         # ── Storage type ──────────────────────────────────────────────────────
         if re.search(r'\bssd\b', text):
@@ -1032,9 +1119,17 @@ class UniversalAgent:
 
         # Step 3: apply — skip if brand is in the exclusion list or negated in context
         if _brand_found and _brand_found not in excl_brands:
-            _negation = re.search(
-                r'(?:no|not|avoid|hate|don.t\s+(?:want|like))\s+' + re.escape(_brand_found.lower()),
-                text, re.IGNORECASE,
+            # Check negation using canonical name AND all known aliases
+            # e.g., for "Apple": also check "mac", "macbook", "imac", etc.
+            _brand_aliases_for_negation = [_brand_found.lower()] + [
+                k for k, v in _BRAND_VALUE_ALIASES.items() if v == _brand_found
+            ]
+            _negation = any(
+                re.search(
+                    r'(?:no|not|avoid|hate|don.t\s+(?:want|like))\s+' + re.escape(alias),
+                    text, re.IGNORECASE,
+                )
+                for alias in _brand_aliases_for_negation
             )
             if not _negation:
                 criteria.append(SlotValue(slot_name="brand", value=_brand_found))
@@ -1051,10 +1146,12 @@ class UniversalAgent:
         )
         is_impatient = any(kw in text for kw in _impatient_kws)
         wants_recs = any(kw in text for kw in _rec_kws)
-        # Heuristic: if ≥2 substantive criteria extracted and no question mark,
-        # the user is giving us their requirements — recommend without more questions.
+        # Heuristic: if ≥1 substantive criteria extracted, no question mark, and message
+        # has ≥4 words — the user is stating requirements, not asking a question.
+        # Lowered from ≥2 to ≥1 to avoid penalising evaluation queries that provide
+        # a single clear constraint (e.g., "I need a gaming laptop under $1000").
         substantive = [c for c in criteria if c.slot_name not in ("os",)]
-        if not wants_recs and len(substantive) >= 2 and "?" not in message:
+        if not wants_recs and len(substantive) >= 1 and "?" not in message and len(message.split()) >= 4:
             wants_recs = True
 
         if criteria:
@@ -1069,6 +1166,18 @@ class UniversalAgent:
                 new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
             logger.info(f"Regex fallback extracted (normalised): {new_filters}")
             self.filters.update(new_filters)
+            # If user explicitly chose a brand, remove it from excluded_brands (mind change)
+            if "brand" in new_filters:
+                _newly_preferred = new_filters["brand"]
+                _excl = self.filters.get("excluded_brands")
+                if _excl:
+                    if isinstance(_excl, list):
+                        self.filters["excluded_brands"] = [b for b in _excl if b.lower() != _newly_preferred.lower()] or None
+                    elif isinstance(_excl, str):
+                        self.filters["excluded_brands"] = [b.strip() for b in _excl.split(",") if b.strip().lower() != _newly_preferred.lower()] or None
+                    if not self.filters.get("excluded_brands"):
+                        self.filters.pop("excluded_brands", None)
+                    logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
         else:
             logger.info("Regex fallback: no criteria found")
 

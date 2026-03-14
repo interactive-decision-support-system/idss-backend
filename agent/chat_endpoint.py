@@ -1565,8 +1565,24 @@ async def _handle_post_recommendation(
             try:
                 import time as _time
                 t0 = _time.perf_counter()
+                # Build selection reasons from why_picked (e.g., "Best rating", "Lowest price")
+                _sel_reasons: Dict[str, str] = {}
+                for _p in products:
+                    _name = str(_p.get("name") or _p.get("title") or "")[:60]
+                    _wp = _p.get("why_picked")
+                    if _wp and isinstance(_wp, list) and _wp:
+                        _sel_reasons[_name] = _wp[0]
+                    else:
+                        # Fallback: derive from price/rating attributes
+                        _price = _p.get("price") or _p.get("price_value")
+                        _rating = _p.get("rating")
+                        if _rating and float(_rating or 0) >= 4.5:
+                            _sel_reasons[_name] = f"Top-rated ({_rating}★)"
+                        elif _price:
+                            _sel_reasons[_name] = f"Price: ${_price}"
                 narrative, selected_ids, selected_names = await generate_comparison_narrative(
-                    products, clean_message, active_domain or "laptops"
+                    products, clean_message, active_domain or "laptops",
+                    selection_reasons=_sel_reasons if _sel_reasons else None,
                 )
                 logger.info("comparison_generated", f"Comparison narrative in {(_time.perf_counter()-t0)*1000:.0f}ms", {})
             except Exception as e:

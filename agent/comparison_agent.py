@@ -273,6 +273,7 @@ async def generate_comparison_narrative(
     mode: str = "compare",
     focus_features: Optional[str] = None,
     brands: Optional[tuple] = None,
+    selection_reasons: Optional[Dict[str, str]] = None,
 ) -> str:
     """
     Generate a rich Markdown narrative for the given products.
@@ -355,11 +356,18 @@ async def generate_comparison_narrative(
                 "- Keep each bullet under 20 words."
                 + focus_note
             )
+            _brand_selection_note = ""
+            if selection_reasons:
+                _brand_selection_note = "\n\nWhy these brands were selected for comparison:\n" + "\n".join(
+                    f"- {name}: {reason}" for name, reason in selection_reasons.items()
+                ) + "\nStart with one brief sentence explaining why these brands were chosen for comparison.\n"
+
             user_prompt = (
                 f"User request: \"{user_message}\"\n\n"
                 f"Sample {left_brand_name} products from our catalog:\n{left_spec}\n\n"
-                f"Sample {right_brand_name} products from our catalog:\n{right_spec}\n\n"
-                "Write the brand comparison now."
+                f"Sample {right_brand_name} products from our catalog:\n{right_spec}"
+                + _brand_selection_note
+                + "\n\nWrite the brand comparison now."
             )
 
             try:
@@ -540,11 +548,18 @@ async def generate_comparison_narrative(
             + _focus_instruction
         )
 
+        _selection_note = ""
+        if selection_reasons:
+            _selection_note = "\n\nWhy these products were selected for comparison:\n" + "\n".join(
+                f"- {name}: {reason}" for name, reason in selection_reasons.items()
+            ) + "\nOpen your narrative with one brief sentence explaining why these products were chosen (e.g., 'We selected these because one has the best rating and the other the lowest price').\n"
+
         user_prompt = (
             f"User context/question: \"{user_message}\"\n\n"
             f"Available recommendations:\n{spec_sheet}\n"
-            f"{domain_focus}\n\n"
-            "Output the JSON response now."
+            f"{domain_focus}"
+            + _selection_note
+            + "\n\nOutput the JSON response now."
         )
 
         completion = await client.chat.completions.create(

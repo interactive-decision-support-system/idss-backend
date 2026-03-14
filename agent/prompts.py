@@ -69,9 +69,19 @@ EXTRACTION RULES:
 2. Extract from the ENTIRE message — scan every phrase, not just the first sentence.
    A message like "16GB RAM, SSD, under $1,000" contains THREE slots to extract.
 
-3. Brand EXCLUSIONS (user says "no X", "not X", "refuse X", "hate X", "avoid X", "anything but X"):
+3. Brand EXCLUSIONS — extract ANY message where the user wants to AVOID a brand, including:
+   - Direct negation: "no HP", "not HP", "avoid HP", "hate HP", "anything but HP", "refuse HP"
+   - Indirect/experiential: "I've had bad experiences with Apple", "steer clear of Dell",
+     "my last Lenovo broke", "I don't trust ASUS", "burned by Samsung before"
+   - Sarcastic: "oh great, another HP", "yeah right, Dell again"
+   - Grouped: "no HP or Acer", "neither Dell nor ASUS", "not Dell, not Lenovo"
    → slot_name="excluded_brands", value="Brand1" or "Brand1,Brand2" for multiple.
-   Examples: "no HP" → excluded_brands="HP" | "no HP and no Acer" → excluded_brands="HP,Acer"
+   Examples: "no HP" → excluded_brands="HP"
+             "no HP and no Acer" → excluded_brands="HP,Acer"
+             "had terrible experience with Apple" → excluded_brands="Apple"
+             "anything but Dell or Lenovo" → excluded_brands="Dell,Lenovo"
+             "we hate mac" → excluded_brands="Apple"
+             "steer clear of Lenovo" → excluded_brands="Lenovo"
 
 4. OS requirements ("Windows 10", "Linux only", "must have macOS"):
    → slot_name="os", value="Windows 10" etc.
