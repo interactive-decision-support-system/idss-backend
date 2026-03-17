@@ -30,6 +30,7 @@ python -m evaluation.agent_response.run_eval
 
 - `evaluation/agent_response/results/agent_response_eval_results.json`
 - `evaluation/agent_response/results/agent_response_eval_results.csv`
+- **`evaluation/agent_response/case_report.md`** — Summary, failed cases, and why the agent underperforms (wrong product type, constraint mismatch, generic questions, catalog gaps).
 
 Columns: `test_id`, `user_query`, `agent_message`, `score`, `passed`, `details`.
 
@@ -83,6 +84,8 @@ python -m evaluation.recommendations.run_evaluation [--golden path/to/golden.jso
 | `ucp_to_recs_results_<ts>.csv` / `.json` | UCP → recs: hard pass rate, mean soft similarity (merchant agent only) |
 | `baseline_results_<ts>.csv` / `.json` | Baseline LLM recs (omit with `--skip-baseline`) |
 | `summary_<ts>.json` | Aggregate metrics (query_to_ucp, ucp_to_recs, baseline) |
+
+**Case report:** After running `plot_eval_results`, see **`evaluation/recommendations/case_report.md`** for summary metrics, low UCP-match and zero–hard-pass queries, and patterns.
 
 ---
 

@@ -34,16 +34,15 @@ def eval_results():
     from evaluation.agent_response.run_eval import (
         load_test_cases,
         run_one,
-        evaluate_with_deepeval,
+        evaluate_with_custom_judge,
     )
     import asyncio
-    from agent.chat_endpoint import process_chat, ChatRequest
 
     test_cases = load_test_cases()
     async def run_all():
         return [await run_one(tc) for tc in test_cases]
     rows = asyncio.run(run_all())
-    results = evaluate_with_deepeval(rows, test_cases)
+    results = evaluate_with_custom_judge(rows, test_cases)
     return results
 
 

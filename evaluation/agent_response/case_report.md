@@ -1,174 +1,88 @@
 # Agent Response Evaluation: Case Report
 
-This report summarizes (1) the **8 test cases** where the agent failed the G-Eval threshold (0.5), and (2) **themes among cases where the baseline outscores the agent** (including where the agent passed but the baseline did better).
+This report summarizes the **agent response** evaluation (G-Eval LLM-as-judge): current pass rate, failed cases, and **why the agent performs poorly**.
 
 ---
 
-## Summary (agent only)
+## Summary
 
 - **Total cases:** 50
-- **Passed:** 42
-- **Failed:** 8
-- **Pass rate:** 84%
+- **Passed:** 23
+- **Failed:** 27
+- **Pass rate:** 46%
+
+(Threshold: 0.5. Baseline typically passes more often because it returns direct, catalog-anchored recommendations.)
 
 ---
 
-## Failed Cases (by test_id)
+## Why the agent performs poorly
 
-### laptop_1
+1. **Search/retrieval returning wrong product type**  
+   When the product store has no or few matches for narrow filters (e.g. 2-in-1, Linux, stylus), search relaxation can return **non-laptop items** (e.g. wireless mouse, number pad). The agent then presents them as “best value pick,” and the judge fails the response (scores ~0.1). Fixes: stricter product-type filtering, or “no results” + clarifying question instead of showing off-topic products.
 
-**User query:** Need an HP laptop for everyday use under $650. Prefer a 15.6-inch touchscreen with at least 16GB RAM.
+2. **Recommendations that ignore stated constraints**  
+   The judge penalizes recs that miss explicit user requirements: e.g. **17" when the user asked 14"**, wrong RAM/screen/weight, or recommending Chromebooks when the user needs **Windows** (streaming/capture card, vehicle diagnostic software, etc.). The agent often surfaces whatever the search returns without checking specs against the query. Improving filter→search alignment and post-filter checks would help.
 
-**Agent response type:** recommendations
+3. **Generic or redundant clarifying questions**  
+   When the user has already given a detailed use case (e.g. neuroscience student, CAD + gaming, streaming + video editing), asking “What will you primarily use the laptop for?” or “What brand?” is too generic. The judge marks these as unhelpful. The agent should either go straight to recommendations or ask a single, specific follow-up (e.g. “Do you need a numeric keypad?”).
 
-**Score:** 0.453 (threshold 0.5)
+4. **Catalog and filter gaps**  
+   Some queries (e.g. $230 Windows 11 ThinkPad, 16" under $500, premium ultrabook with USB4) have few or no good matches. The pipeline still returns something (wrong form factor, wrong OS, or accessories), and the judge fails it. Better handling of “no good match” (e.g. explain gap and suggest relaxing a constraint) would improve scores.
 
-**Agent response (excerpt):**
-- HP 15.6" FHD Touchscreen Laptop — solid 15.6" display and full HD touch features for general use.
-- HP Essential 15.6" HD Laptop — affordable 15.6" option with decent everyday performance.
-- HP Essential 15.6" HD Laptop Computer — another budget-friendly 15.6" choice...
-Best pick: HP 15.6" FHD Touchscreen Laptop
-
-**Judge reason (why it failed):** The response is on-topic and provides HP laptop recommendations within the 15.6-inch touchscreen category, aligning with the user's brand and screen size preferences. However, it fails to address the user's explicit requirement for at least 16GB RAM, and does not confirm whether the recommended models meet the $650 budget or RAM specification. This omission significantly reduces the helpfulness and relevance of the recommendations.
-
----
-
-### laptop_5
-
-**User query:** Looking for a Windows laptop for a neuroscience/business student under $1200 with a ~14-inch matte, non-touchscreen display. Priorities are fast performance for heavy multitasking (Office + streaming + 20+ browser tabs), durability, light weight, and 8+ hours of battery life. Considering Lenovo ThinkPad X1 (2024) or Surface Laptop 7, but not a MacBook.
-
-**Agent response type:** question
-
-**Score:** 0.353 (threshold 0.5)
-
-**Agent response (excerpt):** What will you primarily use the laptop for?
-
-**Judge reason (why it failed):** The response asks a clarifying question, which aligns with the evaluation steps, but it is too generic and does not address the user's already detailed use case (neuroscience/business student, heavy multitasking, specific models considered). It misses an opportunity to ask a more targeted follow-up or provide recommendations, resulting in only partial alignment with the expected output.
+5. **Baseline comparison**  
+   The baseline extracts filters from the query, searches the catalog, and returns a concrete list with price/specs. For many well-specified queries, that **direct recommendation** scores higher than the agent’s single clarifying question or a rec set that ignores constraints. The agent’s tendency to ask one more thing (or to surface relaxed/wrong results) explains part of the gap.
 
 ---
 
-### laptop_6
+## Failed cases (by test_id)
 
-**User query:** Looking for a $400–$500 laptop (open to used/refurb) to stream from a PS5 using a capture card and add overlays plus a face cam. Performance is the top priority; weight, thinness, and screen size don't matter. Also needs to handle video editing.
+| test_id   | Score | Main reason (from judge) |
+|-----------|-------|---------------------------|
+| laptop_2  | 0.10  | Recommends wireless mouse, not 2-in-1 laptop (wrong product type). |
+| laptop_3  | 0.26  | ThinkPad T490 doesn’t meet premium specs (32GB, USB4, dual M.2, weight). |
+| laptop_4  | 0.46  | HP 17" is not backpack-friendly; misses portability and build focus. |
+| laptop_5  | 0.34  | Recommends 17.3" IdeaPad; user asked ~14" matte, ThinkPad X1/Surface. |
+| laptop_9  | 0.28  | Ideapad 1i has 4GB RAM, 14" HD; user wanted 16GB, 15" 1080p, ThinkPad. |
+| laptop_12 | 0.41  | 15.6" Inspiron, not 16"; CPU not suited to MMOs/shooters. |
+| laptop_15 | 0.29  | HP 17.3" is not 14–15" 2-in-1, no OLED. |
+| laptop_17 | 0.11  | Recommends number pad, not laptop (wrong product type). |
+| laptop_18 | 0.34  | HP 17" is not 2-in-1/stylus; wrongly references Apple. |
+| laptop_20 | 0.42  | Rec doesn’t align with user’s stated criteria. |
+| laptop_21 | 0.28  | Rec doesn’t align with requirements. |
+| laptop_22 | 0.29  | Two MacBook recs don’t match user’s stated preferences. |
+| laptop_23 | 0.29  | Outdated MacBook Pro model; doesn’t meet needs. |
+| laptop_24 | 0.42  | Rec doesn’t match detailed use case. |
+| laptop_26 | 0.34  | Device/rec doesn’t match price, review, or use case. |
+| laptop_29 | 0.26  | Rec doesn’t match portability / 14" / battery. |
+| laptop_32 | 0.29  | Rec fails to align with several stated requirements. |
+| laptop_33 | 0.22  | HP Pavilion 17.3" doesn’t meet user’s specs. |
+| laptop_35 | 0.45  | Rec doesn’t fully align with stated criteria. |
+| laptop_37 | 0.33  | Rec doesn’t justify fit for stated use case. |
+| laptop_38 | 0.20  | Lenovo rec doesn’t meet user’s requirements. |
+| laptop_39 | 0.37  | Rec doesn’t meet 14" and other stated needs. |
+| laptop_41 | 0.39  | MacBook recs don’t match user’s stated preferences. |
+| laptop_42 | 0.39  | Rec doesn’t match 14" and performance. |
+| laptop_44 | 0.20  | ASUS rec contradicts user’s explicit preference. |
+| laptop_45 | 0.18  | Recommends desktop motherboard instead of laptop (wrong product type). |
+| laptop_49 | 0.20  | Recommends desktop PC, not laptop (wrong product type). |
 
-**Agent response type:** recommendations
-
-**Score:** 0.395 (threshold 0.5)
-
-**Agent response (excerpt):** HP Stream 14", ASUS VivoBook 15.6", HP Chromebook Plus 14", HP 15.6" Full HD, HP 2-in-1 14" Chromebook, Lenovo 11.6" 500e Chromebook... Best pick: HP Stream 14"
-
-**Judge reason (why it failed):** The response provides several laptop recommendations within the budget, but most suggestions are Chromebooks, which are not suitable for capture card streaming from a PS5 or video editing due to OS and hardware limitations. Only the HP Stream and ASUS VivoBook are Windows laptops, but both are entry-level and may struggle with performance-intensive tasks like streaming and video editing. The recommendations do not adequately prioritize performance as requested, nor do they address the need for compatibility with capture cards.
-
----
-
-### laptop_9
-
-**User query:** Need a durable used/refurb 15-inch Windows 11 laptop for a garage/vehicle workshop budgeted at $230. It should handle basic office/web tasks plus vehicle tuning/diagnostic software, with ~3–4 hours battery life and the ability to connect to a TV. Prefer 16GB RAM, 256GB+ SSD, and a 1080p display; considering Lenovo ThinkPad models (P53s/T15/E15/L15).
-
-**Agent response type:** recommendations
-
-**Score:** 0.385 (threshold 0.5)
-
-**Agent response (excerpt):** Lenovo IdeaPad Slim 3i 15.6", Lenovo 14" Chromebook, Lenovo Chromebook Celeron N4500, IdeaPad 1 14", IdeaPad 3i Chromebook 15.6", IdeaPad 3 Chromebook 11.6"... Best pick: None of these fully meet your 16GB RAM and SSD requirement, but the IdeaPad Slim 3i 15.6" is the closest fit.
-
-**Judge reason (why it failed):** The response is on-topic and attempts to provide laptop recommendations, but most suggestions are Chromebooks, which do not run Windows 11 and are not suitable for vehicle diagnostic software. Only one option is a Windows laptop, and none meet the user's key requirements of 16GB RAM, 256GB+ SSD, or ThinkPad preference. The output does acknowledge the mismatch but does not ask clarifying questions or suggest searching for refurbished ThinkPad models as requested.
-
----
-
-### laptop_17
-
-**User query:** Looking for a laptop in the US for $500 or less (refurb/used OK) that can run Foundry VTT at recommended settings for Lancer/DnD. Prefers a 16-inch or larger screen and would like somewhat rugged build if possible. Linux compatibility is preferred but not required.
-
-**Agent response type:** recommendations
-
-**Score:** 0.435 (threshold 0.5)
-
-**Agent response (excerpt):** Dell Latitude 7400 14", HP Chromebook x360 14", Lenovo IdeaPad 3 Ryzen 5 5500U, Lenovo C340 15.6" Chromebook, Acer Chromebook 511 11.6", Dell 3120 Chromebook 11.6"... Best pick: Lenovo IdeaPad 3 Ryzen 5 5500U
-
-**Judge reason (why it failed):** The response provides several laptop recommendations within the stated budget, but most options do not meet the user's preference for a 16-inch or larger screen, with the largest being 15.6 inches. It also includes several Chromebooks, which may not be suitable for running Foundry VTT at recommended settings, especially for Lancer/DnD, and does not address Linux compatibility or ruggedness.
+(Exact scores and full judge reasons are in `evaluation/agent_response/results/agent_response_eval_results.json`.)
 
 ---
 
-### laptop_28
+## Patterns in failed cases
 
-**User query:** Looking for a $1200 laptop in the US for a finance major that can handle Excel-heavy schoolwork and gaming (Minecraft, Roblox, Valorant) at medium–high settings around 60–120 FPS. Prioritizes performance first, then build quality and battery life, with moderate portability and a 14–16 inch screen. Needs a good keyboard, reliable build, at least 16GB RAM, and 512GB+ SSD; open to certified refurbished with warranty and wants it to last 4+ years.
-
-**Agent response type:** question
-
-**Score:** 0.468 (threshold 0.5)
-
-**Agent response (excerpt):** What brand would you prefer for your laptop? Feel free to also share Brand
-
-**Judge reason (why it failed):** The output asks a clarifying question about brand preference, which is relevant and on-topic for laptop recommendations. However, it redundantly repeats "Feel free to also share Brand" and does not address any of the user's detailed requirements (budget, specs, use case). It misses an opportunity to ask a more targeted question or provide initial recommendations, limiting its helpfulness.
+1. **Wrong product type** — Search returns accessories or non-laptops; agent presents them as the best pick → very low score.
+2. **Screen size / form factor mismatch** — Recommending 17" when user asked 14–15", or non-2-in-1 when 2-in-1/stylus was requested.
+3. **Generic clarifying questions** — “What will you primarily use it for?” or “What brand?” after the user already gave detailed needs.
+4. **Chromebooks for Windows-only use cases** — Streaming, video editing, vehicle diagnostics, Foundry VTT require Windows; Chromebooks are penalized.
+5. **Catalog gaps** — No good match for strict requirements; agent still returns something that doesn’t fit, instead of explaining the gap.
 
 ---
 
-### laptop_38
+## Baseline vs agent
 
-**User query:** Looking for a ~$1500 laptop (can go slightly over; refurb/used OK from reputable sellers) prioritized for performance for CAD (SolidWorks/Autodesk), slicers, and some 1080p gaming (~60 FPS). Should be portable enough for school and support docking for peripherals, power delivery, and multiple external monitors.
-
-**Agent response type:** question
-
-**Score:** 0.414 (threshold 0.5)
-
-**Agent response (excerpt):** What will you primarily use the laptop for?
-
-**Judge reason (why it failed):** The Actual Output asks a clarifying question, which is generally appropriate, but it is not relevant in this context because the user already specified their primary uses (CAD, slicers, 1080p gaming). The response does not provide recommendations or ask for missing details such as RAM, brand, or screen size, which would help tailor the advice. It is on-topic but not helpful or aligned with the user's detailed input.
-
----
-
-### laptop_40
-
-**User query:** Need a Windows laptop for music production with some casual gaming. Prioritize overall performance and reliability to stay useful for around 5 years. Requesting a couple of recommendations.
-
-**Agent response type:** recommendations
-
-**Score:** 0.474 (threshold 0.5)
-
-**Agent response (excerpt):** Acer Chromebook 14", HP 15.6" Intel Core i5, Dell 14" AMD Ryzen AI 5, HP 15.6" FHD, Dell XPS 14, Lenovo ThinkPad X1 Carbon Gen 13... Best pick: Dell XPS 14
-
-**Judge reason (why it failed):** (Judge noted the user requested a Windows laptop for music production; including a Chromebook and not explicitly tying recommendations to Windows/music production reduces relevance.)
-
----
-
-## Patterns in Failed Cases
-
-1. **Recommendations missing key constraints** — Recs match budget/brand but omit explicit requirements (e.g. 16GB RAM, touchscreen, Windows 11), or the response does not confirm specs.
-
-2. **Over-recommending Chromebooks** — When the use case requires Windows (streaming/capture card, video editing, vehicle diagnostic software, Foundry VTT, music production), Chromebooks are not suitable; the judge penalizes these.
-
-3. **Generic clarifying questions** — When the user has already given a detailed use case (e.g. neuroscience/business student, CAD + gaming, finance + gaming), asking "What will you primarily use the laptop for?" or "What brand?" is too generic and does not acknowledge the stated needs.
-
-4. **Catalog gaps** — Some queries (e.g. $230 Windows 11 ThinkPad, 16" screen under $500) may have few or no good matches in the catalog; the agent still returns something, and the judge notes the mismatch.
-
----
-
-## Cases where the baseline outscores the agent
-
-Across the 50 test cases, the **baseline scores higher than the agent in 26 cases**. In **18 of those**, the agent *passed* (score ≥ 0.5) but the baseline did better.
-
-### Agent passed but baseline did better (18 cases)
-
-**Common threads:**
-
-1. **Agent asks a clarifying question; baseline gives direct recommendations.**  
-   In most of these 18 cases (14/18), the agent's response type is **question** (e.g. "What minimum RAM?", "What will you primarily use it for?", "What brand?"). The judge accepts that as helpful enough to pass. The baseline, by contrast, **extracts filters from the query, searches the catalog, and returns concrete product recommendations** with price and specs. The judge consistently rewards that direct, recommendation-style response more than a single clarifying question when the user has already given a reasonably specific request (budget, use case, size).
-
-2. **Well-specified queries favor the baseline.**  
-   When the user has already stated budget, use case (e.g. college, CAD, engineering, gaming), and often screen size or brand, the baseline's "extract → search → format" pipeline produces a focused list of options. The agent often asks one more thing (RAM, brand, primary use) instead of going straight to recs. For queries like "college laptop under $1400 for SolidWorks/coding/gaming" or "work laptop under $1000 with 6+ hours battery," **direct recs score higher than passing-but-generic questions.**
-
-3. **Redundant or off-note questions.**  
-   In a few cases the agent asks something the user already answered (e.g. "What will you primarily use it for?" when the user said software engineering, Phoenix server, Claude Code), or asks "primary use" when the query already lists CAD, gaming, and programming. The baseline avoids that by not asking—it just returns catalog-backed recs—and scores higher.
-
-4. **When both give recommendations, baseline can still win.**  
-   In 4 of the 18 cases the agent gave **recommendations** (laptop_20, laptop_23, laptop_26, laptop_41). The baseline's replies tend to be more explicit about matching the ask (e.g. calling out battery life, build quality, or "no 14-inch options" and offering the closest fit), or to avoid including Chromebooks when the user asked for Windows/Android, which the judge penalizes when the agent does it.
-
-### General themes when baseline outscores the agent (all 26 cases)
-
-- **Direct, catalog-anchored recommendations** (with price/specs and clear "why this fits") consistently score well. The baseline always does that when it has catalog hits.
-- **Clarifying questions** are accepted as helpful but often score lower than a solid list of recs for the same query—especially when the query is already specific.
-- **Acknowledging gaps** (e.g. "we don't have 14-inch options" or "RAM not listed in catalog") in the baseline's reply can improve scores compared to the agent giving recs that ignore a stated constraint (e.g. 16GB RAM, Windows-only) or mixing in unsuitable products (Chromebooks for Windows-only use cases).
-- The **remaining 8** of the 26 are the **agent-failed** cases (e.g. laptop_1, laptop_5, laptop_6): the agent failed the threshold and the baseline passed, often by giving recs that at least acknowledge constraints or by avoiding generic questions when the user was already detailed.
+The baseline (extract filters → search DB → format recs) often **scores higher** than the agent on the same query because it (1) always returns direct recommendations when the catalog has hits, (2) doesn’t ask generic follow-ups, and (3) can acknowledge constraints (e.g. “no 14-inch options”) in the formatted reply. The agent’s interview flow and search relaxation help in real use but, in this eval, lead to more failed or borderline cases when the catalog or filters don’t align well with the query.
 
 ---
 

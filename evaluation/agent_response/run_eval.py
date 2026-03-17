@@ -1,12 +1,11 @@
 """
-Pipeline 1: Evaluate agent responses using DeepEval's LLM-as-judge (G-Eval).
+Pipeline 1: Evaluate agent responses using a custom LLM-as-judge (no third-party eval lib).
 
 Runnable as:
   python -m evaluation.agent_response.run_eval
 
-Uses an open-source judge via Ollama when OLLAMA_MODEL_NAME is set (e.g. llama3.2,
-mistral, deepseek-r1:1.5b). Otherwise uses DeepEval's default model (GPT).
-Requires OPENAI_API_KEY (and optionally .env) for the chat agent.
+Judge: OpenAI (OPENAI_JUDGE_MODEL or gpt-4o-mini) or Ollama when OLLAMA_MODEL_NAME is set.
+Requires OPENAI_API_KEY for the chat agent (and for the judge when not using Ollama).
 """
 
 import asyncio
@@ -132,49 +131,11 @@ def load_laptop_test_cases_from_csv() -> list:
     return test_cases
 
 
-def get_judge_model():
-    """Use Ollama (open-source) if configured, else DeepEval default."""
-    ollama_model = os.environ.get("OLLAMA_MODEL_NAME", "").strip() or os.environ.get("DEEPEVAL_OLLAMA_MODEL", "").strip()
-    if ollama_model:
-        try:
-            from deepeval.models import OllamaModel
-            base_url = os.environ.get("LOCAL_MODEL_BASE_URL", "http://localhost:11434")
-            return OllamaModel(
-                model=ollama_model,
-                base_url=base_url,
-                temperature=0.0,
-            )
-        except Exception as e:
-            print(f"Warning: Ollama model '{ollama_model}' not available ({e}). Using default judge.", file=sys.stderr)
-    return None
-
-
-def build_geval_metric(model=None):
-    """Build a G-Eval metric for relevance/helpfulness of the agent response."""
-    from deepeval.metrics import GEval
-    from deepeval.test_case import LLMTestCaseParams
-
-    kwargs = {
-        "name": "Relevance and Helpfulness",
-        "criteria": (
-            "Determine whether the actual output (the agent's reply) is relevant and helpful "
-            "given the user's input. Helpful includes both giving product recommendations and "
-            "asking a relevant clarifying question (e.g., RAM, brand, screen size) to narrow "
-            "down options. The reply should be on-topic (laptops), coherent, and appropriate "
-            "for a recommendation assistant. If expected_topic_or_criteria is provided, use it "
-            "to decide whether the response meets the bar."
-        ),
-        "evaluation_params": [
-            LLMTestCaseParams.INPUT,
-            LLMTestCaseParams.ACTUAL_OUTPUT,
-            LLMTestCaseParams.EXPECTED_OUTPUT,
-        ],
-        "threshold": 0.5,
-    }
-    if model is not None:
-        kwargs["model"] = model
-    return GEval(**kwargs)
-
+# Custom LLM-as-judge (replaces DeepEval)
+try:
+    from .custom_judge import evaluate_one as _judge_one, DEFAULT_CRITERIA as _JUDGE_CRITERIA, THRESHOLD as _JUDGE_THRESHOLD
+except ImportError:
+    from evaluation.agent_response.custom_judge import evaluate_one as _judge_one, DEFAULT_CRITERIA as _JUDGE_CRITERIA, THRESHOLD as _JUDGE_THRESHOLD
 
 # Baseline: recommendations restricted to Supabase (same product store as agent). No agent logic.
 # We extract minimal filters from the query, search the DB, and format a response from results only.
@@ -375,44 +336,38 @@ async def run_one(test_case: dict) -> dict:
         }
 
 
-def evaluate_with_deepeval(rows: list, test_cases: list) -> list:
-    """Run DeepEval G-Eval on each row and add score, passed, details.
-    For multi-turn: input to the judge is the full conversation (conversation_input when present).
+def evaluate_with_custom_judge(rows: list, test_cases: list) -> list:
+    """Run custom LLM-as-judge on each row (multi-turn: full conversation as input).
+    Mimics G-Eval: input = user/conversation, actual_output = agent reply, expected = criteria.
     """
-    from deepeval.test_case import LLMTestCase
-
     id_to_case = {tc["test_id"]: tc for tc in test_cases}
-    metric = build_geval_metric(model=get_judge_model())
     results = []
     for row in rows:
         test_id = row["test_id"]
         tc = id_to_case.get(test_id, {})
-        expected = tc.get("expected_topic_or_criteria") or ""
-        # Use full conversation as judge input when multi-turn, else single user_query
+        expected = tc.get("expected_topic_or_criteria") or _JUDGE_CRITERIA
         judge_input = row.get("conversation_input") or row.get("user_query") or ""
-        test_case = LLMTestCase(
-            input=judge_input,
-            actual_output=row.get("agent_message") or "",
-            expected_output=expected,
-        )
-        actual = (row.get("agent_message") or "").strip()
-        if not actual:
+        actual_output = row.get("agent_message") or ""
+        if not (actual_output or "").strip():
             score = 0.0
             passed = False
-            details = {"error": "empty agent response; cannot evaluate relevance"}
+            details = {"error": "empty agent response; cannot evaluate relevance", "threshold": _JUDGE_THRESHOLD}
         else:
             try:
-                metric.measure(test_case)
-                score = getattr(metric, "score", None)
-                reason = getattr(metric, "reason", None)
-                if score is None:
-                    score = 0.0
-                passed = bool(score >= metric.threshold)
-                details = {"reason": reason, "threshold": metric.threshold}
+                out = _judge_one(
+                    judge_input=judge_input,
+                    actual_output=actual_output,
+                    expected_output=expected,
+                    criteria=_JUDGE_CRITERIA,
+                    threshold=_JUDGE_THRESHOLD,
+                )
+                score = out["score"]
+                passed = out["passed"]
+                details = {"reason": out["reason"], "threshold": out["threshold"]}
             except Exception as e:
                 score = 0.0
                 passed = False
-                details = {"error": str(e)}
+                details = {"error": str(e), "threshold": _JUDGE_THRESHOLD}
         results.append({
             "test_id": test_id,
             "user_query": row["user_query"],
@@ -460,7 +415,7 @@ def main(use_laptop_queries: bool = True, baseline_only: bool = False):
             rows.append(row)
         return rows
 
-    # Optional: skip agent and load previously saved rows (for re-running only the judge after installing deepeval)
+    # Optional: skip agent and load previously saved rows (re-run only the judge)
     load_path = os.environ.get("LOAD_ROWS_FROM", "").strip()
     if load_path and not baseline_only:
         load_file = Path(load_path)
@@ -471,7 +426,7 @@ def main(use_laptop_queries: bool = True, baseline_only: bool = False):
             data = json.load(f)
         rows = data["rows"]
         test_cases = data["test_cases"]
-        print(f"Loaded {len(rows)} rows and {len(test_cases)} test cases. Running DeepEval only.")
+        print(f"Loaded {len(rows)} rows and {len(test_cases)} test cases. Running judge only.")
     elif not baseline_only:
         rows = asyncio.run(run_all())
         out_dir = _THIS_DIR / "results"
@@ -481,18 +436,8 @@ def main(use_laptop_queries: bool = True, baseline_only: bool = False):
             json.dump({"rows": rows, "test_cases": test_cases}, f, indent=2)
         print(f"Saved {len(rows)} agent responses to {rows_file}")
 
-    print("Evaluating with DeepEval (LLM-as-judge)...")
-    try:
-        results = evaluate_with_deepeval(rows, test_cases)
-    except ModuleNotFoundError as e:
-        if "deepeval" in str(e).lower():
-            print(
-                "\nDeepEval is not installed. Install it with:\n  pip install deepeval\n\n"
-                "Then re-run scoring only (no need to re-run the agent):\n"
-                f"  LOAD_ROWS_FROM=results/agent_response_rows.json python -m evaluation.agent_response.run_eval\n",
-                file=sys.stderr,
-            )
-        raise
+    print("Evaluating with custom LLM-as-judge...")
+    results = evaluate_with_custom_judge(rows, test_cases)
 
     out_dir = _THIS_DIR / "results"
     out_dir.mkdir(parents=True, exist_ok=True)

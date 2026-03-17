@@ -1,0 +1,254 @@
+[
+  {
+    "query_id": "laptop_1",
+    "query": "Need an HP laptop for everyday use under $650. Prefer a 15.6-inch touchscreen with at least 16GB RAM.",
+    "expected_ucp_match": 0.7142857142857143,
+    "produced_ucp": {
+      "price_max_cents": 65000,
+      "brand": "HP",
+      "min_screen_size": 15.6,
+      "min_ram_gb": 16,
+      "_soft_preferences": {
+        "use_case": "general"
+      },
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 65000,
+      "brand": "HP",
+      "min_ram_gb": 16,
+      "min_screen_size": 15.1,
+      "max_screen_size": 16.1
+    }
+  },
+  {
+    "query_id": "laptop_5",
+    "query": "Looking for a Windows laptop for a neuroscience/business student under $1200 with a ~14-inch matte, non-touchscreen display. Priorities are fast performance for heavy multitasking (Office + streaming + 20+ browser tabs), durability, light weight, and 8+ hours of battery life. Considering Lenovo ThinkPad X1 (2024) or Surface Laptop 7, but not a MacBook.",
+    "expected_ucp_match": 1.0,
+    "produced_ucp": {
+      "price_max_cents": 120000,
+      "os": "Windows 11",
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5,
+      "_soft_preferences": {
+        "use_case": "school"
+      },
+      "brand": "Lenovo",
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 120000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5
+    }
+  },
+  {
+    "query_id": "laptop_7",
+    "query": "Need a portable ~14\" laptop for an incoming biology major, with good battery life and a good keyboard. Prefer a touchscreen for digital note-taking (open to 2-in-1), and open to used/refurb options under $1000. Fingerprint reader and backlit keyboard/build quality are nice-to-haves.",
+    "expected_ucp_match": 1.0,
+    "produced_ucp": {
+      "price_max_cents": 100000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5,
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5
+    }
+  },
+  {
+    "query_id": "laptop_13",
+    "query": "Looking for a new work laptop under $1,000 USD with strong battery life (at least 6 hours) and high reliability. Prefer a 14\u201315 inch screen with the webcam at the top bezel, plus at least two USB ports and a headphone jack. Used mainly for Zoom and Microsoft Office; lightweight preferred but not required.",
+    "expected_ucp_match": 0.6,
+    "produced_ucp": {
+      "price_max_cents": 100000,
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5,
+      "_soft_preferences": {
+        "use_case": "business"
+      },
+      "brand": "Microsoft",
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 100000,
+      "min_screen_size": 14.0,
+      "max_screen_size": 15.0
+    }
+  },
+  {
+    "query_id": "laptop_17",
+    "query": "Looking for a laptop in the US for $500 or less (refurb/used OK) that can run Foundry VTT at recommended settings for Lancer/DnD. Prefers a 16-inch or larger screen and would like somewhat rugged build if possible. Linux compatibility is preferred but not required.",
+    "expected_ucp_match": 0.6,
+    "produced_ucp": {
+      "price_max_cents": 50000,
+      "min_screen_size": 16.0,
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming"
+      },
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 50000,
+      "min_screen_size": 15.5,
+      "max_screen_size": 16.5
+    }
+  },
+  {
+    "query_id": "laptop_18",
+    "query": "US aerospace engineering student with a ~$2000 budget wants a Windows 2-in-1 laptop with touchscreen/stylus note-taking to replace a MacBook Air/iPad setup. Needs enough performance for SolidWorks, MATLAB, and other engineering/CAD software, and should work well with a USB-C monitor/keyboard and Bluetooth mouse setup.",
+    "expected_ucp_match": 0.75,
+    "produced_ucp": {
+      "price_max_cents": 200000,
+      "os": "Windows 11",
+      "_soft_preferences": {
+        "use_case": "school"
+      },
+      "brand": "Apple",
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
+      "good_for_creative": true
+    }
+  },
+  {
+    "query_id": "laptop_27",
+    "query": "Looking for a basic, cheap laptop under $350 (USD) for web browsing, Microsoft Office, and reading PDFs. Performance and battery life are the top priorities, and lighter/smaller is preferred. Must have a backlit keyboard, a USB port for a flash drive, and a trackpad; open to refurbished/used if from a reputable seller and under warranty.",
+    "expected_ucp_match": 1.0,
+    "produced_ucp": {
+      "price_max_cents": 35000,
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 35000
+    }
+  },
+  {
+    "query_id": "laptop_40",
+    "query": "Need a Windows laptop for music production with some casual gaming. Prioritize overall performance and reliability to stay useful for around 5 years. Requesting a couple of recommendations.",
+    "expected_ucp_match": 0.75,
+    "produced_ucp": {
+      "os": "Windows 11",
+      "good_for_gaming": true,
+      "_soft_preferences": {
+        "use_case": "gaming"
+      },
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "good_for_gaming": true,
+      "good_for_creative": true
+    }
+  },
+  {
+    "query_id": "laptop_41",
+    "query": "Need a well-built laptop with great battery life for a Mechanical Engineering BCS, budget $1500\u2013$2000, open to used/refurb. It should handle potential SolidWorks use and Lightroom for photo editing. Considering MacBook vs Lenovo ThinkPad or similar alternatives, and should be comfortable to carry in a backpack.",
+    "expected_ucp_match": 0.75,
+    "produced_ucp": {
+      "price_max_cents": 200000,
+      "brand": "Apple",
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 200000,
+      "good_for_creative": true
+    }
+  },
+  {
+    "query_id": "laptop_43",
+    "query": "Looking for a new Windows 11 laptop around $1200 that\u2019s portable for frequent travel with a 14\u201315 inch screen. Needs strong performance and good battery life for PhD work using SAS, R, and large Excel datasets plus feed formulation software. Prefers good keyboard, build quality, and input devices; coming from a MacBook Air that can\u2019t run required programs.",
+    "expected_ucp_match": 1.0,
+    "produced_ucp": {
+      "price_max_cents": 120000,
+      "os": "Windows 11",
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5,
+      "_soft_preferences": {
+        "use_case": "business"
+      },
+      "brand": "Apple",
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 120000,
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5
+    }
+  },
+  {
+    "query_id": "laptop_47",
+    "query": "Looking for a well-built 15-inch laptop under $900 (US), preferably new (not refurb/used). Must support USB-C charging and ideally have an Intel CPU. Preferred brands are Lenovo or HP; shopping near Costco or Micro Center.",
+    "expected_ucp_match": 1.0,
+    "produced_ucp": {
+      "price_max_cents": 90000,
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5,
+      "brand": "Lenovo",
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 90000,
+      "brand": "Lenovo",
+      "min_screen_size": 14.5,
+      "max_screen_size": 15.5
+    }
+  },
+  {
+    "query_id": "laptop_48",
+    "query": "Need an inexpensive laptop ($500\u2013600, USA) that can connect to a Dell WD15 USB-C dock and extend the desktop to two Dell U2412Mc external monitors. It will mostly be used plugged in for tax software plus basic web and Office apps. Must have a 10-key numeric keypad; touchscreen is a nice-to-have.",
+    "expected_ucp_match": 0.6,
+    "produced_ucp": {
+      "price_max_cents": 60000,
+      "_soft_preferences": {
+        "use_case": "business"
+      },
+      "brand": "Dell",
+      "category": "Electronics",
+      "product_type": "laptop"
+    },
+    "expected_ucp": {
+      "category": "Electronics",
+      "product_type": "laptop",
+      "price_max_cents": 60000,
+      "min_screen_size": 13.5,
+      "max_screen_size": 14.5
+    }
+  }
+]

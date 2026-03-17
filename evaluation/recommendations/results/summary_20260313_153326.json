@@ -1,0 +1,28 @@
+{
+  "timestamp": "20260313_153326",
+  "golden_path": "evaluation/recommendations/golden_dataset.json",
+  "num_queries": 12,
+  "num_skipped_insufficient_ground_truth": 38,
+  "min_ground_truth_ids": 3,
+  "ucp_recs_only": false,
+  "aggregates": {
+    "query_to_ucp": {
+      "run": "query_to_ucp",
+      "mean_ucp_match_rate": 0.8136904761904762
+    },
+    "query_to_ucp_baseline": {
+      "run": "query_to_ucp_baseline",
+      "mean_ucp_match_rate": 0.43214285714285716
+    },
+    "ucp_to_recs": {
+      "run": "ucp_to_recs",
+      "mean_hard_pass_rate": 0.08333333333333333,
+      "mean_soft_similarity": 0.5895269746182074
+    },
+    "baseline": {
+      "run": "baseline",
+      "mean_hard_pass_rate": 0.15,
+      "mean_soft_similarity": 0.5615702453664221
+    }
+  }
+}

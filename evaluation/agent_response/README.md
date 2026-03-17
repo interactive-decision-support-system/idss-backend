@@ -1,15 +1,29 @@
-# Pipeline 1: Agent response evaluation (DeepEval LLM-as-judge)
+# Pipeline 1: Agent response evaluation (custom LLM-as-judge)
 
-Evaluates chat agent responses using DeepEval's G-Eval (LLM-as-judge) for relevance and helpfulness. Supports **single-turn** and **multi-turn** conversations per test case.
+Evaluates chat agent responses using a **custom LLM-as-judge** (no third-party eval library) for relevance and helpfulness. Supports **single-turn** and **multi-turn** conversations per test case.
 
-## What the score is (the metric)
+## Metrics (custom judge, G-Eval style)
 
-The **score** is produced by **G-Eval**: an **LLM-as-judge** metric from DeepEval.
+The pipeline uses a single **LLM call per test case** that mimics G-Eval–style evaluation:
 
-- **Inputs to the judge:** (1) the user query, (2) the agent’s reply (exact text), (3) a short rubric (expected behavior).
-- For **multi-turn** test cases, the judge receives the full conversation (all user turns) and the concatenated agent responses, so it can evaluate coherence and helpfulness across turns.
-- **Rubric:** The response counts as helpful if it either gives laptop recommendations that match the user’s needs, or asks a **relevant** clarifying question (e.g. RAM, brand, screen size). It should be on-topic (laptops), coherent, and appropriate for a recommendation assistant.
-- **Output:** A single **scalar score in [0, 1]** from the judge model. We use **threshold 0.5** for pass/fail. So “score” = how relevant/helpful the judge considers the reply; higher = more on-topic and useful. **Not** parsing accuracy—we don’t parse the agent output; we send the raw message to the judge.
+- **Input to the judge:**  
+  - **User input:** For single-turn, the user’s query. For multi-turn, the full conversation (all user turns), e.g. `User (turn 1): ...`, `User (turn 2): ...`.  
+  - **Actual output:** The agent’s reply. For multi-turn, the concatenation of all agent replies (with turn labels).  
+  - **Expected behavior / criteria:** A rubric string (per test case or default) describing what “helpful” means.
+
+- **Rubric (criteria):**  
+  The response is helpful if it (1) gives laptop recommendations that match the user’s stated needs (budget, use case, preferences), or (2) asks a **relevant** clarifying question (e.g. RAM, brand, screen size). It should be on-topic (laptops), coherent, and appropriate for a recommendation assistant. If the test case provides `expected_topic_or_criteria`, the judge uses that as the rubric.
+
+- **Judge output:**  
+  The LLM returns a **score in [0, 1]** and a short **reason**. The pipeline parses this (JSON or “Score: 0.7” style) and sets **passed = (score ≥ threshold)**.
+
+- **Threshold:**  
+  **0.5** — scores below 0.5 are failures; 0.5 and above are passes.
+
+- **No parsing of agent output:**  
+  The agent’s raw message is sent to the judge; we do not parse structure or intents. The score reflects the judge’s assessment of relevance and helpfulness only.
+
+**Judge model:** OpenAI (default `gpt-4o-mini`, overridable with `OPENAI_JUDGE_MODEL`) or Ollama when `OLLAMA_MODEL_NAME` is set. No DeepEval dependency.
 
 ## Why tests fail: parsing vs agent vs environment
 
@@ -18,11 +32,21 @@ The **score** is produced by **G-Eval**: an **LLM-as-judge** metric from DeepEva
 
 So: **parsing is not the failure mode**—we pass the agent’s reply through as-is. Failures are either **environment** (empty due to exception) or **agent quality** (low score from the judge).
 
+### Why the agent often underperforms (current run)
+
+In the latest run the agent passes ~46% of cases (23/50) while the baseline passes more. See **`evaluation/agent_response/case_report.md`** for the full breakdown. Main reasons:
+
+1. **Wrong product type** — Search relaxation sometimes returns non-laptops (e.g. mouse, number pad, motherboard); the agent presents them as the best pick and the judge fails the response.
+2. **Recommendations ignore constraints** — Recs that miss stated requirements (e.g. 17" when user asked 14", Chromebooks when user needs Windows) are penalized.
+3. **Generic clarifying questions** — Asking “What will you use it for?” or “What brand?” when the user already gave a detailed use case scores lower than direct recs.
+4. **Catalog gaps** — Queries with no good match still get something (wrong form factor or product type); the judge fails when the reply doesn’t fit.
+5. **Baseline favors direct recs** — The baseline always returns catalog-backed recommendations; for well-specified queries that often scores higher than the agent’s question or relaxed recs.
+
 ## Setup
 
 - **Agent**: Requires `OPENAI_API_KEY` (and optionally `.env` in repo root) so the chat agent can run.
 - **Redis**: The agent uses Redis for session persistence and search-result caching. If Redis is not running (and `UPSTASH_REDIS_URL` is not set), you may see connection errors during the eval. **Fix:** either start a local Redis server (`redis-server`) or set `UPSTASH_REDIS_URL` to a cloud Redis instance (e.g. Upstash). The MCP cache lives in `mcp-server/app/cache.py` and connects to `localhost:6379` by default when no Upstash URL is set.
-- **Judge**: Optional open-source judge via Ollama. Set `OLLAMA_MODEL_NAME` (e.g. `llama3.2`, `mistral`, `deepseek-r1:1.5b`) and run Ollama locally. If unset, DeepEval uses its default model (GPT).
+- **Judge**: Custom LLM-as-judge. Uses OpenAI (`OPENAI_JUDGE_MODEL` or `gpt-4o-mini`) unless `OLLAMA_MODEL_NAME` is set, in which case the judge uses Ollama (e.g. `llama3.2`, `mistral`).
 
 ```bash
 # From repo root
@@ -55,7 +79,7 @@ The baseline is **restricted to recommendations from the Supabase database** (sa
 python -m evaluation.agent_response.run_eval --baseline
 ```
 
-Writes `agent_response_eval_results_baseline.json` and `.csv`. Same test cases and G-Eval rubric. Use with `plot_eval_results --baseline` to generate comparison figures.
+Writes `agent_response_eval_results_baseline.json` and `.csv`. Same test cases and judge rubric. Use with `plot_eval_results --baseline` to generate comparison figures.
 
 ## Eval figures (PNG)
 
@@ -120,5 +144,4 @@ Use `messages`: a list of user messages in order. The pipeline runs the full con
   ```bash
   MULTI_TURN_DYNAMIC_TURNS=2 python -m evaluation.agent_response.run_eval
   ```
-  Total user turns = 1 + `MULTI_TURN_DYNAMIC_TURNS`. The judge still receives the full conversation and all agent responses (same G-Eval as today).
-- **DeepEval multi-turn:** DeepEval also provides [ConversationalTestCase](https://deepeval.com/docs/evaluation-multiturn-test-cases) with `turns=[Turn(role, content), ...]` and conversational metrics (e.g. TurnRelevancyMetric). This pipeline uses a single `LLMTestCase` with the full conversation as input and concatenated agent output; you can switch to `ConversationalTestCase` + conversational metrics if you want per-turn evaluation.
+  Total user turns = 1 + `MULTI_TURN_DYNAMIC_TURNS`. The judge still receives the full conversation and all agent responses.
