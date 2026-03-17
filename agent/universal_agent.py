@@ -589,6 +589,41 @@ class UniversalAgent:
         extraction_result = self._extract_criteria(message, schema)
         timings["criteria_extraction_ms"] = (time.perf_counter() - t2) * 1000
 
+        # 2b. Vagueness gate — bare "best laptop 2024" style queries must NOT jump
+        # straight to recommendations even if the LLM set wants_recommendations=True.
+        # Fires when: message is short (≤5 words), no price/spec signals, and the LLM
+        # extracted zero substantive slot values (criteria is empty or all were dropped).
+        if (
+            extraction_result
+            and extraction_result.wants_recommendations
+            and not extraction_result.is_impatient
+        ):
+            _msg_words_count = len(message.split())
+            _has_spec_signal = bool(re.search(
+                r'\$\d|\d+\s*(?:gb|tb|k\b)|under\s+\$|budget|brand|gaming|coding|school|work',
+                message, re.IGNORECASE,
+            ))
+            # Require at least one HARD constraint — a slot that actually narrows search.
+            # Soft slots (use_case, os, product_subtype) alone are not enough:
+            # "best laptop 2024" → LLM guesses use_case=general/product_subtype=laptop
+            # but that doesn't tell us anything actionable. Only price/brand/specs count.
+            _HARD_CONSTRAINT_SLOTS = frozenset({
+                "budget", "brand", "excluded_brands",
+                "min_ram_gb", "screen_size", "storage_type",
+                "gpu_tier", "body_style", "fuel_type",  # vehicles
+                "genre", "author",  # books
+            })
+            _hard_criteria = [
+                c for c in (extraction_result.criteria or [])
+                if c.slot_name in _HARD_CONSTRAINT_SLOTS
+            ]
+            if _msg_words_count <= 5 and not _has_spec_signal and not _hard_criteria:
+                extraction_result.wants_recommendations = False
+                logger.info(
+                    f"Vagueness gate: overrode wants_recommendations=False "
+                    f"(words={_msg_words_count}, no spec signals, no criteria extracted)"
+                )
+
         # 3. Check IDSS interview signals - should we skip to recommendations?
         if self._should_recommend(extraction_result, schema):
             logger.info(f"Skipping to recommendations (impatient={extraction_result.is_impatient if extraction_result else False}, "
@@ -922,15 +957,35 @@ class UniversalAgent:
                             self.filters.pop("excluded_brands", None)
                         logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
 
-            # Mirror regex fallback heuristic: if user provides ≥3 substantive criteria
-            # in a single non-question message, they've stated their requirements →
+            # Mirror regex fallback heuristic: if user provides ≥2 substantive criteria
+            # in a single statement-style message, they've stated their requirements →
             # proceed to search without asking more questions.
+            #
+            # Changes vs. old heuristic:
+            #   - Threshold lowered from ≥3 → ≥1 (now matches regex path exactly).
+            #   - excluded_brands now counts as a constraint (user said "no HP, budget $900,
+            #     16GB RAM" → 3 real constraints, not 2).  Only "os" is excluded from the
+            #     count because an OS-alone message ("must run Linux") is underspecified.
+            #   - "?" guard has a rhetorical exception: queries with ≥3 constraints AND a
+            #     question mark are treated as rhetorical ("Is that even possible?" with a
+            #     full spec list) — the agent should show alternatives, not ask another Q.
+            #   - ≥4-word guard preserved to filter bare one-liners ("best laptop", "laptop").
             if result.criteria and not result.wants_recommendations:
-                substantive = [c for c in result.criteria if c.slot_name not in ("os", "excluded_brands")]
-                if len(substantive) >= 3 and "?" not in message:
+                substantive = [c for c in result.criteria if c.slot_name not in ("os",)]
+                msg_words = len(message.split())
+                has_question_mark = "?" in message
+                # Rhetorical: user listed ≥2 constraints + asked a question like
+                # "can any run Final Cut Pro?", "Is that possible?" — treat as req statement.
+                is_rhetorical = has_question_mark and len(substantive) >= 2
+                if (
+                    len(substantive) >= 1
+                    and msg_words >= 4
+                    and (not has_question_mark or is_rhetorical)
+                ):
                     result.wants_recommendations = True
                     logger.info(
-                        f"Criteria heuristic: {len(substantive)} substantive criteria, no '?' → "
+                        f"Criteria heuristic: {len(substantive)} substantive criteria "
+                        f"(words={msg_words}, rhetorical={is_rhetorical}) → "
                         "wants_recommendations=True"
                     )
 

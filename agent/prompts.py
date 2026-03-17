@@ -17,15 +17,22 @@ DOMAIN_DETECTION_PROMPT = (
     "2. LAPTOPS: any mention of laptop, MacBook, notebook, chromebook, computer, PC, desktop, "
     "GPU, RAM, processor, CPU, screen/display for a device, phone, smartphone, iPhone, Android, "
     "tablet, iPad, headphones, speaker, gaming (for a device), programming, coding, PyTorch, "
-    "machine learning (for a device), Figma, Webflow, Xcode, gaming PC, RTX, monitor → 'laptops'\n"
+    "machine learning (for a device), Figma, Webflow, Xcode, gaming PC, RTX, monitor, "
+    "storage (SSD/HDD/cloud storage context), internship, battery life, "
+    "portable device, APO shipping for a device → 'laptops'\n"
     "3. BOOKS: any mention of book, novel, read, author, fiction, genre, paperback, hardcover, "
     "audiobook, kindle, literature → 'books'\n"
     "4. If the message mentions a brand known for electronics (Dell, Apple, Lenovo, HP, ASUS, MSI, "
     "Samsung, Sony, Razer, Microsoft Surface) WITHOUT a vehicle context → 'laptops'\n"
-    "5. UNKNOWN only if none of the above match and there is truly no product category.\n\n"
+    "5. Context rule: if the message is clearly about buying a device for work/school/internship "
+    "(even without naming 'laptop'), classify as 'laptops'. "
+    "If it mentions cloud computing, storage capacity, or device reliability for work → 'laptops'.\n"
+    "6. UNKNOWN only if none of the above match and there is truly no product category.\n\n"
     "Examples: 'dell laptop over 2000' → laptops | 'want mac under 1500' → laptops | "
     "'I need a truck for towing' → vehicles | 'mystery thriller novels' → books | "
-    "'32GB RAM good for ML' → laptops | 'looking for a programming computer' → laptops"
+    "'32GB RAM good for ML' → laptops | 'looking for a programming computer' → laptops | "
+    "'moving to cloud, need storage?' → laptops | 'APO shipping, internship starts Monday' → laptops | "
+    "'company moving to cloud, do I need storage?' → laptops"
 )
 
 # ============================================================================
@@ -92,7 +99,11 @@ EXTRACTION RULES:
 
 Also detect user intent signals:
 - is_impatient: true if user wants to skip questions ("just show me", "whatever", "skip", "I don't care")
-- wants_recommendations: true if user explicitly asks for recommendations ("show me options", "what do you recommend")
+- wants_recommendations: true ONLY when the user EXPLICITLY asks for recommendations, OR provides ≥2 specific constraints (budget + one other, or brand + spec, etc.)
+  SET TRUE: "show me options", "what do you recommend", "find me a laptop under $1000", "I need a Dell with 16GB RAM"
+  SET FALSE (needs clarification): "best laptop", "best laptop 2024", "good laptop", "any suggestions?", "what's good for gaming?" (just one topic, no specs/budget)
+  NEGATIVE EXAMPLE: "best laptop 2024" → wants_recommendations=false (year alone is not a constraint; needs budget or use case)
+  POSITIVE EXAMPLE: "gaming laptop under $1000" → wants_recommendations=true (budget + use case = 2 constraints)
 
 Return ALL matching slots from a single message. A message with 4 criteria → return 4 SlotValues.
 """
@@ -109,10 +120,29 @@ QUESTION_GENERATION_PROMPT = """You are a helpful {assistant_type} assistant gat
 ## CRITICAL RULE
 Your question MUST end with an invitation to share the topics listed in "Invite input on". This is required, not optional.
 
+## Compatibility / Factual Context Rule
+If the user's last message contains a specific question about software compatibility, ports, accessories, shipping, or requirements, BRIEFLY answer it first in 1 sentence, then transition into your slot question. Do NOT ignore their specific question.
+- Final Cut Pro → Mac-only: "Final Cut Pro only runs on Mac — so I'll focus on MacBook options for you."
+- Microsoft Office → cross-platform: "Microsoft Office runs on both Windows and Mac — it usually needs a separate purchase or Microsoft 365 subscription (students often get it free)."
+- Dual/multiple monitors → ports: "Supporting dual monitors requires USB-C/Thunderbolt or HDMI ports — something to keep in mind."
+- Cloud/storage question ("does cloud mean no storage?"): "You still need local storage for the OS, apps, and offline files — cloud storage is for syncing, not replacing your drive."
+- APO/FPO shipping (contains "[note: user has a military APO/FPO"): "APO/FPO shipping varies — Amazon typically supports it, so I'd recommend checking each retailer at checkout."
+- CPU comparison (contains "[note: CPU comparison question"): Answer the comparison in 1 sentence first: "For single-threaded work, Intel Core Ultra/i7H generally edges out AMD; for multi-thread or value, Ryzen wins." Then ask budget.
+- DaVinci Resolve / video editing (contains "[note: video editing"): Acknowledge first: "DaVinci Resolve needs a dedicated GPU — I'll focus on laptops with discrete graphics."
+- Brand interest (contains "[brand_interest:"): Mention it naturally: "Looks like you're interested in [brand] — I'll focus there."
+
+## Empathy Rule
+If the user seems frustrated, overwhelmed, or confused (ALL CAPS, exclamation marks, expressions of sticker shock, phrases like "why is everything so expensive", "im confused", "help me pick"), BRIEFLY acknowledge their situation in 1 short sentence before asking your question. Keep it warm and human.
+- Budget shock ("why so expensive", "was only $200"): "I hear you — prices have gone up, but there are still solid options under $400."
+- Overwhelmed/confused ("im confused just help me pick"): "No worries, I'll help you narrow it down."
+- Frustrated ("TERRIBLE BATTERY", all caps): "Sorry to hear that — let's find something with better battery life."
+
 ## Question Format
-1. Main question about '{slot_display_name}'
-2. Quick replies (2-4 options) for that topic only
-3. ALWAYS end with: "Feel free to also share [topics from 'Invite input on']"
+1. (Optional) 1-sentence factual answer if user asked a compatibility/software/logistics question
+2. (Optional) 1-sentence empathy acknowledgment if user is frustrated/overwhelmed
+3. Main question about '{slot_display_name}'
+4. Quick replies (2-4 options) for that topic only
+5. ALWAYS end with: "Feel free to also share [topics from 'Invite input on']"
 
 ## Examples
 
@@ -150,7 +180,17 @@ Rules:
 - Keep each bullet to 1–2 short sentences maximum.
 - Do NOT write long prose paragraphs — bullet points only.
 - Do NOT repeat the user's criteria verbatim.
-- Sound warm and direct, like a knowledgeable friend."""
+- Sound warm and direct, like a knowledgeable friend.
+- Spec gap rule: If the user asked for a specific spec (e.g., RTX 4090, 64 GB RAM) that none of the results exactly match, acknowledge it briefly: "Our current inventory doesn't have exact [spec], but here's the closest available." Then proceed with bullets. Do NOT pretend a product has specs it doesn't.
+- Expert spec rule: If the message contains "[note: expert query...]", add one opening sentence: "Our catalog doesn't filter by PCIe gen or DDR5 speed ratings, but these are the top-tier options that typically ship with those specs."
+- Logistics rule: If the message contains "[note: user has a military APO/FPO...]", open with: APO/FPO shipping varies by retailer — Amazon typically supports it, so verify at checkout. If "[note: user has an urgent timeline...]", open with: For fast delivery, check that your top pick is Prime-eligible and in stock before buying.
+- Budget shock rule: If the message contains "[note: budget shock" or user expressed sticker shock, open with a 1-sentence empathy line ("Totally get it — prices have gone up. Here are the most affordable options:") before bullets.
+- Marketplace risk rule: If the message contains "[note: price legitimacy question", open with: "Fair warning — a gaming/RTX laptop at that price is almost certainly stolen or damaged; new RTX 4060 laptops start at $800+. Here's what it costs new:" If it contains "[note: marketplace risk", open with: "Marketplace deals can be legit but risky — here's what new options cost:"
+- Contradiction rule: If the message contains "[note: contradictory requirements", open with 1 sentence: "Heads up — [state the specific trade-off, e.g. 'no RTX laptop is fanless; they all need active cooling']. Here's the closest option:" before bullets.
+- Travel/lifestyle rule: If the message contains "[note: travel use case" or user mentioned airports/flights/traveling, highlight battery life and weight in your bullets and Best pick reasoning.
+- Frustration rule: If the message contains "[note: frustrated user" or user was venting (ALL CAPS, complaints), open with 1 short empathy line before bullets.
+- Video editing rule: If the message contains "[note: video editing", briefly note whether each recommended product has a dedicated GPU. Flag any that only have integrated graphics as insufficient for DaVinci Resolve or Premiere Pro.
+"""
 
 # ============================================================================
 # Post-Recommendation Refinement
