@@ -91,10 +91,47 @@ def _extract_min_screen(text: str) -> Optional[float]:
     for pat in _SCREEN_PATTERNS:
         m = pat.search(text)
         if m:
+            # Negation guard: "don't want a 14 inch screen" should NOT become min_screen.
+            # We inspect nearby left context because the numeric token itself is ambiguous.
+            pre = text[max(0, m.start() - 48):m.start()]
+            # Case A: explicit local negation attached to the size phrase.
+            # Keep this narrow so unrelated text like "without issues ... 15.6-inch screen"
+            # does not suppress valid extraction.
+            if re.search(
+                r"(?:no|not|don't\s+want|do\s+not\s+want|avoid|hate|exclude|without)\s+"
+                r"(?:a\s+|an\s+|the\s+)?$",
+                pre,
+                re.IGNORECASE,
+            ):
+                return None
+            # Case B: scoped negation mentioning screen/display in close proximity.
+            if re.search(
+                r"(?:don't\s+want|do\s+not\s+want|avoid|hate|exclude|without)"
+                r".{0,24}(?:screen|display|inch)",
+                pre,
+                re.IGNORECASE,
+            ):
+                return None
             val = float(m.group(1))
             if 10.0 <= val <= 21.0:  # sanity: valid laptop screen range
                 return val
     return None
+
+
+def _extract_excluded_screen_sizes(text: str) -> List[float]:
+    """Extract explicitly negated screen sizes, e.g. "don't want 14 inch screen"."""
+    pat = re.compile(
+        r"(?:no|not|don't\s+want|do\s+not\s+want|avoid|exclude|without|hate)"
+        r"\s+(?:a\s+|an\s+|the\s+)?(\d{2}(?:\.\d+)?)\s*(?:\"|″|inch(?:es)?|-inch)"
+        r"(?:\s*(?:screen|display|laptop))?",
+        re.IGNORECASE,
+    )
+    out: List[float] = []
+    for m in pat.finditer(text or ""):
+        val = float(m.group(1))
+        if 10.0 <= val <= 21.0 and val not in out:
+            out.append(val)
+    return out
 
 
 #  Battery life extraction 
@@ -231,6 +268,7 @@ def enhance_search_request(
       - min_ram_gb: int
       - min_storage_gb: int
       - min_screen_inches: float
+      - excluded_screen_sizes: List[float]
       - min_battery_hours: int
       - min_year: int           e.g. 2024
       - use_cases: List[str]   e.g. ["ml", "web_dev", "linux"]
@@ -252,6 +290,9 @@ def enhance_search_request(
     screen = _extract_min_screen(cleaned_query)
     if screen is not None:
         extra["min_screen_inches"] = screen
+    excluded_sizes = _extract_excluded_screen_sizes(cleaned_query)
+    if excluded_sizes:
+        extra["excluded_screen_sizes"] = excluded_sizes
 
     battery = _extract_min_battery(cleaned_query)
     if battery is not None:

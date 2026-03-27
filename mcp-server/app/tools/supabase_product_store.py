@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import random
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("mcp.supabase_product_store")
@@ -187,7 +188,9 @@ class SupabaseProductStore:
 
         rows = self._get("/rest/v1/products", params)
         random.shuffle(rows)
-        return [self._row_to_dict(r) for r in rows[:limit]]
+        payloads = [self._row_to_dict(r) for r in rows[:limit]]
+        payloads = _apply_excluded_screen_sizes_filter(payloads, filters)
+        return payloads
 
     def _stratified_fetch(
         self,
@@ -229,6 +232,7 @@ class SupabaseProductStore:
                     payloads.append(self._row_to_dict(row))
 
         random.shuffle(payloads)
+        payloads = _apply_excluded_screen_sizes_filter(payloads, filters)
         return payloads[:limit]
 
     def _add_base_params(
@@ -797,6 +801,7 @@ class _SQLAlchemyProductStore:
         min_storage = filters.get("min_storage_gb")
         min_screen = filters.get("min_screen_size") or filters.get("min_screen_inches")
         max_screen = filters.get("max_screen_size")
+        excluded_screen_sizes = _normalize_excluded_screen_sizes(filters.get("excluded_screen_sizes"))
         min_battery = filters.get("min_battery_hours")
         storage_type = filters.get("storage_type")
         good_for_flags = {k for k in (
@@ -826,6 +831,8 @@ class _SQLAlchemyProductStore:
             if min_screen and _num(attrs.get("screen_size")) < float(min_screen):
                 continue
             if max_screen and _num(attrs.get("screen_size"), 999) > float(max_screen):
+                continue
+            if excluded_screen_sizes and _screen_is_excluded(_num(attrs.get("screen_size"), -1), excluded_screen_sizes):
                 continue
             if min_battery and _num(attrs.get("battery_life_hours")) < float(min_battery):
                 continue
@@ -929,3 +936,50 @@ def _parse_price(
         except (TypeError, ValueError):
             pass
     return None
+
+
+def _normalize_excluded_screen_sizes(raw_value: Any) -> List[float]:
+    """Parse excluded screen sizes from list/string into validated inch floats."""
+    if raw_value is None:
+        return []
+    if isinstance(raw_value, list):
+        parts = [str(x).strip() for x in raw_value if str(x).strip()]
+    else:
+        parts = [p.strip() for p in re.split(r"[,;/|]", str(raw_value)) if p.strip()]
+    out: List[float] = []
+    for part in parts:
+        m = re.search(r"\d{2}(?:\.\d+)?", part)
+        if not m:
+            continue
+        val = float(m.group(0))
+        if 10.0 <= val <= 21.0 and val not in out:
+            out.append(val)
+    return out
+
+
+def _screen_is_excluded(screen_size: float, excluded_sizes: List[float], tolerance: float = 0.25) -> bool:
+    """Treat screen sizes within +/- tolerance inches as excluded matches."""
+    if screen_size <= 0:
+        return False
+    return any(abs(float(screen_size) - float(ex)) <= tolerance for ex in excluded_sizes)
+
+
+def _apply_excluded_screen_sizes_filter(products: List[Dict[str, Any]], filters: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Post-filter products by excluded_screen_sizes.
+    This works across both Supabase REST and SQLAlchemy paths.
+    """
+    excluded_sizes = _normalize_excluded_screen_sizes(filters.get("excluded_screen_sizes"))
+    if not excluded_sizes:
+        return products
+    out: List[Dict[str, Any]] = []
+    for p in products:
+        raw = p.get("screen_size")
+        try:
+            size_val = float(raw)
+        except (TypeError, ValueError):
+            size_val = -1
+        if _screen_is_excluded(size_val, excluded_sizes):
+            continue
+        out.append(p)
+    return out

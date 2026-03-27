@@ -147,6 +147,173 @@ _KNOWN_BRANDS = frozenset({
     "System76", "Toshiba", "LG",
 })
 
+
+def _canonical_brand(value: str) -> Optional[str]:
+    """Map raw token/alias to canonical brand if recognized."""
+    if not value:
+        # Empty/None input cannot map to a brand.
+        return None
+    # Remove quotes and surrounding whitespace from model/user text.
+    raw = value.strip().strip('"\'')
+    if not raw:
+        # String with only quotes/spaces is effectively empty.
+        return None
+    # Remove leading/trailing punctuation that frequently appears in extracted tokens,
+    # e.g. "HP," -> "HP", "(Dell)" -> "Dell".
+    raw = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", raw).strip()
+    if not raw:
+        return None
+    # Strip common negation wrappers that LLM occasionally emits as brand values,
+    # e.g. "not ASUS" -> "ASUS".
+    raw = re.sub(r'^(?:no|not|exclude|excluded|avoid|without)\s+', '', raw, flags=re.IGNORECASE).strip()
+    # Resolve product-family aliases (mac -> Apple, rog -> ASUS, etc.).
+    mapped = _BRAND_VALUE_ALIASES.get(raw.lower(), raw)
+    # Return canonical brand only if it's in the controlled known-brand set.
+    return mapped if mapped in _KNOWN_BRANDS else None
+
+
+def _parse_excluded_brands(raw_value: Any) -> List[str]:
+    """
+    Parse/normalize excluded_brands values into canonical known brands only.
+    Accepts list/string and drops unknown tokens (e.g. "14", "unknown").
+    """
+    if raw_value is None:
+        # No exclusion payload supplied.
+        return []
+    if isinstance(raw_value, list):
+        # Already list-shaped (from prior normalized state).
+        parts = [str(x).strip() for x in raw_value if str(x).strip()]
+    else:
+        # Parse comma/semicolon/slash-delimited text payloads.
+        parts = [p.strip() for p in re.split(r"[,;/|]", str(raw_value)) if p.strip()]
+    out: List[str] = []
+    for part in parts:
+        # Canonicalize each token; unknown/non-brand tokens are dropped.
+        c = _canonical_brand(part)
+        if c and c not in out:
+            # Preserve insertion order while deduplicating.
+            out.append(c)
+    return out
+
+
+def _brand_exclusion_from_text(message: str) -> List[str]:
+    """
+    Lightweight regex exclusion detector used to repair malformed LLM brand outputs.
+    """
+    # Include indirect phrasing seen in failures ("steer clear of HP", "bad experience with Dell")
+    # so we can recover exclusions when LLM returns malformed brand slots.
+    pat = re.compile(
+        r'(?:no|not|never|anything but|avoid|hate|refuse|skip|exclude|excluded|without|'
+        r'steer\s+clear\s+of|bad\s+experience\s+with|terrible\s+experience\s+with)\s+'
+        r'([A-Za-z][A-Za-z0-9\- ]{1,30})',
+        re.IGNORECASE,
+    )
+    found: List[str] = []
+    for m in pat.finditer(message):
+        # Capture group may include grouped patterns: "HP or Acer".
+        raw_group = m.group(1).strip()
+        parts = re.split(r'\s+(?:or|and|nor)\s+|[,;]\s*', raw_group)
+        for p in parts:
+            # Keep first lexical token for brand matching robustness.
+            token = p.strip().split()[0] if p.strip() else ""
+            token = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", token)
+            c = _canonical_brand(token)
+            if c and c not in found:
+                # Ordered dedupe for deterministic behavior.
+                found.append(c)
+    return found
+
+
+def _brands_mentioned_in_text(message: str) -> List[str]:
+    """
+    Extract canonical brands explicitly mentioned in the user message.
+    Used to guard against hallucinated LLM brand exclusions.
+    """
+    text = (message or "").lower()
+    found: List[str] = []
+    # Check canonical brand names first.
+    for brand in sorted(_KNOWN_BRANDS):
+        if re.search(rf"(?<!\w){re.escape(brand.lower())}(?!\w)", text):
+            if brand not in found:
+                found.append(brand)
+    # Check common aliases/shorthands (mac -> Apple, rog -> ASUS, etc.).
+    for alias, canon in _BRAND_VALUE_ALIASES.items():
+        if re.search(rf"(?<!\w){re.escape(alias.lower())}(?!\w)", text):
+            if canon in _KNOWN_BRANDS and canon not in found:
+                found.append(canon)
+    return found
+
+
+def _filter_exclusions_by_message_mentions(excluded: List[str], message: str) -> List[str]:
+    """
+    Keep only excluded brands that are explicitly mentioned in user text.
+    This removes occasional semantic-extractor hallucinations (e.g., random "HP").
+    """
+    if not excluded:
+        return []
+    mentioned = set(_brands_mentioned_in_text(message))
+    if not mentioned:
+        # No brand evidence in user text -> don't keep any inferred exclusion brands.
+        return []
+    return [b for b in excluded if b in mentioned]
+
+
+def _parse_excluded_screen_sizes(raw_value: Any) -> List[float]:
+    """
+    Parse/normalize excluded screen sizes into validated inch floats.
+    Accepts list/string and keeps values in a realistic laptop range.
+    """
+    if raw_value is None:
+        return []
+    if isinstance(raw_value, list):
+        parts = [str(x).strip() for x in raw_value if str(x).strip()]
+    else:
+        parts = [p.strip() for p in re.split(r"[,;/|]", str(raw_value)) if p.strip()]
+    out: List[float] = []
+    for part in parts:
+        m = re.search(r"\d{2}(?:\.\d+)?", part)
+        if not m:
+            continue
+        val = float(m.group(0))
+        if 10.0 <= val <= 21.0 and val not in out:
+            out.append(val)
+    return out
+
+
+def _extract_excluded_screen_sizes_from_text(message: str) -> List[float]:
+    """
+    Detect negated screen-size mentions (e.g., "don't want 14 inch screen")
+    and return explicit excluded-size constraints.
+    """
+    text = message or ""
+    pat = re.compile(
+        r"(?:no|not|don't\s+want|do\s+not\s+want|avoid|exclude|without|hate)"
+        r"\s+(?:a\s+|an\s+|the\s+)?(\d{2}(?:\.\d+)?)\s*(?:\"|″|inch(?:es)?|-inch)"
+        r"(?:\s*(?:screen|display|laptop))?",
+        re.IGNORECASE,
+    )
+    out: List[float] = []
+    for m in pat.finditer(text):
+        val = float(m.group(1))
+        if 10.0 <= val <= 21.0 and val not in out:
+            out.append(val)
+    return out
+
+
+def _message_has_screen_negation(message: str) -> bool:
+    """
+    Detect explicit negation around screen/display size constraints.
+    This protects against LLM outputs that convert "don't want 14 inch" into
+    positive filters like screen_size=14 or min_screen_size=14.
+    """
+    text = message or ""
+    return bool(re.search(
+        r"(?:don't\s+want|do\s+not\s+want|no|not|avoid|exclude|without|hate)"
+        r".{0,28}(?:\d{2}(?:\.\d)?\s*(?:inch|inches|\"|″)|screen|display)",
+        text,
+        re.IGNORECASE,
+    ))
+
 _BRAND_EXCLUDE_SYSTEM = (
     "You are a brand exclusion detector for an e-commerce search engine. "
     "Given a user message, identify any laptop/computer brands the user wants to AVOID or EXCLUDE. "
@@ -447,6 +614,12 @@ class UniversalAgent:
                     search_filters["min_screen_size"] = nums[0] - 0.5
                     search_filters["max_screen_size"] = nums[0] + 0.5
 
+            elif slot_name == "excluded_screen_sizes":
+                # Explicit negative screen-size constraints from negated user phrasing.
+                excl_sizes = _parse_excluded_screen_sizes(value)
+                if excl_sizes:
+                    search_filters["excluded_screen_sizes"] = excl_sizes
+
             elif slot_name == "storage_type":
                 val_str = str(value).upper().strip().split()[0]  # 'SSD (fast)' → 'SSD'
                 if val_str in ("SSD", "HDD"):
@@ -473,8 +646,7 @@ class UniversalAgent:
 
             elif slot_name == "excluded_brands":
                 # Comma-separated list of brands to EXCLUDE, e.g. "HP,Acer"
-                raw = str(value).strip()
-                brands = [b.strip() for b in re.split(r"[,;/|]", raw) if b.strip()]
+                brands = _parse_excluded_brands(value)
                 if brands:
                     search_filters["excluded_brands"] = brands
                     logger.info(f"Excluded brands: {brands}")
@@ -491,6 +663,47 @@ class UniversalAgent:
 
             elif slot_name in ("fuel_type", "condition", "screen_size", "color", "material"):
                 search_filters[slot_name] = value
+
+        # Final reconciliation for brand/exclusion semantics.
+        # 1) Normalize excluded list to canonical brands only.
+        excl = _parse_excluded_brands(search_filters.get("excluded_brands"))
+        if excl:
+            search_filters["excluded_brands"] = excl
+        else:
+            search_filters.pop("excluded_brands", None)
+
+        # 2) Convert malformed negated brand values (e.g. "not ASUS") into exclusions.
+        if isinstance(search_filters.get("brand"), str):
+            raw_brand = search_filters["brand"].strip()
+            if re.search(r'^(?:no|not|exclude|excluded|avoid|without)\s+', raw_brand, re.IGNORECASE):
+                neg = _canonical_brand(raw_brand)
+                search_filters.pop("brand", None)
+                if neg:
+                    merged = _parse_excluded_brands(search_filters.get("excluded_brands"))
+                    if neg not in merged:
+                        merged.append(neg)
+                    search_filters["excluded_brands"] = merged
+            else:
+                canon = _canonical_brand(raw_brand)
+                if canon:
+                    search_filters["brand"] = canon
+
+        # 3) If preferred brand is present, remove it from excluded_brands.
+        if isinstance(search_filters.get("brand"), str):
+            pref = search_filters["brand"]
+            merged = _parse_excluded_brands(search_filters.get("excluded_brands"))
+            merged = [b for b in merged if b.lower() != pref.lower()]
+            if merged:
+                search_filters["excluded_brands"] = merged
+            else:
+                search_filters.pop("excluded_brands", None)
+
+        # 4) Normalize excluded screen sizes for deterministic downstream filtering.
+        excl_sizes = _parse_excluded_screen_sizes(search_filters.get("excluded_screen_sizes"))
+        if excl_sizes:
+            search_filters["excluded_screen_sizes"] = excl_sizes
+        else:
+            search_filters.pop("excluded_screen_sizes", None)
 
         return search_filters
 
@@ -789,7 +1002,11 @@ class UniversalAgent:
                        "ram", "ssd", "gpu", "cpu", "processor", "nvidia", "intel", "amd", "ryzen",
                        "pytorch", "tensorflow", "coding", "programming", "phone", "tablet", "ipad",
                        "data science", "machine learning", "minecraft", "gaming", "rugged",
-                       "latop", "labtop", "student", "school", "college", "class")
+                       "latop", "labtop", "student", "school", "college", "class",
+                       # Screen-size intent usually refers to laptop specs in this app.
+                       "screen", "display", "inch", "inches",
+                       # Add laptop-brand cues for standalone exclusion phrases like "avoid HP".
+                       "hp", "dell", "asus", "lenovo", "acer", "apple", "msi", "razer")
         book_kws    = ("book", "novel", "fiction", "author", "read", "genre", "paperback", "kindle")
 
         v_hits = sum(1 for k in vehicle_kws if k in text)
@@ -908,6 +1125,22 @@ class UniversalAgent:
                 logger.warning("Criteria extraction returned None")
                 return None
 
+            # Hard guardrail: preserve explicit negative screen-size intent even when
+            # the LLM returns an empty criteria list for this turn.
+            if schema.domain == "laptops" and _message_has_screen_negation(message):
+                msg_excl_sizes = _extract_excluded_screen_sizes_from_text(message)
+                if msg_excl_sizes:
+                    existing_criteria = list(result.criteria or [])
+                    has_excl_size_slot = any(c.slot_name == "excluded_screen_sizes" for c in existing_criteria)
+                    if not has_excl_size_slot:
+                        existing_criteria.append(
+                            SlotValue(
+                                slot_name="excluded_screen_sizes",
+                                value=",".join(str(s) for s in msg_excl_sizes),
+                            )
+                        )
+                        result.criteria = existing_criteria
+
             # Merge extracted filters into state — normalise slot names first.
             # The LLM sometimes returns "ram" / "price" instead of the canonical
             # schema slot names "min_ram_gb" / "budget".  Map them back so that
@@ -922,7 +1155,7 @@ class UniversalAgent:
                     "excluded_brands", "_soft_preferences",
                     "good_for_gaming", "good_for_creative",
                     "good_for_web_dev", "good_for_ml",
-                    "use_case",
+                    "use_case", "excluded_screen_sizes",
                 }
                 new_filters: Dict[str, Any] = {}
                 for item in result.criteria:
@@ -942,6 +1175,60 @@ class UniversalAgent:
                 if "brand" in new_filters and isinstance(new_filters["brand"], str):
                     raw_brand = new_filters["brand"].strip()
                     new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
+                    # Repair malformed negated-brand outputs, e.g. "not HP" from LLM.
+                    if re.search(r'^(?:no|not|exclude|excluded|avoid|without)\s+', raw_brand, re.IGNORECASE):
+                        _neg_canon = _canonical_brand(raw_brand)
+                        if _neg_canon:
+                            parsed_excl = _parse_excluded_brands(new_filters.get("excluded_brands"))
+                            if _neg_canon not in parsed_excl:
+                                parsed_excl.append(_neg_canon)
+                            new_filters["excluded_brands"] = parsed_excl
+                            new_filters.pop("brand", None)
+                # Canonicalize excluded_brands and drop hallucinated/non-brand tokens.
+                if "excluded_brands" in new_filters:
+                    clean_excl = _parse_excluded_brands(new_filters["excluded_brands"])
+                    # Guard against malformed LLM outputs that inject unrelated brands.
+                    clean_excl = _filter_exclusions_by_message_mentions(clean_excl, message)
+                    if clean_excl:
+                        new_filters["excluded_brands"] = clean_excl
+                    else:
+                        new_filters.pop("excluded_brands", None)
+                # Canonicalize excluded_screen_sizes into validated numeric inches.
+                if "excluded_screen_sizes" in new_filters:
+                    clean_excl_sizes = _parse_excluded_screen_sizes(new_filters["excluded_screen_sizes"])
+                    if clean_excl_sizes:
+                        new_filters["excluded_screen_sizes"] = clean_excl_sizes
+                    else:
+                        new_filters.pop("excluded_screen_sizes", None)
+                # Backstop: if message text clearly indicates exclusion, enforce excluded_brands.
+                # This catches "steer clear of HP" when LLM outputs brand="not HP".
+                if schema.domain == "laptops":
+                    _msg_excl = _brand_exclusion_from_text(message)
+                    if _msg_excl:
+                        _existing = _parse_excluded_brands(new_filters.get("excluded_brands"))
+                        for b in _msg_excl:
+                            if b not in _existing:
+                                _existing.append(b)
+                        new_filters["excluded_brands"] = _existing
+                        # If chosen brand conflicts with exclusion semantics, drop it.
+                        if isinstance(new_filters.get("brand"), str):
+                            _chosen = _canonical_brand(new_filters["brand"])
+                            if _chosen and _chosen in _existing:
+                                new_filters.pop("brand", None)
+                # Negated screen wording should never turn into positive screen filters.
+                # Keep this after slot normalization so any alias form is removed.
+                if schema.domain == "laptops" and _message_has_screen_negation(message):
+                    # Persist explicit negative constraint so filters show user intent.
+                    msg_excl_sizes = _extract_excluded_screen_sizes_from_text(message)
+                    if msg_excl_sizes:
+                        existing_sizes = _parse_excluded_screen_sizes(new_filters.get("excluded_screen_sizes"))
+                        for s in msg_excl_sizes:
+                            if s not in existing_sizes:
+                                existing_sizes.append(s)
+                        new_filters["excluded_screen_sizes"] = existing_sizes
+                    new_filters.pop("screen_size", None)
+                    new_filters.pop("min_screen_size", None)
+                    new_filters.pop("max_screen_size", None)
                 logger.info(f"Extracted filters (normalised): {new_filters}")
                 self.filters.update(new_filters)
                 # If user explicitly chose a brand, remove it from excluded_brands (mind change)
@@ -1071,7 +1358,9 @@ class UniversalAgent:
             "Framework", "System76", "ROG", "Alienware",
         ]
         _excl_kw_pat = re.compile(
-            r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|skip)\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
+            r'(?:no|not|never|anything but|avoid|hate|refuse|skip|exclude|excluded|without|'
+            r'steer\s+clear\s+of|bad\s+experience\s+with|terrible\s+experience\s+with)\s+'
+            r'([A-Za-z][A-Za-z0-9\- ]{1,30})',
             re.IGNORECASE
         )
         excl_brands: List[str] = []
@@ -1081,12 +1370,12 @@ class UniversalAgent:
             parts = re.split(r'\s+(?:or|and)\s+|[,;]\s*', raw_group)
             for part in parts:
                 candidate = part.strip().split()[0]  # first word of each part
-                # Resolve through brand aliases so "mac"→"Apple", "macbook"→"Apple", etc.
-                candidate_normalized = _BRAND_VALUE_ALIASES.get(candidate.lower(), candidate)
-                for brand in _known_brands:
-                    if brand.lower() == candidate_normalized.lower():
-                        if brand not in excl_brands:
-                            excl_brands.append(brand)
+                candidate_normalized = _canonical_brand(candidate)
+                if candidate_normalized:
+                    for brand in _known_brands:
+                        if brand.lower() == candidate_normalized.lower():
+                            if brand not in excl_brands:
+                                excl_brands.append(brand)
 
         # LLM semantic exclusion: catches indirect phrases, bad experiences, sarcasm
         # that the regex above can't handle ("steer clear of HP", "we hate mac", etc.)
@@ -1095,6 +1384,8 @@ class UniversalAgent:
             if _eb not in excl_brands:
                 excl_brands.append(_eb)
                 logger.info(f"LLM exclusion detected: {_eb}")
+        # Guardrail: keep exclusions only when the brand is actually mentioned in text.
+        excl_brands = _filter_exclusions_by_message_mentions(excl_brands, message)
 
         if excl_brands:
             criteria.append(SlotValue(slot_name="excluded_brands", value=",".join(excl_brands)))
@@ -1114,6 +1405,16 @@ class UniversalAgent:
                 break
 
         # ── Screen size ───────────────────────────────────────────────────────
+        # Negative screen-size intent: keep an explicit exclusion list in filters.
+        _neg_screen_sizes = _extract_excluded_screen_sizes_from_text(message)
+        if _neg_screen_sizes:
+            criteria.append(
+                SlotValue(
+                    slot_name="excluded_screen_sizes",
+                    value=",".join(str(s) for s in _neg_screen_sizes),
+                )
+            )
+
         _scr = re.search(
             r'(\d{2}(?:\.\d)?)\s*(?:"|″|inch(?:es)?|-inch)(?:\s+(?:screen|display|laptop))?',
             text, re.IGNORECASE
@@ -1187,7 +1488,7 @@ class UniversalAgent:
             ]
             _negation = any(
                 re.search(
-                    r'(?:no|not|avoid|hate|don.t\s+(?:want|like))\s+' + re.escape(alias),
+                    r'(?:no|not|avoid|hate|exclude|without|steer\s+clear\s+of|don.t\s+(?:want|like))\s+' + re.escape(alias),
                     text, re.IGNORECASE,
                 )
                 for alias in _brand_aliases_for_negation

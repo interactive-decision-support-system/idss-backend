@@ -1910,10 +1910,50 @@ async def search_products(
     search_cache_key = cache_client.make_search_key(filters, filters.get("category", ""), offset, request.limit)
     cached_search = cache_client.get_search_results(search_cache_key)
     if cached_search is not None:
-        # Cache HIT — reconstruct ProductSummary list from cached dicts
+        # Cache HIT — layered freshness check:
+        # 1) patch stale prices from the short-lived price cache if drift >10%
+        # 2) drop now-out-of-stock items based on inventory cache snapshot
         cache_hit = True
         timings["db"] = 0
-        product_summaries = [ProductSummary(**item) for item in cached_search]
+        refreshed_items: List[Dict[str, Any]] = []
+        patched_prices = 0
+        dropped_oos = 0
+
+        for item in cached_search:
+            if not isinstance(item, dict):
+                continue
+            patched = dict(item)
+            pid = patched.get("product_id")
+
+            if pid:
+                # Price drift guardrail: keep search cards aligned with fresh price cache.
+                live_price = cache_client.get_price(str(pid))
+                if isinstance(live_price, dict):
+                    live_cents = live_price.get("price_cents")
+                    cached_cents = patched.get("price_cents")
+                    if isinstance(live_cents, (int, float)) and isinstance(cached_cents, (int, float)):
+                        base = max(abs(float(cached_cents)), 1.0)
+                        drift_ratio = abs(float(live_cents) - float(cached_cents)) / base
+                        if drift_ratio > 0.10:
+                            patched["price_cents"] = int(live_cents)
+                            patched_prices += 1
+
+                # Inventory safety check: remove items now known to be sold out.
+                live_inventory = cache_client.get_inventory(str(pid))
+                if isinstance(live_inventory, dict) and isinstance(live_inventory.get("available_qty"), (int, float)):
+                    available_qty = int(live_inventory.get("available_qty") or 0)
+                    patched["available_qty"] = available_qty
+                    if available_qty <= 0:
+                        dropped_oos += 1
+                        continue
+
+            refreshed_items.append(patched)
+
+        if patched_prices or dropped_oos:
+            # Write back patched cache to prevent repeated re-patching on every hit.
+            cache_client.set_search_results(search_cache_key, refreshed_items, adaptive=True)
+
+        product_summaries = [ProductSummary(**item) for item in refreshed_items]
         total_count = len(product_summaries)  # approximate (page-level)
         timings["total"] = (time.time() - start_time) * 1000
         record_request_metrics("search_products", timings["total"], cache_hit, is_error=False)
@@ -2413,6 +2453,13 @@ def get_product(
     cached_price = cache_client.get_price(request.product_id)
     cached_inventory = cache_client.get_inventory(request.product_id)
     timings["cache"] = (time.time() - cache_start) * 1000
+
+    # Guardrail: ignore partial/stale summary blobs so get_product always returns
+    # the full detail shape expected by callers/tests.
+    if isinstance(cached_summary, dict):
+        required_summary_fields = ("product_id", "name", "category", "brand")
+        if any(cached_summary.get(f) in (None, "") for f in required_summary_fields):
+            cached_summary = None
     
     if cached_summary and cached_price and cached_inventory:
         # Full cache hit - return from Redis
@@ -2428,6 +2475,7 @@ def get_product(
         
         # Build response from cache
         # Extract enriched policy fields from cached description
+        # Keep description non-null so response shape is stable for tests/clients.
         cached_desc = cached_summary.get("description") or ""
         cached_policies = _extract_policy_from_description(cached_desc)
         cached_shipping = cached_policies.get("shipping")
@@ -2443,7 +2491,7 @@ def get_product(
         product_detail = ProductDetail(
             product_id=cached_summary["product_id"],
             name=cached_summary["name"],
-            description=cached_summary.get("description"),
+            description=cached_desc,
             category=cached_summary.get("category"),
             brand=cached_summary.get("brand"),
             price_cents=cached_price["price_cents"],
@@ -2728,8 +2776,11 @@ def get_product(
         "has_inventory": product.inventory is not None
     })
     
-    # Extract enriched policy fields: use direct columns first, fall back to description parsing
-    desc = getattr(product, 'description', '') or ''
+    # Extract description from direct column first, then attributes JSON fallback.
+    attrs = getattr(product, "attributes", None) or {}
+    attr_desc = attrs.get("description") if isinstance(attrs, dict) else None
+    desc = (getattr(product, "description", None) or attr_desc or "")
+    # Extract enriched policy fields from the resolved description text.
     policies = _extract_policy_from_description(desc)
 
     return_policy_val = (getattr(product, 'return_policy', None)
@@ -2757,7 +2808,7 @@ def get_product(
     product_detail = ProductDetail(
         product_id=str(product.product_id),
         name=product.name,
-        description=product.description,
+        description=desc,
         category=product.category,
         brand=product.brand,
         price_cents=int((product.price_value or 0) * 100),
@@ -2790,7 +2841,7 @@ def get_product(
         {
             "product_id": str(product.product_id),
             "name": product.name,
-            "description": product.description,
+            "description": desc,
             "category": product.category,
             "brand": product.brand,
             "source": getattr(product, 'source', None),

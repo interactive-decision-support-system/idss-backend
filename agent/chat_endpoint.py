@@ -422,8 +422,11 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
         session = session_manager.get_session(session_id)
 
     # --- Reset / greeting check ---
-    reset_keywords = ['reset', 'restart', 'start over', 'new search', 'clear', 'different category']
-    is_explicit_reset = any(keyword == msg_lower or keyword in msg_lower for keyword in reset_keywords)
+    # NOTE: keep reset triggers precise. Broad substring "clear" incorrectly
+    # reset sessions for phrases like "steer clear of HP".
+    reset_keywords_exact = {'reset', 'restart', 'start over', 'new search', 'clear', 'different category'}
+    # Exact-match only: avoids accidental resets from non-reset phrases containing a keyword token.
+    is_explicit_reset = msg_lower.strip() in reset_keywords_exact
     greeting_words = ['hi', 'hello', 'hey', 'yo', 'sup']
     is_standalone_greeting = msg_lower in greeting_words and session.active_domain
 
@@ -1812,6 +1815,35 @@ async def _handle_post_recommendation(
         "acer": "Acer", "apple": "Apple", "samsung": "Samsung",
         "microsoft": "Microsoft", "razer": "Razer", "lg": "LG",
     }
+    # Natural-language brand override: "show me Apple", "actually show me Dell".
+    _show_brand_m = re.match(r"^(?:actually\s+)?show\s+me\s+([a-z]+)\b", msg_lower.strip())
+    if _show_brand_m and _show_brand_m.group(1) in _BRAND_DISPLAY:
+        session_manager.add_message(session_id, "user", request.message)
+        brand_name = _BRAND_DISPLAY[_show_brand_m.group(1)]
+        agent = UniversalAgent.restore_from_session(session_id, session)
+        agent.filters["brand"] = brand_name
+        search_filters = agent.get_search_filters()
+        agent_state = agent.get_state()
+        session.agent_filters = agent_state["filters"]
+        session_manager.update_filters(session_id, search_filters)
+        session_manager._persist(session_id)
+        if active_domain == "vehicles":
+            return await _search_and_respond_vehicles(
+                search_filters, session_id, session, session_manager,
+                n_rows=request.n_rows or 3, n_per_row=request.n_per_row or 3,
+                method=request.method or "embedding_similarity",
+                question_count=session.question_count,
+                agent=agent,
+            )
+        category = _domain_to_category(active_domain)
+        search_filters["category"] = category
+        search_filters["product_type"] = "laptop" if active_domain == "laptops" else "book"
+        return await _search_and_respond_ecommerce(
+            search_filters, category, active_domain, session_id, session, session_manager,
+            n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
+            question_count=session.question_count,
+            agent=agent,
+        )
     if msg_lower.strip() in _BRAND_DISPLAY:
         session_manager.add_message(session_id, "user", request.message)
         brand_name = _BRAND_DISPLAY[msg_lower.strip()]
@@ -1863,6 +1895,48 @@ async def _handle_post_recommendation(
         use_case_val = _USE_CASE_QR[msg_lower.strip()]
         agent = UniversalAgent.restore_from_session(session_id, session)
         agent.filters["use_case"] = use_case_val
+        search_filters = agent.get_search_filters()
+        agent_state = agent.get_state()
+        session.agent_filters = agent_state["filters"]
+        session_manager.update_filters(session_id, search_filters)
+        session_manager._persist(session_id)
+        if active_domain == "vehicles":
+            return await _search_and_respond_vehicles(
+                search_filters, session_id, session, session_manager,
+                n_rows=request.n_rows or 3, n_per_row=request.n_per_row or 3,
+                method=request.method or "embedding_similarity",
+                question_count=session.question_count,
+                agent=agent,
+            )
+        category = _domain_to_category(active_domain)
+        search_filters["category"] = category
+        search_filters["product_type"] = "laptop" if active_domain == "laptops" else "book"
+        return await _search_and_respond_ecommerce(
+            search_filters, category, active_domain, session_id, session, session_manager,
+            n_rows=request.n_rows or 2, n_per_row=request.n_per_row or 3,
+            question_count=session.question_count,
+            agent=agent,
+        )
+
+    # Natural-language use-case refinement (not only exact quick-reply text).
+    # Example: "I need a laptop for school" should refine while preserving existing
+    # hard constraints (e.g., excluded_brands), not trigger a new-search reset.
+    _USE_CASE_NL_PATTERNS = [
+        (r"\bfor\s+(?:school|study|student|college|class)\b", "school"),
+        (r"\bfor\s+(?:work|business|office)\b", "business"),
+        (r"\bfor\s+(?:gaming|games)\b", "gaming"),
+        (r"\bfor\s+(?:creative|design|editing|video\s+editing|photo\s+editing)\b", "creative"),
+        (r"\bfor\s+(?:general|everyday|daily|home)\b", "general"),
+    ]
+    _nl_use_case_val = None
+    for _pat, _val in _USE_CASE_NL_PATTERNS:
+        if re.search(_pat, msg_lower):
+            _nl_use_case_val = _val
+            break
+    if _nl_use_case_val and active_domain in ("laptops", "books", "vehicles"):
+        session_manager.add_message(session_id, "user", request.message)
+        agent = UniversalAgent.restore_from_session(session_id, session)
+        agent.filters["use_case"] = _nl_use_case_val
         search_filters = agent.get_search_filters()
         agent_state = agent.get_state()
         session.agent_filters = agent_state["filters"]
@@ -3301,7 +3375,45 @@ async def _search_ecommerce_products(
     _cached = _cc.get_search_results(_cache_key)
     if _cached is not None:
         logger.info("search_ecommerce_cache_hit", f"Agent search cache HIT ({len(_cached)} items)", {})
-        product_dicts = _cached
+        # Layered freshness on agent-side cache hit:
+        # keep card prices synced to fresh price cache and hide sold-out products.
+        _refreshed: List[Dict[str, Any]] = []
+        _patched_prices = 0
+        _dropped_oos = 0
+        for _item in _cached:
+            if not isinstance(_item, dict):
+                continue
+            _patched = dict(_item)
+            _pid = str(_patched.get("id") or _patched.get("product_id") or "")
+            if _pid:
+                _live_price = _cc.get_price(_pid)
+                if isinstance(_live_price, dict) and isinstance(_live_price.get("price_cents"), (int, float)):
+                    _new_cents = int(_live_price.get("price_cents"))
+                    _old_cents = None
+                    if isinstance(_patched.get("price_cents"), (int, float)):
+                        _old_cents = float(_patched.get("price_cents"))
+                    elif isinstance(_patched.get("price"), (int, float)):
+                        _old_cents = float(_patched.get("price")) * 100.0
+                    if _old_cents is not None:
+                        _base = max(abs(_old_cents), 1.0)
+                        _drift = abs(_new_cents - _old_cents) / _base
+                        if _drift > 0.10:
+                            _patched["price_cents"] = _new_cents
+                            _patched["price"] = round(_new_cents / 100.0, 2)
+                            _patched_prices += 1
+
+                _live_inventory = _cc.get_inventory(_pid)
+                if isinstance(_live_inventory, dict) and isinstance(_live_inventory.get("available_qty"), (int, float)):
+                    _available = int(_live_inventory.get("available_qty") or 0)
+                    _patched["available_qty"] = _available
+                    _patched["inventory"] = _available
+                    if _available <= 0:
+                        _dropped_oos += 1
+                        continue
+            _refreshed.append(_patched)
+        if _patched_prices or _dropped_oos:
+            _cc.set_search_results(_cache_key, _refreshed, adaptive=True)
+        product_dicts = _refreshed
     else:
         logger.info("search_ecommerce_start", "Searching products via Supabase (cache miss)", {
             "category": category, "filters": search_filters,

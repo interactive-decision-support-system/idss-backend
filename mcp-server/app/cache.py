@@ -284,6 +284,9 @@ class CacheClient:
                 pass  # Fall back to default TTL
         try:
             self.client.setex(key, ttl, json.dumps(results))
+            # Maintain reverse index: product_id -> search keys containing that product.
+            # This enables targeted invalidation when one product's price/inventory changes.
+            self._index_search_results(cache_key, results, ttl)
             return True
         except Exception as e:
             print(f"Search cache write error for {key}: {e}")
@@ -326,8 +329,77 @@ class CacheClient:
     # Cache Invalidation
     # 
 
+    def _extract_result_product_ids(self, results: List[Dict[str, Any]]) -> Set[str]:
+        """Collect product IDs from mixed search payload shapes (MCP and agent)."""
+        product_ids: Set[str] = set()
+        for item in results or []:
+            if not isinstance(item, dict):
+                continue
+            pid = item.get("product_id") or item.get("id")
+            if pid:
+                product_ids.add(str(pid))
+        return product_ids
+
+    def _index_search_results(self, cache_key: str, results: List[Dict[str, Any]], ttl: int) -> None:
+        """
+        Keep bidirectional mapping between search cache key and product IDs.
+
+        Keys:
+          - mcp:search_idx:product:{pid}      -> set(search:{hash})
+          - mcp:search_members:search:{hash}  -> set(product_ids)
+        """
+        try:
+            member_key = self._key(f"search_members:{cache_key}")
+            old_ids = self.client.smembers(member_key)
+            if old_ids:
+                for old_pid in old_ids:
+                    self.client.srem(self._key(f"search_idx:product:{old_pid}"), cache_key)
+            self.client.delete(member_key)
+
+            new_ids = self._extract_result_product_ids(results)
+            if not new_ids:
+                return
+
+            for pid in new_ids:
+                self.client.sadd(self._key(f"search_idx:product:{pid}"), cache_key)
+            self.client.sadd(member_key, *list(new_ids))
+            self.client.expire(member_key, ttl)
+        except Exception:
+            # Non-critical path: caching still functions even if reverse index write fails.
+            pass
+
+    def _invalidate_search_keys_for_product(self, product_id: str) -> int:
+        """
+        Invalidate all search cache keys that contain a specific product ID.
+
+        Returns:
+            Number of search cache keys deleted.
+        """
+        deleted = 0
+        try:
+            idx_key = self._key(f"search_idx:product:{product_id}")
+            search_keys = self.client.smembers(idx_key) or set()
+            if not search_keys:
+                return 0
+
+            redis_keys_to_delete = [self._key(sk) for sk in search_keys]
+            if redis_keys_to_delete:
+                deleted += int(self.client.delete(*redis_keys_to_delete) or 0)
+
+            for sk in search_keys:
+                member_key = self._key(f"search_members:{sk}")
+                member_ids = self.client.smembers(member_key) or set()
+                for pid in member_ids:
+                    self.client.srem(self._key(f"search_idx:product:{pid}"), sk)
+                self.client.delete(member_key)
+
+            self.client.delete(idx_key)
+        except Exception:
+            return deleted
+        return deleted
+
     def invalidate_product(self, product_id: str) -> bool:
-        """Invalidate all cached data for a product (summary, price, inventory)."""
+        """Invalidate product caches and any search keys that include that product."""
         keys = [
             self._key(f"prod_summary:{product_id}"),
             self._key(f"price:{product_id}"),
@@ -335,6 +407,7 @@ class CacheClient:
         ]
         try:
             self.client.delete(*keys)
+            self._invalidate_search_keys_for_product(str(product_id))
             return True
         except Exception as e:
             print(f"Cache invalidation error for {product_id}: {e}")

@@ -16,6 +16,7 @@ from app.query_parser import (
     _extract_min_ram,
     _extract_min_storage,
     _extract_min_screen,
+    _extract_excluded_screen_sizes,
     _extract_min_battery,
     _extract_year,
     _extract_use_cases,
