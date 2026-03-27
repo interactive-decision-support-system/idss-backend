@@ -310,6 +310,13 @@ class SupabaseProductStore:
             if max_screen:
                 params.append(("attributes->>screen_size", f"lte.{max_screen}"))
 
+            excl_screens = filters.get("excluded_screen_size")
+            if excl_screens:
+                if isinstance(excl_screens, str):
+                    excl_screens = [s.strip() for s in excl_screens.split(",") if s.strip()]
+                for size in excl_screens:
+                    params.append(("attributes->>screen_size", f"neq.{size}"))
+
             min_battery = filters.get("min_battery_hours")
             if min_battery:
                 params.append(("attributes->>battery_life_hours", f"gte.{min_battery}"))
@@ -827,6 +834,13 @@ class _SQLAlchemyProductStore:
                 continue
             if max_screen and _num(attrs.get("screen_size"), 999) > float(max_screen):
                 continue
+            excl_screen_sizes = filters.get("excluded_screen_size")
+            if excl_screen_sizes:
+                if isinstance(excl_screen_sizes, str):
+                    excl_screen_sizes = [s.strip() for s in excl_screen_sizes.split(",") if s.strip()]
+                screen_size = attrs.get("screen_size")
+                if screen_size and float(screen_size) in [float(s) for s in excl_screen_sizes]:
+                    continue
             if min_battery and _num(attrs.get("battery_life_hours")) < float(min_battery):
                 continue
             if storage_type and str(attrs.get("storage_type", "")).upper() != storage_type.upper():

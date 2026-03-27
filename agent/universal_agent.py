@@ -479,6 +479,14 @@ class UniversalAgent:
                     search_filters["excluded_brands"] = brands
                     logger.info(f"Excluded brands: {brands}")
 
+            elif slot_name == "excluded_screen_size":
+                # User wants to exclude certain screen sizes, e.g. "not 15 inch"
+                raw = str(value).lower().strip()
+                sizes = [float(n) for n in re.findall(r'\d+\.?\d*', raw)]
+                if sizes:
+                    search_filters["excluded_screen_size"] = sizes
+                    logger.info(f"Excluded screen sizes: {sizes}")
+
             elif slot_name == "os":
                 search_filters["os"] = value
 
@@ -789,7 +797,8 @@ class UniversalAgent:
                        "ram", "ssd", "gpu", "cpu", "processor", "nvidia", "intel", "amd", "ryzen",
                        "pytorch", "tensorflow", "coding", "programming", "phone", "tablet", "ipad",
                        "data science", "machine learning", "minecraft", "gaming", "rugged",
-                       "latop", "labtop", "student", "school", "college", "class")
+                       "latop", "labtop", "student", "school", "college", "class",
+                       "screen", "display", "monitor", "panel", "touchscreen")
         book_kws    = ("book", "novel", "fiction", "author", "read", "genre", "paperback", "kindle")
 
         v_hits = sum(1 for k in vehicle_kws if k in text)
@@ -1125,7 +1134,9 @@ class UniversalAgent:
                 r'(?:no|not|don.t\s+want|don.t\s+like|avoid|hate)',
                 _pre_context, re.IGNORECASE
             )
-            if not _scr_negated:
+            if _scr_negated:
+                criteria.append(SlotValue(slot_name="excluded_screen_size", value=_scr.group(1)))
+            else:
                 criteria.append(SlotValue(slot_name="screen_size", value=_scr.group(1)))
 
         # ── Storage type ──────────────────────────────────────────────────────
@@ -1645,6 +1656,26 @@ Write the recommendation message."""}
                 for item in result.updated_criteria:
                     self.filters[item.slot_name] = item.value
                     logger.info(f"Refinement updated filter: {item.slot_name}={item.value}")
+                    
+                    # Handle brand preference changes that conflict with exclusions (mind change)
+                    if item.slot_name == "brand" and item.value:
+                        excl = self.filters.get("excluded_brands")
+                        if excl:
+                            excl_list = [excl] if isinstance(excl, str) else excl
+                            new_excl = [b for b in excl_list if str(b).lower() != str(item.value).lower()]
+                            if not new_excl:
+                                self.filters.pop("excluded_brands", None)
+                            else:
+                                self.filters["excluded_brands"] = new_excl
+                            logger.info(f"Removed '{item.value}' from excluded_brands")
+                    elif item.slot_name == "excluded_brands" and item.value:
+                        current_brand = self.filters.get("brand")
+                        if current_brand:
+                            excl_vals = item.value if isinstance(item.value, list) else [v.strip() for v in str(item.value).split(",")]
+                            if any(str(v).lower() == str(current_brand).lower() for v in excl_vals):
+                                self.filters.pop("brand", None)
+                                logger.info(f"Removed brand when excluded_brands includes '{current_brand}'")
+                    
                 self.history.append({"role": "user", "content": message})
                 schema = get_domain_schema(self.domain)
                 return self._handoff_to_search(schema)
