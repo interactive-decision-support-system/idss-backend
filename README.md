@@ -243,6 +243,105 @@ curl -X POST http://localhost:8001/chat \
   -d '{"message": "I need an SUV under 30k"}'
 ```
 
+## Reproducing take-home exam results (Q1 / Q2 branches)
+
+The exam work lives on two **standalone** branches (each is based on `main` and can be merged or reviewed independently):
+
+| Branch | Topic | Primary tests |
+|--------|--------|----------------|
+| `q1-exclusion-zihan` | Brand exclusion & negated specs | `agent/tests/test_brand_exclusion.py` |
+| `q2-exclusion-zihan` | Session memory & preference updates | `agent/tests/test_session_memory.py` |
+
+**What you are reproducing:** these branches are validated with **unit tests** that mock LLM calls and assert on `UniversalAgent` filters and `get_search_filters()` output. They do **not** print full product recommendation payloads from the database—getting “raw” recommender rows requires a running backend with `DATABASE_URL` and hitting `/chat` or `scripts/test_demo_queries.py` against a live URL.
+
+### Prerequisites
+
+- Python 3.10+ and a virtualenv (same as [Quick Start](#quick-start) above).
+- Install dependencies from the repo root:
+
+```bash
+pip install -r requirements.txt
+pip install -r mcp-server/requirements.txt
+```
+
+- Set `OPENAI_API_KEY` in `.env` (tests mock most LLM calls, but imports may still expect the env to exist).
+
+The agent imports `app.*` from `mcp-server/`, so **`PYTHONPATH` must include `mcp-server`** when running pytest from the repository root.
+
+### Q1 branch (`q1-exclusion-zihan`) — brand exclusion
+
+```bash
+git fetch origin
+git checkout q1-exclusion-zihan
+```
+
+**Run the dedicated test file (16 tests):**
+
+```bash
+# macOS / Linux
+export PYTHONPATH=mcp-server
+python -m pytest agent/tests/test_brand_exclusion.py -v
+```
+
+```powershell
+# Windows PowerShell
+$env:PYTHONPATH = "mcp-server"
+python -m pytest agent/tests/test_brand_exclusion.py -v
+```
+
+**Optional — full agent test suite** (to check for regressions among existing tests):
+
+```bash
+export PYTHONPATH=mcp-server
+python -m pytest agent/tests/ -v
+```
+
+**Optional — demo queries against a running API** (needs credentials + server; exercises end-to-end search, not just unit mocks):
+
+```bash
+export PYTHONPATH=mcp-server
+python scripts/test_demo_queries.py --group "brand_exclusion" --verbose
+# Add --url https://your-backend.example/chat if not localhost
+```
+
+### Q2 branch (`q2-exclusion-zihan`) — session memory
+
+```bash
+git fetch origin
+git checkout q2-exclusion-zihan
+```
+
+**Run the dedicated test file (15 tests):**
+
+```bash
+export PYTHONPATH=mcp-server
+python -m pytest agent/tests/test_session_memory.py -v
+```
+
+```powershell
+# Windows PowerShell
+$env:PYTHONPATH = "mcp-server"
+python -m pytest agent/tests/test_session_memory.py -v
+```
+
+**Optional — full agent test suite:**
+
+```bash
+export PYTHONPATH=mcp-server
+python -m pytest agent/tests/ -v
+```
+
+### Expected outcome
+
+- **Q1:** `16 passed` for `test_brand_exclusion.py` (plus the rest of `agent/tests/` should still pass if you run the full suite on that branch).
+- **Q2:** `15 passed` for `test_session_memory.py` (same note for the full suite).
+
+If you see `ModuleNotFoundError: No module named 'app'`, `PYTHONPATH` is not set to `mcp-server` from the repo root.
+
+### Merge order (if you apply both)
+
+Merge **`q1-exclusion-zihan` into `main` first**, then merge or rebase **`q2-exclusion-zihan`**, because both touch `agent/prompts.py` and `agent/universal_agent.py`.
+
 ## How It Works
 
 ### The Universal Agent Pipeline
