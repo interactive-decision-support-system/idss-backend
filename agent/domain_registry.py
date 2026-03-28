@@ -187,6 +187,19 @@ LAPTOP_SCHEMA = DomainSchema(
             filter_key="screen_size"
         ),
         PreferenceSlot(
+            name="excluded_screen_size",
+            display_name="Excluded Screen Size",
+            priority=SlotPriority.MEDIUM,
+            description=(
+                "Screen sizes to exclude from results (in inches). "
+                "Extract as comma-separated numbers, e.g.: '14, 16' to exclude 14-inch and 16-inch screens. "
+                "DB column: attributes->screen_size."
+            ),
+            example_question="Any screen sizes you want to avoid?",
+            example_replies=["No", "14 inch", "14 and 16", "16"],
+            filter_key="excluded_screen_size"
+        ),
+        PreferenceSlot(
             name="brand",
             display_name="Brand",
             priority=SlotPriority.MEDIUM,

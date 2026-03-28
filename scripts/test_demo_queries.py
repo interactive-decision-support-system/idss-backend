@@ -598,6 +598,61 @@ QUERIES: List[Dict[str, Any]] = [
         "must_not_contain_brands": [],
         "expect_recs_on_first": False,
     },
+    # ── Brand Exclusions - Exam Scenarios (6 NEW) ─────────────────────────────
+    {
+        "id": 44,
+        "group": "brand_exclusion_exam",
+        "label": "no mac - alias resolution test",
+        "message": "I want a laptop, no mac",
+        "expect_domain": "laptops",
+        "expect_filters": ["excluded_brands"],
+        "must_not_contain_brands": ["Apple", "apple"],
+        "expect_recs_on_first": True,
+        "check_brand_exclusion": True,
+    },
+    {
+        "id": 45,
+        "group": "brand_exclusion_exam",
+        "label": "we hate ASUS - direct negation test",
+        "message": "we hate ASUS, find me a gaming laptop",
+        "expect_domain": "laptops",
+        "expect_filters": ["excluded_brands", "good_for_gaming"],
+        "must_not_contain_brands": ["ASUS", "asus"],
+        "expect_recs_on_first": True,
+        "check_brand_exclusion": True,
+    },
+    {
+        "id": 46,
+        "group": "brand_exclusion_exam",
+        "label": "steer clear of HP - indirect phrasing test",
+        "message": "steer clear of HP, bad experience",
+        "expect_domain": "laptops",
+        "expect_filters": ["excluded_brands"],
+        "must_not_contain_brands": ["HP", "hp"],
+        "expect_recs_on_first": True,
+        "check_brand_exclusion": True,
+    },
+    {
+        "id": 47,
+        "group": "brand_exclusion_exam",
+        "label": "I don't want a 14 inch screen - screen exclusion test",
+        "message": "I don't want a 14 inch screen",
+        "expect_domain": "laptops",
+        "expect_filters": ["excluded_screen_size"],
+        "must_not_contain_screen_sizes": ["14"],
+        "check_screen_exclusion": True,
+        "expect_recs_on_first": False,
+    },
+    {
+        "id": 48,
+        "group": "brand_exclusion_exam",
+        "label": "brand override - no Apple then show me Apple (multi-turn)",
+        "multi_turn": ["I want a laptop, no mac", "actually show me Apple"],
+        "expect_domain": "laptops",
+        "expect_filters": ["brand"],
+        "must_contain_brands": ["Apple", "apple"],
+        "expect_recs_on_first": True,
+    },
 ]
 
 
@@ -656,7 +711,7 @@ def check_query(
     # while expect_filters uses agent slot names (budget, screen_size, etc.).
     _FILTER_ALIASES = {
         "budget":      ["price_max_cents", "price_min_cents", "price"],
-        "screen_size": ["min_screen_size", "max_screen_size", "screen_size"],
+        "screen_size": ["min_screen_size", "max_screen_size", "screen_size", "excluded_screen_size"],
         "use_case":    ["good_for_gaming", "good_for_ml", "good_for_creative", "good_for_web_dev", "_soft_preferences"],
     }
     for key in query.get("expect_filters", []):
@@ -700,7 +755,23 @@ def check_query(
                             f"(brand='{product.get('brand')}', name='{product.get('name', '')[:40]}')"
                         )
 
-    # 6. Brand exclusion extracted into filters
+    # 6. Screen size exclusion: check recs don't contain excluded screen sizes
+    must_not_screen = query.get("must_not_contain_screen_sizes", [])
+    if must_not_screen and recs:
+        for row in recs:
+            for product in row:
+                attrs = product.get("attributes", {})
+                screen = attrs.get("screen_size")
+                if screen:
+                    screen_str = str(screen)
+                    for bad_size in must_not_screen:
+                        if bad_size.lower() in screen_str.lower():
+                            failures.append(
+                                f"Screen exclusion FAILED: '{bad_size}' found in result "
+                                f"(screen_size='{screen}', name='{product.get('name', '')[:40]}')"
+                            )
+
+    # 7. Brand exclusion extracted into filters
     if query.get("check_brand_exclusion"):
         excl = filters.get("excluded_brands", [])
         if excl:
@@ -708,7 +779,34 @@ def check_query(
         else:
             failures.append(f"excluded_brands NOT in filters — brand exclusion not extracted")
 
-    # 7. OS filter extracted
+    # 8. Screen exclusion extracted into filters
+    if query.get("check_screen_exclusion"):
+        excl = filters.get("excluded_screen_size", [])
+        if excl:
+            passes.append(f"excluded_screen_size in filters: {excl}")
+        else:
+            failures.append(f"excluded_screen_size NOT in filters — screen exclusion not extracted")
+
+    # 9. Brand required
+    must_contain = query.get("must_contain_brands", [])
+    if must_contain and recs:
+        found_any = False
+        for row in recs:
+            for product in row:
+                p_brand = (product.get("brand") or "").lower()
+                p_name = (product.get("name") or "").lower()
+                for needed_brand in must_contain:
+                    if needed_brand.lower() in p_brand or needed_brand.lower() in p_name:
+                        found_any = True
+                        break
+            if found_any:
+                break
+        if found_any:
+            passes.append(f"Brand required: found {must_contain} in results")
+        else:
+            failures.append(f"Brand required FAILED: {must_contain} NOT in results")
+
+    # 10. OS filter extracted
     if query.get("check_os_filter"):
         os_val = filters.get("os")
         if os_val:
@@ -716,13 +814,13 @@ def check_query(
         else:
             warnings.append(f"os filter NOT in response.filters — may only be in agent-internal state")
 
-    # 8. Not empty response
+    # 11. Not empty response
     if not message:
         failures.append("Empty message in response")
     else:
         passes.append(f"Non-empty response ({len(message)} chars)")
 
-    # 9. Quick replies present for question type
+    # 12. Quick replies present for question type
     if rtype == "question" and not quick_replies:
         warnings.append("No quick_replies provided with question response")
 
@@ -759,11 +857,15 @@ def run_queries(
 
             print(f"[{qid:2d}/{total:2d}] {label}")
             print(f"       Group: {query['group']}")
-            print(f"       Msg:   {query['message'][:90]!r}{'...' if len(query['message']) > 90 else ''}")
+            messages = query.get("multi_turn", [query.get("message", "")])
+            msg_display = " → ".join(m[:50] + ("..." if len(m) > 50 else "") for m in messages)
+            print(f"       Msg:   {msg_display}")
 
             t0 = time.perf_counter()
+            response = None
             try:
-                response = send_chat(client, base_url, query["message"], session_id)
+                for msg in messages:
+                    response = send_chat(client, base_url, msg, session_id)
             except httpx.ConnectError:
                 print(f"       {FAIL} Cannot connect to {base_url} — is the server running?")
                 print(f"            Start it with: uvicorn app.main:app --port 8001 --reload")
