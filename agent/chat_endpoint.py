@@ -529,7 +529,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
     session.question_count = agent_state["question_count"]
     if agent_state["domain"]:
         session_manager.set_active_domain(session_id, agent_state["domain"])
-    session_manager.update_filters(session_id, agent.get_search_filters())
+    session_manager.update_filters(session_id, agent.get_search_filters(), replace=True)
     session_manager._persist(session_id)
 
     response_type = agent_response.get("response_type")
@@ -2300,7 +2300,7 @@ async def _handle_post_recommendation(
         session.agent_filters = agent_state["filters"]
         session.agent_questions_asked = agent_state["questions_asked"]
         session.agent_history = agent_state["history"]
-        session_manager.update_filters(session_id, search_filters)
+        session_manager.update_filters(session_id, search_filters, replace=True)
         session_manager._persist(session_id)
 
         if active_domain == "vehicles":

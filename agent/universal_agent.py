@@ -561,21 +561,57 @@ class UniversalAgent:
             return response
 
         # ── "Changed my mind" preference reset ──────────────────────────────────
-        # If the user signals a preference change mid-session (same domain), clear
-        # soft slot values (brand, use_case) so the new preference fully replaces the
-        # old one.  Budget and RAM are kept (user hasn't said they changed those).
+        # Two tiers:
+        #   1. Soft reset — clears brand / use_case level preferences.
+        #   2. Hard reset — triggered by explicit "forget the specs/gaming" phrases,
+        #      clears soft slots PLUS hardware spec slots and good_for_* flags so
+        #      the user can pivot from e.g. a gaming build to a basic laptop.
         _PREF_RESET_PHRASES = (
             "changed my mind", "change my mind", "actually", "instead show",
             "show me instead", "forget that", "never mind", "nevermind",
             "scratch that", "different brand", "switch to", "go with",
         )
+        _SPEC_RESET_PHRASES = (
+            "forget the gaming", "forget gaming", "forget the specs", "forget specs",
+            "drop the specs", "drop specs", "no more gaming", "no gaming",
+            "start simple", "keep it simple", "basic laptop", "just basic",
+            "forget the ml", "forget ml", "forget machine learning",
+            "different use case", "completely different",
+        )
+        _soft_slots = {"brand", "use_case", "color", "os", "product_subtype"}
+        _hard_reset_slots = {
+            "min_ram_gb", "gpu_tier", "min_storage_gb", "screen_size",
+            "min_screen_size", "max_screen_size", "min_battery_hours",
+            "good_for_gaming", "good_for_ml", "good_for_creative", "good_for_web_dev",
+        }
         msg_lower_chk = message.lower()
-        if any(p in msg_lower_chk for p in _PREF_RESET_PHRASES) and self.domain:
-            # Clear only the soft preferences — keep hard constraints (budget, RAM, screen_size)
-            _soft_slots = {"brand", "use_case", "color", "os", "product_subtype"}
+
+        _hard_reset = any(p in msg_lower_chk for p in _SPEC_RESET_PHRASES) and self.domain
+        _soft_reset = any(p in msg_lower_chk for p in _PREF_RESET_PHRASES) and self.domain
+
+        if _hard_reset:
+            _all_clear = _soft_slots | _hard_reset_slots
+            for slot in _all_clear:
+                self.filters.pop(slot, None)
+            logger.info(f"Hard preference reset — cleared soft + spec slots: {_all_clear}")
+        elif _soft_reset:
             for slot in _soft_slots:
                 self.filters.pop(slot, None)
-            logger.info(f"Preference reset detected — cleared soft slots: {_soft_slots}")
+            logger.info(f"Soft preference reset — cleared soft slots: {_soft_slots}")
+
+        # Budget-aware reset: when a soft/hard reset phrase co-occurs with a new
+        # dollar amount or "under/over $X", clear the old budget so the LLM
+        # extraction on this turn can set it cleanly (no stale $800 competing
+        # with the new $600).
+        if (_soft_reset or _hard_reset) and self.domain:
+            _has_budget_signal = re.search(
+                r'(?:under|below|over|above|less than|at most|budget|'
+                r'max|up\s+to|starting)\s*\$?\s*\d',
+                msg_lower_chk,
+            ) or re.search(r'\$\s*\d', msg_lower_chk)
+            if _has_budget_signal and "budget" in self.filters:
+                self.filters.pop("budget", None)
+                logger.info("Budget cleared alongside preference reset (new budget detected in message)")
 
         # 2. Extract Criteria (Schema-Driven) with IDSS signals
         schema = get_domain_schema(self.domain)
@@ -943,6 +979,19 @@ class UniversalAgent:
                     raw_brand = new_filters["brand"].strip()
                     new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
                 logger.info(f"Extracted filters (normalised): {new_filters}")
+                # Remove None values before merging
+                new_filters = {k: v for k, v in new_filters.items() if v is not None}
+
+                # When use_case changes, clear stale good_for_* flags from previous
+                # turns so contradictory tags (e.g. good_for_ml from turn 1) don't
+                # persist when the user pivots to "email and Netflix".
+                if "use_case" in new_filters:
+                    _stale_gf = [k for k in self.filters if k.startswith("good_for_")]
+                    if _stale_gf:
+                        for k in _stale_gf:
+                            del self.filters[k]
+                        logger.info(f"Cleared stale good_for_* flags on use_case change: {_stale_gf}")
+
                 self.filters.update(new_filters)
                 # If user explicitly chose a brand, remove it from excluded_brands (mind change)
                 if "brand" in new_filters:
@@ -1641,10 +1690,14 @@ Write the recommendation message."""}
             logger.info(f"Refinement classification: intent={result.intent}, reasoning={result.reasoning}")
 
             if result.intent == "refine_filters":
-                # Merge updated criteria into existing filters
+                # Normalise slot names so "price"→"budget", "ram"→"min_ram_gb", etc.
+                # Without this, a refinement like "make it under $600" may create a
+                # stale duplicate key instead of overwriting the existing "budget" slot.
+                domain_aliases = _SLOT_NAME_ALIASES.get(self.domain or "", {})
                 for item in result.updated_criteria:
-                    self.filters[item.slot_name] = item.value
-                    logger.info(f"Refinement updated filter: {item.slot_name}={item.value}")
+                    canonical = domain_aliases.get(item.slot_name, item.slot_name)
+                    self.filters[canonical] = item.value
+                    logger.info(f"Refinement updated filter: {canonical}={item.value} (raw slot: {item.slot_name})")
                 self.history.append({"role": "user", "content": message})
                 schema = get_domain_schema(self.domain)
                 return self._handoff_to_search(schema)
@@ -1664,8 +1717,10 @@ Write the recommendation message."""}
                 self.filters = {}
                 self.questions_asked = []
                 self.question_count = 0
+                domain_aliases = _SLOT_NAME_ALIASES.get(self.domain or "", {})
                 for item in result.updated_criteria:
-                    self.filters[item.slot_name] = item.value
+                    canonical = domain_aliases.get(item.slot_name, item.slot_name)
+                    self.filters[canonical] = item.value
                 self.history.append({"role": "user", "content": message})
                 schema = get_domain_schema(self.domain)
                 return self._handoff_to_search(schema)
