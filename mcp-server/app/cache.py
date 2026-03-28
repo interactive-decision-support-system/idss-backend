@@ -289,11 +289,18 @@ class CacheClient:
                 if not valid_pids:
                     return results
                 
+                # Optimization: Single MGET for both price and inventory (1 roundtrip)
                 price_keys = [self._key(f"price:{pid}") for pid in product_ids]
                 inventory_keys = [self._key(f"inventory:{pid}") for pid in product_ids]
                 
-                live_prices_raw = self.client.mget(price_keys)
-                live_inventory_raw = self.client.mget(inventory_keys)
+                # Combine all keys into one list and fetch in a single call
+                all_keys = price_keys + inventory_keys
+                all_values = self.client.mget(all_keys)
+                
+                # Split results back into price and inventory
+                n = len(product_ids)
+                live_prices_raw = all_values[:n]
+                live_inventory_raw = all_values[n:]
                 
                 for i, product in enumerate(results):
                     pid = product_ids[i]
