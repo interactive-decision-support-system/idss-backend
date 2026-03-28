@@ -472,9 +472,16 @@ class UniversalAgent:
                 search_filters["_soft_preferences"] = {"liked_features": [value] if isinstance(value, str) else value}
 
             elif slot_name == "excluded_brands":
-                # Comma-separated list of brands to EXCLUDE, e.g. "HP,Acer"
-                raw = str(value).strip()
-                brands = [b.strip() for b in re.split(r"[,;/|]", raw) if b.strip()]
+                # Handle both str ("HP,Acer") and list (["HP", "Acer"]) types.
+                # The purge logic in _extract_criteria can leave this as a list.
+                if isinstance(value, list):
+                    brands = [b.strip() for b in value if isinstance(b, str) and b.strip()]
+                else:
+                    raw = str(value).strip()
+                    brands = [b.strip() for b in re.split(r"[,;/|]", raw) if b.strip()]
+                # Resolve aliases ("mac" → "Apple") and drop the literal "none"
+                brands = [_BRAND_VALUE_ALIASES.get(b.lower(), b) for b in brands]
+                brands = [b for b in brands if b.lower() != "none"]
                 if brands:
                     search_filters["excluded_brands"] = brands
                     logger.info(f"Excluded brands: {brands}")
@@ -562,17 +569,17 @@ class UniversalAgent:
 
         # ── "Changed my mind" preference reset ──────────────────────────────────
         # If the user signals a preference change mid-session (same domain), clear
-        # soft slot values (brand, use_case) so the new preference fully replaces the
-        # old one.  Budget and RAM are kept (user hasn't said they changed those).
+        # soft slot values so the new preference fully replaces the old one.
+        # excluded_brands is included so "no Apple" → "actually show me Apple"
+        # doesn't leave a stale exclusion blocking the newly-requested brand.
         _PREF_RESET_PHRASES = (
             "changed my mind", "change my mind", "actually", "instead show",
             "show me instead", "forget that", "never mind", "nevermind",
             "scratch that", "different brand", "switch to", "go with",
         )
+        _soft_slots = {"brand", "use_case", "color", "os", "product_subtype", "excluded_brands"}
         msg_lower_chk = message.lower()
         if any(p in msg_lower_chk for p in _PREF_RESET_PHRASES) and self.domain:
-            # Clear only the soft preferences — keep hard constraints (budget, RAM, screen_size)
-            _soft_slots = {"brand", "use_case", "color", "os", "product_subtype"}
             for slot in _soft_slots:
                 self.filters.pop(slot, None)
             logger.info(f"Preference reset detected — cleared soft slots: {_soft_slots}")
@@ -942,7 +949,55 @@ class UniversalAgent:
                 if "brand" in new_filters and isinstance(new_filters["brand"], str):
                     raw_brand = new_filters["brand"].strip()
                     new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
+
+                # Normalise excluded_brands aliases (e.g., "mac" → "Apple")
+                if "excluded_brands" in new_filters and isinstance(new_filters["excluded_brands"], str):
+                    _raw_excl = new_filters["excluded_brands"]
+                    _excl_parts = [b.strip() for b in _raw_excl.split(",") if b.strip()]
+                    _excl_parts = [_BRAND_VALUE_ALIASES.get(b.lower(), b) for b in _excl_parts]
+                    # Drop the literal word "none" which LLMs sometimes return
+                    _excl_parts = [b for b in _excl_parts if b.lower() != "none"]
+                    new_filters["excluded_brands"] = ",".join(_excl_parts) if _excl_parts else None
+
+                # FIX A: If LLM extracted brand AND that same brand appears in
+                # excluded_brands from the SAME message, the exclusion wins.
+                # e.g. "no mac" → LLM may output brand=Apple AND excluded_brands=Apple;
+                # the user clearly wants to EXCLUDE, not prefer.
+                if "brand" in new_filters and "excluded_brands" in new_filters:
+                    _excl_raw = new_filters["excluded_brands"]
+                    if _excl_raw:
+                        _excl_check = (
+                            [b.strip() for b in _excl_raw.split(",")]
+                            if isinstance(_excl_raw, str)
+                            else list(_excl_raw)
+                        )
+                        if any(b.lower() == new_filters["brand"].lower() for b in _excl_check):
+                            logger.info(
+                                f"Brand/exclusion conflict in same message: "
+                                f"brand={new_filters['brand']} is also in excluded_brands — "
+                                f"exclusion wins, removing brand preference"
+                            )
+                            del new_filters["brand"]
+
+                # Post-process: strip negated screen_size from LLM output.
+                # The regex path has this guard (lines 1121-1128) but the LLM
+                # path did not — GPT-4o-mini often extracts "14" as a positive
+                # value from "I don't want a 14 inch screen".
+                if "screen_size" in new_filters:
+                    _scr_val_str = str(new_filters["screen_size"]).split(".")[0]
+                    _scr_pos = re.search(
+                        re.escape(_scr_val_str) + r'\s*(?:"|″|inch|-inch)',
+                        message, re.IGNORECASE,
+                    )
+                    if _scr_pos:
+                        _pre_ctx = message[max(0, _scr_pos.start() - 50):_scr_pos.start()].lower()
+                        if re.search(r"(?:no|not|don.t\s+want|don.t\s+like|avoid|hate|never)", _pre_ctx):
+                            logger.info(f"Removed negated screen_size={new_filters['screen_size']} from LLM output")
+                            del new_filters["screen_size"]
+
                 logger.info(f"Extracted filters (normalised): {new_filters}")
+                # Remove None values before merging
+                new_filters = {k: v for k, v in new_filters.items() if v is not None}
                 self.filters.update(new_filters)
                 # If user explicitly chose a brand, remove it from excluded_brands (mind change)
                 if "brand" in new_filters:
@@ -1064,29 +1119,47 @@ class UniversalAgent:
 
         # ── Brand exclusions ─────────────────────────────────────────────────
         # Matches: "no HP", "not HP", "anything but HP", "avoid HP", "hate HP",
-        #          "no HP or Acer", "no HP, no Acer"
+        #          "no HP or Acer", "no HP, no Acer",
+        #          "steer clear of HP", "bad experience with Dell", etc.
         _known_brands = [
             "HP", "Acer", "Dell", "Lenovo", "Apple", "ASUS", "Asus",
             "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
             "Framework", "System76", "ROG", "Alienware",
         ]
+        # Primary pattern: direct negation keywords followed by brand
         _excl_kw_pat = re.compile(
-            r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|skip)\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
+            r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|skip|worst|awful)\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
+            re.IGNORECASE
+        )
+        # Indirect/experiential pattern: multi-word phrases where brand follows
+        _excl_indirect_pat = re.compile(
+            r'(?:steer\s+clear\s+of|stay\s+away\s+from|don.t\s+trust|don.t\s+like|'
+            r'not\s+interested\s+in|burned\s+by|'
+            r'bad\s+experience(?:s)?\s+with|terrible\s+experience(?:s)?\s+with|'
+            r'awful\s+experience(?:s)?\s+with|had\s+(?:a\s+)?bad\s+time\s+with|'
+            r'(?:my\s+last|previous)\s+\w+\s+(?:broke|died|failed|crashed))\s*'
+            r'([A-Za-z]\w+)',
             re.IGNORECASE
         )
         excl_brands: List[str] = []
+
+        def _try_add_brand(candidate_raw: str) -> None:
+            """Resolve candidate through aliases and add to excl_brands if known."""
+            candidate = candidate_raw.strip().split()[0]
+            candidate_normalized = _BRAND_VALUE_ALIASES.get(candidate.lower(), candidate)
+            for brand in _known_brands:
+                if brand.lower() == candidate_normalized.lower():
+                    if brand not in excl_brands:
+                        excl_brands.append(brand)
+
         for _m in _excl_kw_pat.finditer(message):
-            # Group can be "HP or Acer" or "HP, no Acer" — split on or/and/, to get each brand
             raw_group = _m.group(1).strip()
             parts = re.split(r'\s+(?:or|and)\s+|[,;]\s*', raw_group)
             for part in parts:
-                candidate = part.strip().split()[0]  # first word of each part
-                # Resolve through brand aliases so "mac"→"Apple", "macbook"→"Apple", etc.
-                candidate_normalized = _BRAND_VALUE_ALIASES.get(candidate.lower(), candidate)
-                for brand in _known_brands:
-                    if brand.lower() == candidate_normalized.lower():
-                        if brand not in excl_brands:
-                            excl_brands.append(brand)
+                _try_add_brand(part)
+
+        for _m in _excl_indirect_pat.finditer(message):
+            _try_add_brand(_m.group(1))
 
         # LLM semantic exclusion: catches indirect phrases, bad experiences, sarcasm
         # that the regex above can't handle ("steer clear of HP", "we hate mac", etc.)
@@ -1187,7 +1260,9 @@ class UniversalAgent:
             ]
             _negation = any(
                 re.search(
-                    r'(?:no|not|avoid|hate|don.t\s+(?:want|like))\s+' + re.escape(alias),
+                    r'(?:no|not|avoid|hate|never|refuse|skip|don.t\s+(?:want|like|trust)|'
+                    r'steer\s+clear\s+of|stay\s+away\s+from|burned\s+by|'
+                    r'bad\s+experience\s+with)\s+' + re.escape(alias),
                     text, re.IGNORECASE,
                 )
                 for alias in _brand_aliases_for_negation

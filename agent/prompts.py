@@ -90,14 +90,28 @@ EXTRACTION RULES:
              "we hate mac" → excluded_brands="Apple"
              "steer clear of Lenovo" → excluded_brands="Lenovo"
 
-4. OS requirements ("Windows 10", "Linux only", "must have macOS"):
+4. NEGATED specifications — if the user says they do NOT want a specific spec value,
+   do NOT extract it as a positive slot. Omit it entirely:
+   - "I don't want a 14 inch screen" → do NOT extract screen_size=14. Skip it.
+   - "not 15 inches" → do NOT extract screen_size=15.
+   - "no 8GB RAM, I need more" → do NOT extract min_ram_gb=8.
+   CRITICAL: A negated spec must be OMITTED from the output. Never extract a negated
+   value as if it were a positive preference.
+
+5. Brand PREFERENCE vs. EXCLUSION — when a brand is mentioned in a NEGATIVE context
+   (any of the exclusion patterns from rule 3), do NOT also extract it as a positive
+   brand preference. Only extract brand= when the user WANTS that brand.
+   - "I want a laptop, no mac" → excluded_brands="Apple" ONLY. Do NOT set brand="Apple".
+   - "we hate ASUS, find me a gaming laptop" → excluded_brands="ASUS" ONLY.
+
+6. OS requirements ("Windows 10", "Linux only", "must have macOS"):
    → slot_name="os", value="Windows 10" etc.
 
-5. For slots with ALLOWED VALUES, map the user's words to the closest allowed value exactly.
+7. For slots with ALLOWED VALUES, map the user's words to the closest allowed value exactly.
 
-6. Only extract what is explicitly stated or clearly inferable. Do NOT guess.
+8. Only extract what is explicitly stated or clearly inferable. Do NOT guess.
 
-7. For budget, PRESERVE the direction keyword in the value string:
+9. For budget, PRESERVE the direction keyword in the value string:
    - "over $1000", "above $1000", "more than $1000", "at least $1000", "minimum $1000", "starting from $1000" → value="over1000"
    - "under $1000", "below $1000", "less than $1000", "up to $1000", "max $1000" → value="under1000"
    - "$1000-$2000", "between $1000 and $2000" → value="1000-2000"
