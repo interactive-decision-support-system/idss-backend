@@ -90,14 +90,27 @@ EXTRACTION RULES:
              "we hate mac" → excluded_brands="Apple"
              "steer clear of Lenovo" → excluded_brands="Lenovo"
 
-4. OS requirements ("Windows 10", "Linux only", "must have macOS"):
+4. CONTRADICTION / CORRECTION — the current user message ALWAYS overrides conversation
+   history. When the user corrects, revises, or contradicts a prior preference, extract
+   ONLY the NEW value from the current message. Do NOT re-extract the old value from
+   previous turns in the conversation.
+   - History: "I need something for machine learning" → Current: "Actually it's just for
+     email and Netflix" → extract use_case="general" or use_case="casual". Do NOT extract
+     use_case="machine learning" or good_for_ml.
+   - History: "budget $800" → Current: "make it under $600" → extract budget="under600".
+     Do NOT also extract budget="under800".
+   - Signals that a prior preference is revoked: "actually", "instead", "forget that",
+     "never mind", "changed my mind", "on second thought", "scratch that", "no wait".
+   When you see these signals, disregard contradicted slots from conversation history.
+
+5. OS requirements ("Windows 10", "Linux only", "must have macOS"):
    → slot_name="os", value="Windows 10" etc.
 
-5. For slots with ALLOWED VALUES, map the user's words to the closest allowed value exactly.
+6. For slots with ALLOWED VALUES, map the user's words to the closest allowed value exactly.
 
-6. Only extract what is explicitly stated or clearly inferable. Do NOT guess.
+7. Only extract what is explicitly stated or clearly inferable. Do NOT guess.
 
-7. For budget, PRESERVE the direction keyword in the value string:
+8. For budget, PRESERVE the direction keyword in the value string:
    - "over $1000", "above $1000", "more than $1000", "at least $1000", "minimum $1000", "starting from $1000" → value="over1000"
    - "under $1000", "below $1000", "less than $1000", "up to $1000", "max $1000" → value="under1000"
    - "$1000-$2000", "between $1000 and $2000" → value="1000-2000"
@@ -220,6 +233,21 @@ Classify the user's intent into ONE of these categories:
    Examples: "tell me more about the first one", "compare these", "add to cart", "rate these"
 
 5. "other" — Greeting, off-topic, or unclear intent.
+
+IMPORTANT — use ONLY these canonical slot names in updated_criteria (never aliases):
+  budget (not "price", "max_price", "price_range", "cost")
+  brand
+  use_case
+  min_ram_gb (not "ram", "memory")
+  screen_size (not "display", "screen")
+  min_storage_gb
+  gpu_tier
+  os
+  color
+  excluded_brands
+
+When the user corrects a previously set value (e.g. "make it under $600" when budget was $800),
+output the NEW value with the canonical slot name so the old value is properly overwritten.
 
 Current domain: {domain}
 Current filters: {filters}

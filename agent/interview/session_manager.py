@@ -387,12 +387,24 @@ class InterviewSessionManager:
         except Exception:
             pass  # Neo4j optional
     
-    def update_filters(self, session_id: str, filters: Dict[str, Any]) -> None:
-        """Update filters for a session."""
+    def update_filters(self, session_id: str, filters: Dict[str, Any], replace: bool = False) -> None:
+        """Update filters for a session.
+
+        When *replace* is True the existing explicit_filters are fully replaced
+        by the incoming dict (minus None / underscore-prefixed keys).  This
+        prevents stale keys like ``good_for_ml=True`` from persisting after the
+        user switches use-case.  Default is merge (backward-compatible).
+        """
         session = self.get_session(session_id)
-        for key, value in filters.items():
-            if value is not None and not key.startswith("_"):
-                session.explicit_filters[key] = value
+        if replace:
+            session.explicit_filters = {
+                k: v for k, v in filters.items()
+                if v is not None and not k.startswith("_")
+            }
+        else:
+            for key, value in filters.items():
+                if value is not None and not key.startswith("_"):
+                    session.explicit_filters[key] = value
         self._persist(session_id)
 
     def set_active_domain(self, session_id: str, domain: str) -> None:
