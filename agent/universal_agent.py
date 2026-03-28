@@ -951,6 +951,12 @@ class UniversalAgent:
                 if "brand" in new_filters and isinstance(new_filters["brand"], str):
                     raw_brand = new_filters["brand"].strip()
                     new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
+                # Normalise excluded_brands value (e.g., "mac" → "Apple", "ThinkPad" → "Lenovo")
+                if "excluded_brands" in new_filters and isinstance(new_filters["excluded_brands"], str):
+                    raw_excl = new_filters["excluded_brands"].strip()
+                    excl_brands_list = [b.strip() for b in raw_excl.split(",") if b.strip()]
+                    normalized = [_BRAND_VALUE_ALIASES.get(b.lower(), b) for b in excl_brands_list]
+                    new_filters["excluded_brands"] = ",".join(normalized)
                 logger.info(f"Extracted filters (normalised): {new_filters}")
                 self.filters.update(new_filters)
                 # If user explicitly chose a brand, remove it from excluded_brands (mind change)
@@ -1654,6 +1660,12 @@ Write the recommendation message."""}
             if result.intent == "refine_filters":
                 # Merge updated criteria into existing filters
                 for item in result.updated_criteria:
+                    # Normalise excluded_brands value (e.g., "mac" → "Apple")
+                    if item.slot_name == "excluded_brands" and isinstance(item.value, str):
+                        raw_excl = item.value.strip()
+                        excl_brands_list = [b.strip() for b in raw_excl.split(",") if b.strip()]
+                        normalized = [_BRAND_VALUE_ALIASES.get(b.lower(), b) for b in excl_brands_list]
+                        item.value = ",".join(normalized)
                     self.filters[item.slot_name] = item.value
                     logger.info(f"Refinement updated filter: {item.slot_name}={item.value}")
                     
@@ -1696,6 +1708,12 @@ Write the recommendation message."""}
                 self.questions_asked = []
                 self.question_count = 0
                 for item in result.updated_criteria:
+                    # Normalise excluded_brands value (e.g., "mac" → "Apple")
+                    if item.slot_name == "excluded_brands" and isinstance(item.value, str):
+                        raw_excl = item.value.strip()
+                        excl_brands_list = [b.strip() for b in raw_excl.split(",") if b.strip()]
+                        normalized = [_BRAND_VALUE_ALIASES.get(b.lower(), b) for b in excl_brands_list]
+                        item.value = ",".join(normalized)
                     self.filters[item.slot_name] = item.value
                 self.history.append({"role": "user", "content": message})
                 schema = get_domain_schema(self.domain)
