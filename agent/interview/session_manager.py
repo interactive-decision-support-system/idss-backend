@@ -388,10 +388,37 @@ class InterviewSessionManager:
             pass  # Neo4j optional
     
     def update_filters(self, session_id: str, filters: Dict[str, Any]) -> None:
-        """Update filters for a session."""
+        """Update filters for a session.
+
+        excluded_brands is EXTENDED (accumulated) across turns so that
+        "no HP" on turn 1 + "no Dell" on turn 2 = ["HP", "Dell"].
+        All other slots are replaced (e.g. new budget overwrites old budget).
+        """
         session = self.get_session(session_id)
         for key, value in filters.items():
-            if value is not None and not key.startswith("_"):
+            if value is None or key.startswith("_"):
+                continue
+            if key == "excluded_brands":
+                # EXTEND the exclusion list across turns — "no HP" turn 1 + "no Dell" turn 2
+                # should produce ["HP", "Dell"], not just ["Dell"].
+                # Handle both comma-string and list storage formats.
+                existing_raw = session.explicit_filters.get(key)
+                if isinstance(existing_raw, str) and existing_raw.strip():
+                    existing_list = [b.strip() for b in existing_raw.split(",") if b.strip()]
+                elif isinstance(existing_raw, list):
+                    existing_list = list(existing_raw)
+                else:
+                    existing_list = []
+                new_brands = (
+                    [b.strip() for b in value.split(",") if b.strip()]
+                    if isinstance(value, str)
+                    else (list(value) if isinstance(value, list) else [])
+                )
+                for b in new_brands:
+                    if b not in existing_list:
+                        existing_list.append(b)
+                session.explicit_filters[key] = existing_list if existing_list else value
+            else:
                 session.explicit_filters[key] = value
         self._persist(session_id)
 

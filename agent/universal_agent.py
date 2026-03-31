@@ -147,6 +147,27 @@ _KNOWN_BRANDS = frozenset({
     "System76", "Toshiba", "LG",
 })
 
+def _to_brand_list(value: Any) -> List[str]:
+    """Normalize an excluded_brands value (string or list) to a deduplicated list."""
+    if isinstance(value, list):
+        return [b for b in value if isinstance(b, str) and b.strip()]
+    if isinstance(value, str) and value.strip():
+        return [b.strip() for b in value.split(",") if b.strip()]
+    return []
+
+
+def _merge_excluded_brands(existing: Any, new_value: Any) -> List[str]:
+    """
+    Extend an existing excluded_brands value with new brands, no duplicates.
+    Handles both comma-string and list storage formats.
+    """
+    result = _to_brand_list(existing)
+    for b in _to_brand_list(new_value):
+        if b not in result:
+            result.append(b)
+    return result
+
+
 _BRAND_EXCLUDE_SYSTEM = (
     "You are a brand exclusion detector for an e-commerce search engine. "
     "Given a user message, identify any laptop/computer brands the user wants to AVOID or EXCLUDE. "
@@ -300,6 +321,11 @@ class UniversalAgent:
         self.question_count = 0
         self.max_questions = max_questions
         self.questions_asked: List[str] = []  # Slot names we've asked about
+
+        # Stores the enriched/rewritten message from the most recent process_message() call.
+        # Passed to generate_recommendation_explanation() so prompt rules that check for
+        # [note: ...] annotations (contradiction, expert spec, logistics, etc.) actually fire.
+        self.last_rewritten_message: str = ""
 
         # Initialize OpenAI client.
         # timeout=10s: fail fast if OpenAI is slow rather than blocking for 600s.
@@ -519,6 +545,8 @@ class UniversalAgent:
                 "timings_ms": timings,
             }
         message = _rr.rewritten
+        # Store enriched message so the narrative generator can use [note: ...] annotations
+        self.last_rewritten_message = message
 
         # 1. Domain Detection — run when domain is unknown, or when message contains
         # fast-map keywords that clearly indicate a different domain (zero-latency switch).
@@ -566,13 +594,20 @@ class UniversalAgent:
         # old one.  Budget and RAM are kept (user hasn't said they changed those).
         _PREF_RESET_PHRASES = (
             "changed my mind", "change my mind", "actually", "instead show",
-            "show me instead", "forget that", "never mind", "nevermind",
+            "show me instead", "forget that", "forget the", "forget those",
+            "forget my", "forget about", "never mind", "nevermind",
             "scratch that", "different brand", "switch to", "go with",
         )
         msg_lower_chk = message.lower()
         if any(p in msg_lower_chk for p in _PREF_RESET_PHRASES) and self.domain:
-            # Clear only the soft preferences — keep hard constraints (budget, RAM, screen_size)
-            _soft_slots = {"brand", "use_case", "color", "os", "product_subtype"}
+            # Clear soft preferences (use_case, brand, etc.).
+            # Also clear GPU/refresh specs — these are almost always use-case-derived
+            # (gaming → RTX, 144Hz) rather than explicitly stated, so they should reset
+            # when the use case changes ("forget the gaming specs, I just need email").
+            _soft_slots = {
+                "brand", "use_case", "color", "os", "product_subtype",
+                "gpu_vendor", "gpu_tier", "refresh_rate_min_hz",
+            }
             for slot in _soft_slots:
                 self.filters.pop(slot, None)
             logger.info(f"Preference reset detected — cleared soft slots: {_soft_slots}")
@@ -588,6 +623,31 @@ class UniversalAgent:
         t2 = time.perf_counter()
         extraction_result = self._extract_criteria(message, schema)
         timings["criteria_extraction_ms"] = (time.perf_counter() - t2) * 1000
+
+        # 2a. Use-case contradiction: if user shifts to a light/basic use case
+        # ("just email and Netflix", "nothing heavy") after having set performance-
+        # heavy slots from a prior gaming/ML use case, clear the derived hardware
+        # requirements so the new query isn't anchored to the old workload.
+        if extraction_result and extraction_result.criteria:
+            _new_use_case = next(
+                (c.value for c in extraction_result.criteria if c.slot_name == "use_case"),
+                None,
+            )
+            _LIGHT_USE_CASES = {"email", "everyday", "basic", "general", "home", "school", "browsing"}
+            _HEAVY_USE_CASES = {"gaming", "machine learning", "ml", "video editing", "3d", "streaming"}
+            _prior_use_case = str(self.filters.get("use_case") or "").lower()
+            if (
+                _new_use_case
+                and _new_use_case.lower() in _LIGHT_USE_CASES
+                and _prior_use_case in _HEAVY_USE_CASES
+            ):
+                _perf_slots = {"min_ram_gb", "gpu_vendor", "gpu_tier", "refresh_rate_min_hz"}
+                for _ps in _perf_slots:
+                    self.filters.pop(_ps, None)
+                logger.info(
+                    f"Use-case downgrade detected ({_prior_use_case!r} → {_new_use_case!r}); "
+                    f"cleared performance slots: {_perf_slots}"
+                )
 
         # 2b. Vagueness gate — bare "best laptop 2024" style queries must NOT jump
         # straight to recommendations even if the LLM set wants_recommendations=True.
@@ -943,7 +1003,13 @@ class UniversalAgent:
                     raw_brand = new_filters["brand"].strip()
                     new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
                 logger.info(f"Extracted filters (normalised): {new_filters}")
-                self.filters.update(new_filters)
+                # Merge filters: excluded_brands EXTENDS across turns (don't lose prior exclusions).
+                # All other slots replace the old value (e.g. new budget overwrites old budget).
+                for _k, _v in new_filters.items():
+                    if _k == "excluded_brands":
+                        self.filters[_k] = _merge_excluded_brands(self.filters.get(_k), _v)
+                    else:
+                        self.filters[_k] = _v
                 # If user explicitly chose a brand, remove it from excluded_brands (mind change)
                 if "brand" in new_filters:
                     _newly_preferred = new_filters["brand"]
@@ -1226,7 +1292,12 @@ class UniversalAgent:
                 raw_brand = new_filters["brand"].strip()
                 new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
             logger.info(f"Regex fallback extracted (normalised): {new_filters}")
-            self.filters.update(new_filters)
+            # Merge filters: excluded_brands EXTENDS across turns; all other slots replace.
+            for _k, _v in new_filters.items():
+                if _k == "excluded_brands":
+                    self.filters[_k] = _merge_excluded_brands(self.filters.get(_k), _v)
+                else:
+                    self.filters[_k] = _v
             # If user explicitly chose a brand, remove it from excluded_brands (mind change)
             if "brand" in new_filters:
                 _newly_preferred = new_filters["brand"]
@@ -1546,7 +1617,7 @@ class UniversalAgent:
         return response
 
     def generate_recommendation_explanation(
-        self, recommendations: List[List[Dict[str, Any]]], domain: str
+        self, recommendations: List[List[Dict[str, Any]]], domain: str, message: str = ""
     ) -> str:
         """
         Generate a conversational explanation of the recommendations,
@@ -1571,11 +1642,24 @@ class UniversalAgent:
 
         products_text = "\n".join(f"{i+1}. {s}" for i, s in enumerate(product_summaries))
 
-        # What the user asked for
+        # Build context for the LLM.
+        # Extract ONLY [note:...] annotations from the enriched message — these trigger
+        # the prompt's conditional rules (contradiction, expert spec, lifestyle, logistics,
+        # relaxation disclosure, etc.).
+        # Do NOT pass the full raw message: it may contain typos, ALL CAPS, mixed annotation
+        # formats that confuse the narrative LLM for clean queries.
+        import re as _re_narr
+        _notes = _re_narr.findall(r'\[note:[^\]]+\]', message) if message else []
         if self.filters:
-            criteria_text = ", ".join(f"{k}: {v}" for k, v in self.filters.items())
+            _criteria_kv = ", ".join(f"{k}: {v}" for k, v in self.filters.items())
         else:
-            criteria_text = "general browsing"
+            _criteria_kv = "general browsing"
+        if _notes:
+            # Append notes after criteria; use same "User's preferences:" prefix as v8 baseline
+            # so the narrative LLM token patterns stay stable for non-note queries.
+            user_context = f"User's preferences: {_criteria_kv}\n\nContext notes: {' '.join(_notes)}"
+        else:
+            user_context = f"User's preferences: {_criteria_kv}"
 
         try:
             system_prompt = RECOMMENDATION_EXPLANATION_PROMPT.format(domain=domain)
@@ -1585,7 +1669,7 @@ class UniversalAgent:
                 **_REASONING_KWARGS,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"""User's preferences: {criteria_text}
+                    {"role": "user", "content": f"""{user_context}
 
 Products found:
 {products_text}

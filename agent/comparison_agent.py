@@ -30,8 +30,14 @@ logger = logging.getLogger("comparison_agent")
 _COMPARE_KEYWORDS = {
     "compare", "comparison", "versus", " vs ", "vs.", "which is better",
     "which one", "differences", "pros and cons", "trade-offs", "tradeoffs",
-    "side by side", "side-by-side", "pros and cons", "compared to",
+    "side by side", "side-by-side", "compared to",
     "compare my options", "compare these", "compare them",
+    # Natural phrasing variants
+    "difference between", "differences between",
+    "how do they differ", "how do these differ",
+    "contrast", "how does it compare",
+    "lay them out", "break down the differences",
+    "what sets them apart",
 }
 
 _REFINE_KEYWORDS = {

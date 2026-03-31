@@ -243,11 +243,13 @@ def _commonsense_enrich(message: str, msg_lower: str) -> str:
             " [note: Microsoft Office works on Windows and Mac; any modern laptop handles it well]"
         )
 
-    # FAQ: multi-monitor / dual monitor → inject use_case + product_subtype so threshold met
-    if re.search(r"\b(two|dual|2|multiple|multi)\s*(-\s*)?(monitor|screen|display)s?\b", msg_lower):
+    # FAQ: multi-monitor / dual monitor / 3 monitors → inject use_case + product_subtype so threshold met
+    if re.search(r"\b(\d+|two|dual|multiple|multi)\s*(-\s*)?(external\s+)?(monitor|screen|display)s?\b", msg_lower):
         enriched += (
             " [use_case: work] [product_subtype: laptop]"
-            " [note: dual external monitors need USB-C/Thunderbolt 3 or HDMI+DisplayPort; check port count]"
+            " [note: multi-monitor setup — briefly answer in 1 sentence that a USB-C/Thunderbolt dock"
+            " can drive 3 monitors from most modern laptops. Then recommend specific laptops and note"
+            " their port options (Thunderbolt, HDMI). Do not skip the product list.]"
         )
 
     # Expert/enthusiast spec signals (PCIe gen, DDR5 speed, MUX switch, Wi-Fi 7, etc.)
@@ -266,20 +268,31 @@ def _commonsense_enrich(message: str, msg_lower: str) -> str:
         )
 
     # Logistics / shipping constraints (APO/FPO/military, urgency deadlines)
-    if re.search(r"\b(apo|fpo|dpo|military\s+(?:address|mail)|army\s+post|fleet\s+post)\b", msg_lower):
+    _is_apo = bool(re.search(
+        r"\b(apo|fpo|dpo|military\s+(?:address|mail)|army\s+post|fleet\s+post)\b", msg_lower
+    ))
+    _is_urgent = bool(re.search(
+        r"\b(need\s+it\s+(today|tomorrow|asap|urgently|by\s+monday|this\s+week)|"
+        r"internship\s+starts|starts\s+(monday|tomorrow)|ships?\s+today|"
+        r"2[-\s]?day|prime\s+shipping|arriving\s+today)\b",
+        msg_lower,
+    ))
+    if _is_apo and _is_urgent:
+        # Merge into a single note to avoid conflicting "open with" directives in the narrative
+        enriched += (
+            " [note: user has a military APO/FPO address AND an urgent deadline."
+            " Open with one sentence: 'APO/FPO shipping varies — Amazon typically supports it;"
+            " verify at checkout and prioritize Prime-eligible in-stock options for fast delivery.'"
+            " Then give product recommendations as normal.]"
+        )
+    elif _is_apo:
         enriched += (
             " [note: user has a military APO/FPO shipping address;"
             " acknowledge this upfront — not all retailers ship to APO/FPO."
             " Amazon and direct manufacturer sites typically do."
             " Focus on widely available options; mention to verify shipping at checkout.]"
         )
-
-    if re.search(
-        r"\b(need\s+it\s+(today|tomorrow|asap|urgently|by\s+monday|this\s+week)|"
-        r"internship\s+starts|starts\s+(monday|tomorrow)|ships?\s+today|"
-        r"2[-\s]?day|prime\s+shipping|arriving\s+today)\b",
-        msg_lower,
-    ):
+    elif _is_urgent:
         enriched += (
             " [note: user has an urgent timeline;"
             " prioritize in-stock items with fast shipping (Amazon Prime / 2-day)."
@@ -309,8 +322,9 @@ def _commonsense_enrich(message: str, msg_lower: str) -> str:
     ) and "use_case" not in msg_lower:
         enriched += (
             " [use_case: work]"
-            " [note: travel use case — battery life (10h+) and light weight (<3 lbs)"
-            " are the top priorities. Mention battery and weight in recommendation reasoning.]"
+            " [note: travel use case — still recommend specific laptop products by name."
+            " In each bullet emphasize battery life (10h+ preferred) and weight (<3 lbs)."
+            " Best pick should call out the longest-lasting / lightest option.]"
         )
 
     # Facebook Marketplace / Craigslist / used device risk
@@ -337,17 +351,37 @@ def _commonsense_enrich(message: str, msg_lower: str) -> str:
             " (stolen goods, no warranty, no returns), then show the cheapest new equivalent.]"
         )
 
-    # Frustrated / venting user (ALL CAPS words, strong complaint language)
+    # Frustrated / venting user — two detection paths:
+    # 1. Specific strong words (TERRIBLE, AWFUL, etc.)
+    # 2. High all-caps ratio: ≥40% of alpha words are CAPS, and message is long enough
+    #    to rule out abbreviations (e.g., "USB SSD NVMe RTX" — all tech abbreviations).
+    _already_frustrated = False
     if re.search(
         r"\b(TERRIBLE|AWFUL|HORRIBLE|USELESS|GARBAGE|PIECE\s+OF\s+JUNK|"
         r"MY\s+LAST\s+[A-Z]+\s+DIED|HAD\s+IT\s+WITH)\b",
         message,  # check original message for caps
     ):
+        _already_frustrated = True
         enriched += (
             " [note: frustrated user venting about a bad experience."
             " Briefly acknowledge their frustration, then focus on reliability"
             " and the specific problem they mentioned (battery, speed, etc.).]"
         )
+    if not _already_frustrated:
+        _cap_words = re.findall(r'\b[A-Z]{2,}\b', message)
+        _all_alpha_words = re.findall(r'\b[a-zA-Z]{2,}\b', message)
+        # Cap words that are tech abbreviations don't count as "shouting"
+        _TECH_ABBREVS = frozenset({"USB", "SSD", "NVMe", "RAM", "CPU", "GPU", "RTX", "GTX",
+                                    "HDMI", "LED", "LCD", "OLED", "DDR", "PCIe", "WiFi",
+                                    "APO", "FPO", "LTE", "AC", "DC", "OS", "TDP", "GHz"})
+        _shouting_words = [w for w in _cap_words if w not in _TECH_ABBREVS]
+        if (len(_all_alpha_words) >= 5
+                and len(_shouting_words) >= 3
+                and len(_shouting_words) / max(len(_all_alpha_words), 1) >= 0.35):
+            enriched += (
+                " [note: frustrated user — message is partially in ALL CAPS indicating strong frustration."
+                " Open with 1 short empathetic sentence (e.g., 'Sorry to hear that!') before recommendations.]"
+            )
 
     # Cloud / storage FAQ ("does cloud mean I don't need storage?")
     if re.search(
@@ -369,18 +403,19 @@ def _commonsense_enrich(message: str, msg_lower: str) -> str:
         msg_lower,
     ) and "ram" not in msg_lower and "gb" not in msg_lower:
         enriched += (
-            " [note: power user — translate to 16GB+ RAM requirement;"
-            " recommend mid-to-high range laptops with ≥16GB RAM.]"
+            " [note: power user — user needs 16GB+ RAM for heavy multitasking."
+            " Recommend specific mid-to-high range laptops with ≥16GB RAM."
+            " DO NOT explain what RAM is — just pick the right laptops and name them.]"
         )
 
     # Contradictory requirements: fanless/silent + high-end GPU (physically impossible)
     if re.search(r"\b(fanless|passive\s+cooling|silent\s+fan|0\s*db|0db|no\s+fan)\b", msg_lower) and \
        re.search(r"\b(rtx\s*[34]\d{3}|gtx\s*\d{3,4}|gaming\s+laptop|high.end\s+gaming)\b", msg_lower):
         enriched += (
-            " [note: contradictory requirements — high-end gaming GPUs (RTX/GTX) produce"
-            " significant heat and require active fan cooling; no consumer gaming laptop is"
-            " fanless. Acknowledge this trade-off upfront, then recommend the quietest"
-            " available gaming laptops (thin-and-light gaming or MacBook-style chassis).]"
+            " [note: contradictory requirements — no gaming laptop is truly fanless; RTX/GTX"
+            " GPUs require active cooling. Open with one sentence acknowledging this trade-off,"
+            " then STILL recommend the best available high-performance gaming laptops by name."
+            " Do not skip the product recommendations.]"
         )
 
     # Contradictory: impossible specs (e.g. 20h battery + RTX 4090 + ultralight + cheap)
@@ -403,8 +438,8 @@ def _commonsense_enrich(message: str, msg_lower: str) -> str:
             " [use_case: video_editing]"
             " [note: video editing (especially DaVinci Resolve/Premiere) requires a"
             " dedicated GPU (NVIDIA RTX preferred) for hardware acceleration."
-            " Filter for laptops with discrete graphics; integrated GPU is insufficient"
-            " for smooth 4K timeline playback.]"
+            " In each bullet, note whether the product has a discrete GPU."
+            " Flag any integrated-graphics-only options as insufficient for 4K editing.]"
         )
 
     # CPU comparison questions (e.g. "i7 vs Ryzen 7")
@@ -418,6 +453,33 @@ def _commonsense_enrich(message: str, msg_lower: str) -> str:
             " [note: CPU comparison question — briefly state which CPU wins for the"
             " user's stated workload (single-thread: Intel edge; multi-thread: AMD edge;"
             " battery: depends on TDP). Then recommend laptops with the better-suited CPU.]"
+        )
+
+    # Non-technical / lifestyle user detection.
+    # Fires when the user describes needs in plain life terms and uses zero spec language.
+    # Signals: daily activities (netflix, zoom, homework), broken device, basic needs.
+    # Guard: must NOT have any real spec words (GB, RAM, CPU, etc.) or it's an expert user.
+    _lifestyle_signals = re.search(
+        r"\b(netflix|youtube|grandma|grandpa|grandparents?|homework|"
+        r"doesnt?\s+freeze|freeze|freezing|super\s+slow|just\s+(watch|use|browse)|"
+        r"video\s+call|zoom\s+calls?|facetime|skype|"
+        r"basic\s+(stuff|things|tasks?)|"
+        r"(old|last|my|her|his)\s+\w+\s+(broke|died|broken|stopped working)|"
+        r"don.t\s+know\s+(?:what|anything|much)\s+about|"
+        r"what\s+(are\s+)?specs|idk\s+what\s+specs)\b",
+        msg_lower,
+    )
+    _tech_signals = re.search(
+        r"\b(ram|gb|tb|cpu|gpu|rtx|gtx|nvme|ssd|processor|cores?|ghz|vram|"
+        r"display\s+\d|hz|refresh|thunderbolt|pcie|ddr\d|tdp|watt|lbs?\.?|kg)\b",
+        msg_lower,
+    )
+    if _lifestyle_signals and not _tech_signals:
+        enriched += (
+            " [note: lifestyle/non-technical user — no spec knowledge assumed."
+            " Use plain, warm language. Recommend 1-2 clear top picks with simple reasons"
+            " ('fast', 'reliable', 'great battery', 'won\\'t slow down or freeze')."
+            " Skip spec lists and abbreviations entirely. Lead with what the user cares about.]"
         )
 
     # Uncertain brand mentions with "?" or "or something" — still extract the brand
@@ -445,10 +507,72 @@ def _commonsense_enrich(message: str, msg_lower: str) -> str:
     ) and re.search(r"\b(forget|instead|switch|rather|actually|no\s+more\s+laptop)\b", msg_lower):
         enriched += (
             " [note: user is pivoting from laptop to tablet/2-in-1 (iPad, Surface Pro)."
-            " Acknowledge the switch. Note: iPad runs iPadOS (not Windows/macOS) which"
-            " limits desktop software. Surface Pro runs full Windows. Chromebooks are"
-            " budget-friendly but limited to Chrome OS. Ask which matters more: portability,"
-            " software compatibility, or price.]"
+            " Open with 1 sentence: 'We only carry laptops, but here are the lightest and"
+            " most portable options that could work.' Then still recommend specific lightweight"
+            " laptops — focus on weight (<3 lbs), thin profile, and touch/2-in-1 designs if available."
+            " Do NOT skip the product recommendations.]"
+        )
+
+    # -----------------------------------------------------------------------
+    # Task 4: Additional empathy signals — confusion / overwhelm / uncertainty
+    # These fire even without strong frustration — mild confusion still deserves
+    # a warm, reassuring response, not just a clinical spec question.
+    # -----------------------------------------------------------------------
+    if re.search(
+        r"\b(overwhelmed|so\s+many\s+options|don.?t\s+know\s+where\s+to\s+start|"
+        r"confused|hard\s+to\s+choose|can.?t\s+decide|hard\s+to\s+pick|"
+        r"just\s+help\s+me\s+(choose|decide|pick)|help\s+me\s+choose|"
+        r"too\s+many\s+(options|choices)|analysis\s+paralysis|"
+        r"any\s+recommendation|not\s+sure\s+what\s+to\s+(get|buy|pick))\b",
+        msg_lower,
+    ):
+        enriched += (
+            " [note: user is confused or overwhelmed by choices."
+            " Lead with 1 short reassuring sentence (e.g., 'No worries — I\\'ll help narrow it down!')."
+            " Then ask ONE focused question or give ONE clear top recommendation."
+            " Avoid listing many options at once — be decisive and warm.]"
+        )
+
+    # -----------------------------------------------------------------------
+    # Task 6: Brand contradiction detection
+    # Catches impossible or conflicting brand/OS requirements before search.
+    # -----------------------------------------------------------------------
+
+    # "Dell Mac" / "Mac but Dell" — impossible brand combo
+    if re.search(r"\b(dell|hp|lenovo|asus|acer|samsung|msi|razer)\b", msg_lower) and \
+       re.search(r"\b(mac\b|macbook|apple|macos|mac\s*os)\b", msg_lower) and \
+       not re.search(r"\b(vs\.?|versus|compared?\s+to|or\s+the|difference\s+between)\b", msg_lower):
+        enriched += (
+            " [note: contradictory requirements — the user asked for a non-Apple brand"
+            " AND macOS/Mac in the same request (e.g. 'Dell Mac'). macOS only runs"
+            " on Apple hardware. Open with exactly 1 sentence clarifying this:"
+            " 'Mac/macOS runs exclusively on Apple hardware — Dell, HP, etc. run Windows."
+            " I\\'ll show you the best options in each direction.' Then show BOTH"
+            " a MacBook option AND a Windows option from the named brand,"
+            " letting the user choose. Do NOT skip the product recommendations.]"
+        )
+
+    # "Chromebook for gaming" / "gaming Chromebook"
+    if re.search(r"\bchromebook\b", msg_lower) and \
+       re.search(r"\b(gaming|rtx|gtx|game|steam|fortnite|minecraft|valorant|aaa)\b", msg_lower):
+        enriched += (
+            " [note: contradictory requirements — Chromebooks run ChromeOS and cannot"
+            " run Windows games or Steam natively. They are not suitable for gaming."
+            " Open with 1 sentence: 'Chromebooks can\\'t run Steam or Windows games —"
+            " for gaming you\\'ll need a Windows laptop.' Then recommend Windows gaming"
+            " laptops instead. Do NOT skip the product recommendations.]"
+        )
+
+    # "Windows Mac" / "Mac with Windows (only)" — acknowledge complexity
+    if re.search(r"\b(mac\b|macbook|apple)\b", msg_lower) and \
+       re.search(r"\b(windows\s+only|must\s+(run|have)\s+windows|need\s+windows|"
+                 r"only\s+windows|windows\s+required)\b", msg_lower):
+        enriched += (
+            " [note: contradictory requirements — user wants Apple hardware but requires"
+            " Windows-only software. M-series Macs can\\'t run Windows natively"
+            " (Boot Camp no longer supported on Apple Silicon). Open with 1 sentence"
+            " explaining this, then recommend Windows alternatives that have similar"
+            " build quality (Dell XPS, HP Spectre, Lenovo ThinkPad). Do NOT skip recs.]"
         )
 
     return enriched

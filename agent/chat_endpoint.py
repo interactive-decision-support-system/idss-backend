@@ -312,6 +312,10 @@ class ChatResponse(BaseModel):
     # Latency instrumentation — step-level timings in milliseconds
     timings_ms: Optional[Dict[str, float]] = Field(default=None, description="Per-step latency breakdown (ms)")
 
+    # Cart action — tells the frontend to actually add a product to the cart UI
+    # Set when the agent processes an add-to-cart text command.
+    cart_action: Optional[Dict[str, Any]] = Field(default=None, description="Cart action: {action, product}")
+
 
 # ============================================================================
 # Preferences Summary Builder
@@ -1138,6 +1142,17 @@ async def _handle_post_recommendation(
         "compare items", "compare all",  # quickReply chip texts from recommendation responses
         "compare the top",              # "Compare the top two picks side by side"
         "which is better", "which should i buy",
+        # Natural phrasing variants the meeting notes flagged as missed
+        "difference between",          # "what's the difference between X and Y"
+        "differences between",         # "what are the differences between these"
+        "how do they differ",          # "how do they differ?"
+        "how do these differ",
+        "contrast",                    # "contrast X and Y"
+        "how does it compare",         # "how does this compare to the others?"
+        "lay them out",                # informal: "can you lay them out side by side?"
+        "side by side",
+        "break down the differences",
+        "what sets them apart",
         # ActionBar common-question chips (predictable exact substrings)
         # NOTE: "best for gaming" and "best for students" moved to _FAST_TARGETED_QA_KWS
         # so they return a focused winner answer (not a full comparison table).
@@ -1204,6 +1219,14 @@ async def _handle_post_recommendation(
         # "Research" quickReply chip and related phrases — bypass LLM to avoid "new_search"
         # misclassification. Falls through to the research keyword handler further below.
         intent = "other"
+    elif (
+        ("cart" in msg_lower or "favorites" in msg_lower or "wishlist" in msg_lower or "bag" in msg_lower)
+        and any(kw in msg_lower for kw in ("add", "put", "save", "get", "take", "want", "buy"))
+    ):
+        # "add X to my cart" — catch BEFORE the LLM call so product names with
+        # specs (e.g. "add Lenovo IdeaPad L340 Gaming Laptop, 15.6 Inch FHD to cart")
+        # don't get misclassified as "new_search" and wipe the session.
+        intent = "add_to_cart"
     else:
         intent = await detect_post_rec_intent(clean_message)
 
@@ -1222,6 +1245,110 @@ async def _handle_post_recommendation(
         )
         session_manager.reset_session(session_id)
         return None  # Falls through to UniversalAgent in process_chat
+
+    # -----------------------------------------------------------------------
+    # Add-to-cart intent: user wants to add a specific product to their cart.
+    # Resolve which product via ordinal → fuzzy name match → first product.
+    # Returns cart_action so the frontend actually updates the cart UI.
+    # -----------------------------------------------------------------------
+    if intent == "add_to_cart":
+        session_manager.add_message(session_id, "user", request.message)
+        products = list(getattr(session, "last_recommendation_data", []))
+        if not products and getattr(session, "last_recommendation_ids", None):
+            products = _fetch_products_by_ids(session.last_recommendation_ids[:12], session_id=session_id)
+
+        _ORDINAL_MAP_EARLY = {
+            "first": 0, "1st": 0, "one": 0, "1": 0,
+            "second": 1, "2nd": 1, "two": 1, "2": 1,
+            "third": 2, "3rd": 2, "three": 2, "3": 2,
+            "fourth": 3, "4th": 3, "four": 3, "4": 3,
+        }
+        target_product = None
+
+        # 1) Ordinal ("add the second one to my cart")
+        _ord_m = re.search(
+            r"\b(first|second|third|fourth|1st|2nd|3rd|4th|one|two|three|four|[1-4])\b",
+            msg_lower,
+        )
+        if _ord_m:
+            idx = _ORDINAL_MAP_EARLY.get(_ord_m.group(1).lower(), 0)
+            if products and idx < len(products):
+                target_product = products[idx]
+
+        # 2) Fuzzy product-name match ("add the Lenovo IdeaPad L340 Gaming... to cart")
+        #    Compare significant words from the message against each product name.
+        if not target_product and products:
+            _stop = {
+                "add", "put", "save", "get", "cart", "the", "my", "for", "to", "into",
+                "me", "help", "please", "want", "would", "like", "can", "you", "this",
+                "that", "onto", "buy", "take", "just", "now",
+            }
+            _msg_words = set(re.findall(r'\b[a-z0-9]{3,}\b', msg_lower)) - _stop
+            best_score, best_match = 0, None
+            for _p in products:
+                _pname = ((_p.get("name") or _p.get("title")) or "").lower()
+                _pname_words = set(re.findall(r'\b[a-z0-9]{3,}\b', _pname))
+                _score = len(_msg_words & _pname_words)
+                if _score > best_score:
+                    best_score, best_match = _score, _p
+            if best_score >= 2:  # require ≥2 overlapping words to avoid spurious matches
+                target_product = best_match
+
+        # 3) Context tag products
+        if not target_product and context_product_ids and products:
+            _ctx = [p for p in products if str(p.get("id") or "") in context_product_ids]
+            if _ctx:
+                target_product = _ctx[0]
+
+        # 4) Fall back to first recommended product
+        if not target_product and products:
+            target_product = products[0]
+
+        if target_product:
+            pid = str(target_product.get("id") or target_product.get("product_id", ""))
+            name = target_product.get("name") or target_product.get("title") or "that item"
+            price = target_product.get("price")
+            price_str = f" (${float(price):,.2f})" if price else ""
+            already_in = pid and pid in (session.favorite_product_ids or [])
+            if pid and not already_in:
+                session_manager.add_favorite(session_id, pid)
+                fav_count = len(session.favorite_product_ids or [])
+                confirm_msg = (
+                    f"Done! **{name[:60]}**{price_str} has been added to your cart. "
+                    f"You now have {fav_count} item(s). "
+                    f"Say **checkout** when you're ready to buy."
+                )
+            else:
+                confirm_msg = (
+                    f"**{name[:60]}** is already in your cart! "
+                    f"Say **checkout** to complete your purchase."
+                )
+            return ChatResponse(
+                response_type="question",
+                message=confirm_msg,
+                session_id=session_id,
+                quick_replies=["Checkout", "Continue shopping", "See similar items"],
+                filters=session.explicit_filters,
+                preferences={},
+                question_count=session.question_count,
+                domain=active_domain,
+                # Tell the frontend to actually add this product to the cart UI
+                cart_action={"action": "add_to_cart", "product": target_product} if not already_in else None,
+            )
+        return ChatResponse(
+            response_type="question",
+            message=(
+                "I don't have any specific product to add yet. "
+                "Try saying something like \"add the first one to my cart\" "
+                "after I show you recommendations."
+            ),
+            session_id=session_id,
+            quick_replies=["Checkout", "Continue shopping", "See similar items"],
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
 
     if intent == "best_value":
         session_manager.add_message(session_id, "user", request.message)
@@ -1248,7 +1375,7 @@ async def _handle_post_recommendation(
                 response_type="recommendations",
                 message=f"Here's the best value pick from your results:\n\n{explanation}",
                 session_id=session_id,
-                quick_replies=["See similar items", "Compare items", "Refine search"],
+                quick_replies=["See similar items", "Show upgrades", "Compare items"],
                 recommendations=[[formatted]],
                 bucket_labels=["Best Value Pick"],
                 filters=session.explicit_filters,
@@ -1488,7 +1615,7 @@ async def _handle_post_recommendation(
                 response_type="recommendations",
                 message=narrative,
                 session_id=session_id,
-                quick_replies=["See similar items", "Compare items", "Refine search"],
+                quick_replies=["See similar items", "Show upgrades", "Compare items"],
                 recommendations=[formatted_products] if formatted_products else [],
                 bucket_labels=["Top Pick"] if len(formatted_products) == 1 else ["Top Picks"],
                 filters=session.explicit_filters,
@@ -1980,21 +2107,64 @@ async def _handle_post_recommendation(
 
     if any(kw in msg_lower for kw in _FAST_SEE_SIMILAR_KWS):
         session_manager.add_message(session_id, "user", request.message)
-        # Directly show diverse results.
         # IMPORTANT: only keep the price range — drop all strict spec filters
         # (min_ram_gb, min_storage_gb, os, gpu_tier, etc.) so the search pool
         # is wide enough to return 6 genuinely different laptops.
-        # Spec-heavy filters are the main reason see-similar was returning 1 product.
         _PRICE_KEYS = {"price_max_cents", "price_min_cents"}
-        _SPEC_DROP_KEYS = {
-            "min_ram_gb", "min_storage_gb", "min_screen_size", "min_screen_inches",
-            "max_screen_size", "min_battery_hours", "os", "gpu_tier", "use_case",
-            "excluded_brands", "brand",
-        }
         if active_domain in ("laptops", "books", "phones"):
             category = _domain_to_category(active_domain)
             exclude_ids = list(session.last_recommendation_ids or [])
-            # Start from price range only; expand ceiling 30% for more variety
+
+            # ---------------------------------------------------------------
+            # KG-first: try SIMILAR_TO graph traversal from the best/first shown product.
+            # Falls back to SQL-based search if KG is unavailable or returns nothing.
+            # ---------------------------------------------------------------
+            _kg_similar_ids: list = []
+            _best_shown_id = (exclude_ids or [None])[0]  # first shown product
+            if _best_shown_id:
+                try:
+                    from app.kg_service import get_kg_service
+                    _kg = get_kg_service()
+                    if _kg.is_available():
+                        _kg_similar_ids = _kg.get_similar_products(_best_shown_id, limit=6)
+                        logger.info(
+                            "kg_similar_used",
+                            f"KG SIMILAR_TO returned {len(_kg_similar_ids)} neighbours for {_best_shown_id}",
+                            {"session_id": session_id},
+                        )
+                except Exception as _kg_err:
+                    logger.warning("kg_similar_failed", str(_kg_err), {})
+
+            if _kg_similar_ids:
+                # Fetch full product data for KG-suggested IDs and format them
+                _kg_prods = _fetch_products_by_ids(_kg_similar_ids, session_id=session_id)
+                if _kg_prods:
+                    from app.formatters import format_product
+                    _fmt_domain = "books" if category == "Books" else (active_domain or "laptops")
+                    _kg_rows = [
+                        format_product(p, _fmt_domain).model_dump(mode="json", exclude_none=True)
+                        for p in _kg_prods
+                    ]
+                    # Split into two rows of 3 max
+                    _row1 = _kg_rows[:3]
+                    _row2 = _kg_rows[3:6]
+                    recs = [r for r in [_row1, _row2] if r]
+                    accumulated = list(exclude_ids) + [p for p in _kg_similar_ids if p not in exclude_ids]
+                    session_manager.set_last_recommendations(session_id, accumulated[:24])
+                    return ChatResponse(
+                        response_type="recommendations",
+                        message="Here are similar items based on product relationships:",
+                        session_id=session_id,
+                        recommendations=recs,
+                        bucket_labels=["Similar Products"] + (["More Options"] if len(recs) > 1 else []),
+                        filters=session.explicit_filters,
+                        preferences={},
+                        question_count=session.question_count,
+                        domain=active_domain,
+                        quick_replies=["See similar items", "Compare items", "Broaden search"],
+                    )
+
+            # SQL fallback: price range only, expand ceiling 30% for variety
             diversified_filters = {
                 k: v for k, v in session.explicit_filters.items()
                 if k in _PRICE_KEYS
@@ -2036,6 +2206,172 @@ async def _handle_post_recommendation(
             message="I can show you more options. Would you like to broaden the search or try a different category?",
             session_id=session_id,
             quick_replies=["Broaden search", "Different category", "Show more like these"],
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
+
+    # ── Upgrade suggestions: BETTER_THAN graph traversal ─────────────────────
+    # Triggered when the user asks to see better/higher-spec alternatives.
+    # KG-first (BETTER_THAN edges), SQL fallback (wider price ceiling).
+    _UPGRADE_KWS = (
+        "show me something better", "something better", "upgrade",
+        "better option", "more powerful", "higher spec", "step up",
+        "better laptop", "better alternative", "show upgrades", "more specs",
+    )
+    if any(kw in msg_lower for kw in _UPGRADE_KWS):
+        session_manager.add_message(session_id, "user", request.message)
+        if active_domain in ("laptops", "books", "phones"):
+            category = _domain_to_category(active_domain)
+            exclude_ids = list(session.last_recommendation_ids or [])
+            _best_shown_id = (exclude_ids or [None])[0]
+            _upgrade_ids: list = []
+            if _best_shown_id:
+                try:
+                    from app.kg_service import get_kg_service
+                    _kg_up = get_kg_service()
+                    if _kg_up.is_available():
+                        _upgrade_ids = _kg_up.get_better_than(_best_shown_id, limit=6)
+                        logger.info(
+                            "kg_better_than_used",
+                            f"KG BETTER_THAN returned {len(_upgrade_ids)} upgrades for {_best_shown_id}",
+                            {"session_id": session_id},
+                        )
+                except Exception as _err:
+                    logger.warning("kg_better_than_failed", str(_err), {})
+
+            if _upgrade_ids:
+                _upgrade_prods = _fetch_products_by_ids(_upgrade_ids, session_id=session_id)
+                if _upgrade_prods:
+                    from app.formatters import format_product
+                    _fmt_domain = active_domain or "laptops"
+                    _up_rows = [
+                        format_product(p, _fmt_domain).model_dump(mode="json", exclude_none=True)
+                        for p in _upgrade_prods
+                    ]
+                    _row1 = _up_rows[:3]
+                    _row2 = _up_rows[3:6]
+                    recs = [r for r in [_row1, _row2] if r]
+                    accumulated = list(exclude_ids) + [p for p in _upgrade_ids if p not in exclude_ids]
+                    session_manager.set_last_recommendations(session_id, accumulated[:24])
+                    return ChatResponse(
+                        response_type="recommendations",
+                        message="Here are higher-spec alternatives based on product relationships:",
+                        session_id=session_id,
+                        recommendations=recs,
+                        bucket_labels=["Upgrade Options"] + (["Even Higher Tier"] if len(recs) > 1 else []),
+                        filters=session.explicit_filters,
+                        preferences={},
+                        question_count=session.question_count,
+                        domain=active_domain,
+                        quick_replies=["Compare items", "See similar items", "Add to cart"],
+                    )
+
+            # SQL fallback: raise the price ceiling 20% to surface higher-tier products
+            upgrade_filters = dict(session.explicit_filters)
+            if upgrade_filters.get("price_max_cents"):
+                upgrade_filters["price_max_cents"] = int(upgrade_filters["price_max_cents"] * 1.2)
+            upgrade_filters.pop("price_min_cents", None)
+            recs, labels = await _search_ecommerce_products(
+                upgrade_filters, category, n_rows=2, n_per_row=3,
+                exclude_ids=exclude_ids if exclude_ids else None,
+            )
+            if recs:
+                return ChatResponse(
+                    response_type="recommendations",
+                    message="Here are some higher-spec alternatives:",
+                    session_id=session_id,
+                    recommendations=recs,
+                    bucket_labels=labels or [],
+                    filters=upgrade_filters,
+                    preferences={},
+                    question_count=session.question_count,
+                    domain=active_domain,
+                    quick_replies=["Compare items", "See similar items", "Broaden search"],
+                )
+        return ChatResponse(
+            response_type="question",
+            message="I can look for better options. What is your current budget?",
+            session_id=session_id,
+            quick_replies=["Under $1000", "Under $1500", "Under $2000"],
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
+
+    # ── Compatible accessories: COMPATIBLE_WITH graph traversal ──────────────
+    # Triggered when the user asks what accessories/components work with a product.
+    # KG-first (COMPATIBLE_WITH edges); gracefully falls back with a clarifying question.
+    _ACCESSORIES_KWS = (
+        "compatible accessories", "compatible with", "what accessories",
+        "accessories for", "compatible ram", "compatible storage",
+        "upgrade ram", "upgrade storage", "what ram works",
+        "what storage works", "works with this", "what components",
+    )
+    if any(kw in msg_lower for kw in _ACCESSORIES_KWS):
+        session_manager.add_message(session_id, "user", request.message)
+        exclude_ids = list(session.last_recommendation_ids or [])
+        _best_shown_id = (exclude_ids or [None])[0]
+        # Detect component type from message for targeted KG traversal
+        _comp_type = "all"
+        if any(k in msg_lower for k in ("ram", "memory")):
+            _comp_type = "RAM"
+        elif any(k in msg_lower for k in ("storage", "ssd", "hdd", "drive")):
+            _comp_type = "Storage"
+        elif any(k in msg_lower for k in ("gpu", "graphics")):
+            _comp_type = "GPU"
+
+        _compat_prods: list = []
+        if _best_shown_id:
+            try:
+                from app.kg_service import get_kg_service
+                _kg_compat = get_kg_service()
+                if _kg_compat.is_available():
+                    components = _kg_compat.get_compatible_components(
+                        _best_shown_id, component_type=_comp_type
+                    )
+                    _compat_ids = [c["product_id"] for c in components if c.get("product_id")]
+                    if _compat_ids:
+                        _compat_prods = _fetch_products_by_ids(_compat_ids, session_id=session_id)
+                    logger.info(
+                        "kg_compat_used",
+                        f"KG COMPATIBLE_WITH returned {len(_compat_prods)} for {_best_shown_id}",
+                        {"session_id": session_id},
+                    )
+            except Exception as _err:
+                logger.warning("kg_compat_failed", str(_err), {})
+
+        if _compat_prods and active_domain in ("laptops", "phones"):
+            from app.formatters import format_product
+            _fmt_domain = active_domain or "laptops"
+            _comp_rows = [
+                format_product(p, _fmt_domain).model_dump(mode="json", exclude_none=True)
+                for p in _compat_prods[:6]
+            ]
+            recs = [_comp_rows[:3], _comp_rows[3:]] if len(_comp_rows) > 3 else [_comp_rows]
+            recs = [r for r in recs if r]
+            _label = "Compatible " + (_comp_type if _comp_type != "all" else "Components")
+            return ChatResponse(
+                response_type="recommendations",
+                message="Here are compatible accessories for this laptop:",
+                session_id=session_id,
+                recommendations=recs,
+                bucket_labels=[_label],
+                filters=session.explicit_filters,
+                preferences={},
+                question_count=session.question_count,
+                domain=active_domain,
+                quick_replies=["Compare items", "See similar items", "Add to cart"],
+            )
+
+        # KG unavailable or not populated — ask for clarification
+        return ChatResponse(
+            response_type="question",
+            message="Which product are you asking about? I'll look up compatible accessories.",
+            session_id=session_id,
+            quick_replies=["First option", "Second option", "All options"],
             filters=session.explicit_filters,
             preferences={},
             question_count=session.question_count,
@@ -2373,7 +2709,8 @@ async def _search_and_respond_vehicles(
         message = "Here are top vehicle recommendations. What would you like to do next?"
         if agent:
             try:
-                message = await asyncio.to_thread(agent.generate_recommendation_explanation, result.recommendations, "vehicles")
+                _enriched_msg = getattr(agent, "last_rewritten_message", "") or ""
+                message = await asyncio.to_thread(agent.generate_recommendation_explanation, result.recommendations, "vehicles", _enriched_msg)
             except Exception as e:
                 logger.error("rec_explanation_failed", f"Failed to generate explanation: {e}", {})
         from app.formatters import format_product
@@ -2780,11 +3117,70 @@ async def _search_and_respond_ecommerce(
             )
 
     product_label = "laptops" if domain == "laptops" else "books"
-    # Generate conversational explanation — run in thread to avoid blocking the event loop
+    # Generate conversational explanation — run in thread to avoid blocking the event loop.
+    # Pass the enriched/rewritten message so that prompt rules which check for [note:...]
+    # annotations (contradiction, expert spec, logistics, lifestyle, relaxation, etc.) fire.
     message = f"Here are top {product_label} recommendations. What would you like to do next?"
     if agent:
         try:
-            message = await asyncio.to_thread(agent.generate_recommendation_explanation, recs, domain)
+            _enriched_msg = getattr(agent, "last_rewritten_message", "") or ""
+
+            # ── Spec-constraint relaxation disclosure ────────────────────────
+            # Check whether key spec constraints the user explicitly requested are
+            # absent from the returned products (i.e., the store silently relaxed them).
+            # Inject a [note:] tag so the RECOMMENDATION_EXPLANATION_PROMPT spec-gap
+            # rule fires and the narrative is honest about what wasn't found.
+            _relaxed_specs: list = []
+            _req_gpu = str(search_filters.get("gpu_vendor") or "").strip()
+            _req_ram = search_filters.get("min_ram_gb")
+            if _req_gpu and _req_gpu.lower() not in ("any", "no preference", ""):
+                _gpu_lower = _req_gpu.lower()
+                _gpu_match = any(
+                    _gpu_lower in (p.get("gpu_vendor") or p.get("gpu") or p.get("name") or "").lower()
+                    for p in flat_data
+                )
+                if not _gpu_match:
+                    _relaxed_specs.append(f"{_req_gpu} GPU")
+            if _req_ram:
+                try:
+                    _req_ram_int = int(_req_ram)
+
+                    def _read_ram_gb(p: dict) -> "int | None":
+                        """Return RAM as integer GB, or None if unknown."""
+                        v = p.get("ram_gb")
+                        if v is not None:
+                            try:
+                                return int(v)
+                            except (TypeError, ValueError):
+                                pass
+                        v = p.get("ram")
+                        if v is not None:
+                            try:
+                                return int(str(v).split()[0])
+                            except (TypeError, ValueError, IndexError):
+                                pass
+                        return None  # no data → don't assume a mismatch
+
+                    # Only flag a gap if we can confirm ALL products have < req RAM.
+                    # If a product has no RAM data (None), we can't confirm a mismatch
+                    # (the search filter already applied the constraint server-side).
+                    _ram_match = any(
+                        (_r := _read_ram_gb(p)) is None or _r >= _req_ram_int
+                        for p in flat_data
+                    )
+                    if not _ram_match:
+                        _relaxed_specs.append(f"{_req_ram_int}GB RAM")
+                except (TypeError, ValueError):
+                    pass
+            if _relaxed_specs:
+                _relaxation_note = (
+                    f" [note: catalog gap — no exact {', '.join(_relaxed_specs)} matches found."
+                    " Acknowledge clearly that the exact spec isn't in our inventory and show the closest available options instead. Do NOT imply products have specs they don't have.]"
+                )
+                _enriched_msg = (_enriched_msg or "") + _relaxation_note
+                logger.info("spec_relaxation_disclosed", f"Injecting relaxation note for: {_relaxed_specs}", {})
+
+            message = await asyncio.to_thread(agent.generate_recommendation_explanation, recs, domain, _enriched_msg)
         except Exception as e:
             logger.error("rec_explanation_failed", f"Failed to generate explanation: {e}", {})
 
@@ -3149,6 +3545,38 @@ def _diversify_by_brand(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return result
 
 
+def _compute_diversity_score(products: List[Dict[str, Any]]) -> Dict[str, float]:
+    """
+    Compute diversity metrics for a recommendation set.
+
+    - brand_diversity [0, 1]: unique brands / total products.  1.0 = all different brands.
+    - price_spread   [0, 1]: (max_price - min_price) / max_price.  1.0 = huge range.
+    - overall        [0, 1]: mean of the two above.
+
+    Used to log recommendation quality and to assess whether the KG is adding
+    diversity over the pure SQL baseline.
+    """
+    if not products:
+        return {"brand_diversity": 0.0, "price_spread": 0.0, "overall": 0.0}
+
+    n = len(products)
+    brands = {(p.get("brand") or "unknown").lower() for p in products}
+    brand_diversity = len(brands) / n
+
+    prices = [float(p.get("price") or 0) for p in products if p.get("price")]
+    if len(prices) >= 2:
+        min_p, max_p = min(prices), max(prices)
+        price_spread = (max_p - min_p) / max_p if max_p > 0 else 0.0
+    else:
+        price_spread = 0.0
+
+    return {
+        "brand_diversity": round(brand_diversity, 3),
+        "price_spread": round(price_spread, 3),
+        "overall": round((brand_diversity + price_spread) / 2.0, 3),
+    }
+
+
 def _generate_why_picked(product: Dict[str, Any], tier: str, position: int, bucket_size: int) -> List[str]:
     """
     Generate 2-3 short "Why we picked this" bullet strings for a product card.
@@ -3352,6 +3780,18 @@ async def _search_ecommerce_products(
             product_dicts.sort(key=lambda x: float(x.get("price", 0) or 0))
 
         product_dicts = _diversify_by_brand(product_dicts)
+
+        # Log diversity metrics so we can assess whether KG adds value over SQL alone.
+        # brand_diversity=1.0 means every recommendation is a different brand.
+        # price_spread=1.0 means huge price range (budget → premium).
+        _div = _compute_diversity_score(product_dicts)
+        logger.info(
+            "recommendation_diversity",
+            f"Diversity: overall={_div['overall']:.3f} "
+            f"brands={_div['brand_diversity']:.3f} price_spread={_div['price_spread']:.3f} "
+            f"kg_used={bool(kg_candidate_ids)}",
+            _div,
+        )
 
         try:
             from app.research_compare import generate_recommendation_reasons
