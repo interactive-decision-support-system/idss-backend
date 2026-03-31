@@ -342,6 +342,7 @@ def _build_preferences_summary(filters: Dict[str, Any]) -> Dict[str, Any]:
         "use_case": "Use case",
         "min_ram_gb": "Minimum RAM (GB)",
         "screen_size": "Screen size",
+        "excluded_screen_size": "Excluded screen size",
         "storage_type": "Storage type",
         "os": "OS",
         "excluded_brands": "Excluded brands",
@@ -427,7 +428,8 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
 
     # --- Reset / greeting check ---
     reset_keywords = ['reset', 'restart', 'start over', 'new search', 'clear', 'different category']
-    is_explicit_reset = any(keyword == msg_lower or keyword in msg_lower for keyword in reset_keywords)
+    # is_explicit_reset = any(keyword == msg_lower or keyword in msg_lower for keyword in reset_keywords)
+    is_explicit_reset = msg_lower.strip() in reset_keywords # Only trigger on exact matches to avoid false positives
     greeting_words = ['hi', 'hello', 'hey', 'yo', 'sup']
     is_standalone_greeting = msg_lower in greeting_words and session.active_domain
 

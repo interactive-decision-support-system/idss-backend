@@ -23,7 +23,7 @@ DOMAIN_DETECTION_PROMPT = (
     "3. BOOKS: any mention of book, novel, read, author, fiction, genre, paperback, hardcover, "
     "audiobook, kindle, literature → 'books'\n"
     "4. If the message mentions a brand known for electronics (Dell, Apple, Lenovo, HP, ASUS, MSI, "
-    "Samsung, Sony, Razer, Microsoft Surface) WITHOUT a vehicle context → 'laptops'\n"
+    "Samsung, Sony, Razer, Microsoft Surface), REGARDLESS OF CAPITALIZATION / CASE-INSENSITIVE, WITHOUT a vehicle context → 'laptops'\n"
     "5. Context rule: if the message is clearly about buying a device for work/school/internship "
     "(even without naming 'laptop'), classify as 'laptops'. "
     "If it mentions cloud computing, storage capacity, or device reliability for work → 'laptops'.\n"
@@ -229,6 +229,7 @@ Classify the user's intent into ONE of these categories:
 
 1. "refine_filters" — The user wants to adjust their search criteria.
    Examples: "show me something cheaper", "I want a different brand", "what about under $500", "show me Dell instead", "I need more storage", "something with better reviews"
+   Note: If a user wants to see a brand that was previously excluded, remove it from excluded_brands and set it as the brand filter. Conversely, if they want to avoid a brand that was previously included, remove it from brand and add it to excluded_brands.
 
 2. "domain_switch" — The user wants to switch to a completely different product category.
    Examples: "actually show me books instead", "I want to look at laptops now", "switch to vehicles", "help me find a car"
