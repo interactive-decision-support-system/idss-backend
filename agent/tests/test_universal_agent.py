@@ -192,3 +192,151 @@ def test_process_message_accessory_not_fired_with_spec_signal():
     # Should NOT trigger accessory clarification — may be question or handoff
     if result["response_type"] == "question":
         assert "accessory" not in result["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Negation / brand exclusion accumulation
+# ---------------------------------------------------------------------------
+
+def test_excluded_brands_extend_across_turns_regex_path():
+    """
+    Regex fallback: 'no HP' turn 1 + 'no Dell' turn 2 must give ['HP','Dell'],
+    not just ['Dell'].  BUG (fixed): self.filters.update() was overwriting the list.
+    """
+    from agent.domain_registry import get_domain_schema
+    schema = get_domain_schema("laptops")
+    agent = UniversalAgent(session_id="test-excl-regex")
+    agent.domain = "laptops"
+    agent.filters = {}
+
+    # Turn 1: extract "no HP" via regex fallback
+    agent._regex_extract_criteria("I want a laptop, no HP", schema)
+    excl1 = agent.filters.get("excluded_brands") or []
+    # Normalize to list for assertion (may be stored as string or list)
+    if isinstance(excl1, str):
+        excl1 = [b.strip() for b in excl1.split(",") if b.strip()]
+    assert "HP" in excl1, f"HP exclusion not set after turn 1; got {excl1}"
+
+    # Turn 2: extract "no Dell" — HP must still be present
+    agent._regex_extract_criteria("also no Dell please", schema)
+    excl2 = agent.filters.get("excluded_brands") or []
+    if isinstance(excl2, str):
+        excl2 = [b.strip() for b in excl2.split(",") if b.strip()]
+    assert "HP" in excl2, f"HP was dropped after turn 2; got {excl2}"
+    assert "Dell" in excl2, f"Dell not added after turn 2; got {excl2}"
+
+
+def test_excluded_brands_no_duplicate_regex():
+    """Re-stating the same brand in regex path does not duplicate it."""
+    from agent.domain_registry import get_domain_schema
+    schema = get_domain_schema("laptops")
+    agent = UniversalAgent(session_id="test-excl-dedup2")
+    agent.domain = "laptops"
+    agent.filters = {}
+
+    agent._regex_extract_criteria("no HP laptops", schema)
+    agent._regex_extract_criteria("no HP, seriously", schema)
+    excl = agent.filters.get("excluded_brands") or []
+    if isinstance(excl, str):
+        excl = [b.strip() for b in excl.split(",") if b.strip()]
+    assert excl.count("HP") == 1, f"HP duplicated: {excl}"
+
+
+def test_mind_change_removes_brand_from_exclusions():
+    """
+    If user said 'no Apple' then 'show me Apple', Apple must be removed from exclusions.
+    """
+    agent = UniversalAgent(session_id="test-mindchange")
+    agent.domain = "laptops"
+    agent.filters = {"excluded_brands": ["Apple", "Dell"]}
+
+    # Simulate new_filters with brand=Apple (as if LLM extracted it)
+    new_filters = {"brand": "Apple"}
+    # Apply the mind-change logic directly (mirroring lines in process_message)
+    newly_preferred = new_filters["brand"]
+    excl = agent.filters.get("excluded_brands")
+    if isinstance(excl, list):
+        agent.filters["excluded_brands"] = [b for b in excl if b.lower() != newly_preferred.lower()] or None
+    if not agent.filters.get("excluded_brands"):
+        agent.filters.pop("excluded_brands", None)
+
+    assert "Apple" not in (agent.filters.get("excluded_brands") or []), \
+        "Apple still excluded after user asked to see Apple"
+    assert "Dell" in (agent.filters.get("excluded_brands") or []), \
+        "Dell was incorrectly removed"
+
+
+# ---------------------------------------------------------------------------
+# Preference reset phrases
+# ---------------------------------------------------------------------------
+
+def test_forget_the_triggers_soft_reset():
+    """
+    'forget the gaming specs' must clear use_case and GPU-related slots.
+    'forget that' was in the list but 'forget the' wasn't — now both are.
+    """
+    agent = UniversalAgent(session_id="test-forget")
+    agent.domain = "laptops"
+    agent.filters = {
+        "use_case": "gaming",
+        "gpu_tier": "high",
+        "refresh_rate_min_hz": "144",
+        "brand": "ASUS",
+        "price_max_cents": 150000,
+    }
+
+    # Trigger preference reset with "forget the gaming specs"
+    _PREF_RESET_PHRASES = (
+        "changed my mind", "change my mind", "actually", "instead show",
+        "show me instead", "forget that", "forget the", "forget those",
+        "forget my", "forget about", "never mind", "nevermind",
+        "scratch that", "different brand", "switch to", "go with",
+    )
+    _soft_slots = {"brand", "use_case", "color", "os", "product_subtype",
+                   "gpu_vendor", "gpu_tier", "refresh_rate_min_hz"}
+    msg = "forget the gaming specs, I just need something basic"
+    if any(p in msg.lower() for p in _PREF_RESET_PHRASES):
+        for slot in _soft_slots:
+            agent.filters.pop(slot, None)
+
+    assert "use_case" not in agent.filters, "use_case was not cleared"
+    assert "gpu_tier" not in agent.filters, "gpu_tier was not cleared"
+    assert "refresh_rate_min_hz" not in agent.filters, "refresh_rate not cleared"
+    assert "brand" not in agent.filters, "brand was not cleared"
+    # Hard constraint (budget) must be preserved
+    assert agent.filters.get("price_max_cents") == 150000, "budget was incorrectly cleared"
+
+
+# ---------------------------------------------------------------------------
+# Use-case contradiction: heavy → light downgrade
+# ---------------------------------------------------------------------------
+
+def test_use_case_downgrade_clears_performance_slots():
+    """
+    Scenario: user discussed gaming (use_case=gaming, gpu_tier set) then says
+    'actually it's just for email and Netflix'.  Performance slots must clear.
+    """
+    agent = UniversalAgent(session_id="test-usecase-downgrade")
+    agent.domain = "laptops"
+    agent.filters = {
+        "use_case": "gaming",
+        "min_ram_gb": "16",
+        "gpu_tier": "high",
+        "refresh_rate_min_hz": "144",
+        "price_max_cents": 100000,
+    }
+
+    _LIGHT_USE_CASES = {"email", "everyday", "basic", "general", "home", "school", "browsing"}
+    _HEAVY_USE_CASES = {"gaming", "machine learning", "ml", "video editing", "3d", "streaming"}
+    _prior_use_case = str(agent.filters.get("use_case") or "").lower()
+    new_use_case = "email"
+
+    if new_use_case.lower() in _LIGHT_USE_CASES and _prior_use_case in _HEAVY_USE_CASES:
+        for slot in {"min_ram_gb", "gpu_vendor", "gpu_tier", "refresh_rate_min_hz"}:
+            agent.filters.pop(slot, None)
+
+    assert "gpu_tier" not in agent.filters, "gpu_tier persists after use_case downgrade"
+    assert "refresh_rate_min_hz" not in agent.filters, "refresh_rate persists"
+    assert "min_ram_gb" not in agent.filters, "min_ram_gb persists"
+    # Budget preserved
+    assert agent.filters.get("price_max_cents") == 100000

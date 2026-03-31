@@ -141,64 +141,94 @@ class KnowledgeGraphService:
         limit: int
     ) -> str:
         """
-        Build Cypher query for product search.
-        
-        Handles:
-        - Use case matching (gaming, video editing, work)
-        - Component compatibility (CPU-GPU-RAM)
-        - Price-performance relationships
-        - Brand/product line relationships
+        Build Cypher query for product search with hard and soft constraints.
+
+        Hard constraints (WHERE clause): category, price bounds, brand, subcategory,
+            repairable, refurbished, battery_life_min.  Products that fail these are
+            excluded entirely — they are non-negotiable requirements.
+
+        Soft constraints (scoring): use-case flags (good_for_gaming, good_for_ml, …)
+            and text match.  Products that don't have these flags are still shown but
+            ranked lower.  This preserves recall when the KG hasn't been fully
+            back-filled with use-case attributes.
+
+        Connectivity bonus: products with more SIMILAR_TO outgoing edges are ranked
+            higher, acting as a graph-centrality signal for popular/well-connected items.
         """
-        # Match our KG schema: Product nodes with product_id, name, brand, price (dollars), category, subcategory
-        # Supports all categories: Electronics, Books, Jewelry, Accessories, etc.
+        # ── Hard constraints (WHERE) ─────────────────────────────────────────
         category = (filters or {}).get("category", "Electronics")
-        conditions = ["p.category = $category"]
+        hard_conditions: List[str] = ["p.category = $category"]
 
         if filters:
             if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
-                conditions.append("p.brand = $brand")
+                hard_conditions.append("p.brand = $brand")
             if filters.get("subcategory"):
-                conditions.append("p.subcategory = $subcategory")
+                hard_conditions.append("p.subcategory = $subcategory")
             if filters.get("price_max") is not None or filters.get("price_max_cents") is not None:
-                conditions.append("p.price <= $price_max")
+                hard_conditions.append("p.price <= $price_max")
             if filters.get("price_min") is not None or filters.get("price_min_cents") is not None:
-                conditions.append("p.price >= $price_min")
-            # Richer KG (§7): Reddit-style features on Product nodes (backfill sets these)
-            if filters.get("good_for_ml"):
-                conditions.append("p.good_for_ml = true")
-            if filters.get("good_for_gaming"):
-                conditions.append("p.good_for_gaming = true")
-            if filters.get("good_for_web_dev"):
-                conditions.append("p.good_for_web_dev = true")
-            if filters.get("good_for_creative"):
-                conditions.append("p.good_for_creative = true")
-            if filters.get("good_for_linux"):
-                conditions.append("p.good_for_linux = true")
+                hard_conditions.append("p.price >= $price_min")
+            # Explicit equipment/condition requirements stay hard
             if filters.get("repairable"):
-                conditions.append("p.repairable = true")
+                hard_conditions.append("p.repairable = true")
             if filters.get("refurbished"):
-                conditions.append("p.refurbished = true")
+                hard_conditions.append("p.refurbished = true")
             if filters.get("battery_life_min_hours") is not None:
-                conditions.append("p.battery_life_hours >= $battery_life_min_hours")
+                hard_conditions.append("p.battery_life_hours >= $battery_life_min_hours")
 
-        where_clause = " AND ".join(conditions)
-        # Optional text search: match query terms in name/subcategory/description
+        where_clause = " AND ".join(hard_conditions)
+
+        # ── Soft constraints (scoring) ────────────────────────────────────────
+        # Use-case flags boost relevance but do NOT exclude products that lack them.
+        # Weight 3 for primary use cases, 2 for secondary.
+        soft_score_cases: List[str] = []
+        if filters:
+            for flag, boost in [
+                ("good_for_ml", 3),
+                ("good_for_gaming", 3),
+                ("good_for_web_dev", 2),
+                ("good_for_creative", 2),
+                ("good_for_linux", 2),
+            ]:
+                if filters.get(flag):
+                    soft_score_cases.append(
+                        f"CASE WHEN p.{flag} = true THEN {boost} ELSE 0 END"
+                    )
+
+        # Text match is also soft: preferred but not required
         if query and len(query) >= 2:
-            conditions.append(
-                "(toLower(coalesce(p.subcategory, '')) CONTAINS $q OR "
+            soft_score_cases.append(
+                "CASE WHEN (toLower(coalesce(p.subcategory, '')) CONTAINS $q OR "
                 "toLower(coalesce(p.name, '')) CONTAINS $q OR "
-                "toLower(coalesce(p.description, '')) CONTAINS $q)"
+                "toLower(coalesce(p.description, '')) CONTAINS $q) THEN 3 ELSE 0 END"
             )
-            where_clause = " AND ".join(conditions)
 
-        cypher = f"""
-        MATCH (p:Product)
-        WHERE {where_clause}
-        WITH p
-        ORDER BY p.price ASC
-        LIMIT $limit
-        RETURN p.product_id AS product_id, 1.0 AS score, [p.name] AS path
-        """
+        if soft_score_cases:
+            score_expr = " + ".join(soft_score_cases)
+            # OPTIONAL MATCH counts outgoing SIMILAR_TO edges as a connectivity bonus.
+            cypher = f"""
+            MATCH (p:Product)
+            WHERE {where_clause}
+            OPTIONAL MATCH (p)-[:SIMILAR_TO]->(nb:Product)
+            WITH p, count(nb) AS connectivity,
+                 ({score_expr}) AS relevance_score
+            ORDER BY relevance_score DESC, connectivity DESC, p.price ASC
+            LIMIT $limit
+            RETURN p.product_id AS product_id,
+                   toFloat(relevance_score) + connectivity * 0.1 AS score,
+                   [p.name] AS path
+            """
+        else:
+            # No soft constraints: rank by graph connectivity (centrality) then price
+            cypher = f"""
+            MATCH (p:Product)
+            WHERE {where_clause}
+            OPTIONAL MATCH (p)-[:SIMILAR_TO]->(nb:Product)
+            WITH p, count(nb) AS connectivity
+            ORDER BY connectivity DESC, p.price ASC
+            LIMIT $limit
+            RETURN p.product_id AS product_id, connectivity * 0.1 AS score, [p.name] AS path
+            """
         return cypher
     
     def _extract_filters(self, filters: Dict[str, Any]) -> Dict[str, Any]:
@@ -353,6 +383,115 @@ class KnowledgeGraphService:
                 
         except Exception as e:
             logger.error(f"Failed to find bundles: {e}")
+            return []
+
+
+    def get_similar_products(
+        self,
+        product_id: str,
+        limit: int = 6,
+    ) -> List[str]:
+        """
+        Return product_ids of products similar to the given product via
+        SIMILAR_TO graph traversal (1 hop).  Falls back to [] if KG is
+        unavailable so callers can fall back to SQL-based similarity.
+
+        Graph schema: (p:Product)-[:SIMILAR_TO {score: float}]->(q:Product)
+        Relationships are built by build_knowledge_graph.py / build_knowledge_graph_all.py.
+        """
+        if not self.is_available():
+            return []
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (p:Product {product_id: $pid})-[r:SIMILAR_TO]->(q:Product)
+                    RETURN q.product_id AS product_id, coalesce(r.score, 1.0) AS score
+                    ORDER BY score DESC
+                    LIMIT $limit
+                    """,
+                    pid=product_id,
+                    limit=limit,
+                )
+                ids = [rec["product_id"] for rec in result if rec.get("product_id")]
+                logger.info(f"KG SIMILAR_TO found {len(ids)} neighbours for {product_id}")
+                return ids
+        except Exception as exc:
+            logger.warning(f"KG get_similar_products failed: {exc}")
+            return []
+
+    def get_better_than(
+        self,
+        product_id: str,
+        limit: int = 3,
+    ) -> List[str]:
+        """
+        Return product_ids of products rated BETTER_THAN the given product
+        (e.g. higher spec tier, better reviews).  Used in upgrade suggestions.
+        Falls back to [] if KG unavailable.
+        """
+        if not self.is_available():
+            return []
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (q:Product)-[r:BETTER_THAN]->(p:Product {product_id: $pid})
+                    RETURN q.product_id AS product_id, coalesce(r.score, 1.0) AS score
+                    ORDER BY score DESC
+                    LIMIT $limit
+                    """,
+                    pid=product_id,
+                    limit=limit,
+                )
+                return [rec["product_id"] for rec in result if rec.get("product_id")]
+        except Exception as exc:
+            logger.warning(f"KG get_better_than failed: {exc}")
+            return []
+
+    def get_diverse_alternatives(
+        self,
+        product_ids: List[str],
+        limit: int = 6,
+    ) -> List[str]:
+        """
+        Return product_ids that are SIMILAR_TO any of the given products but
+        NOT in the given set.  Ranked by connection count (degree) then avg
+        similarity score — so highly-connected "central" products come first.
+
+        Used to inject graph-diverse alternatives into the SQL result pool:
+        these are products the SQL query didn't surface but which the KG knows
+        are adjacent to what the user has already seen.
+
+        Returns [] if KG is unavailable or the input set has no SIMILAR_TO edges.
+        """
+        if not self.is_available() or not product_ids:
+            return []
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    UNWIND $pids AS pid
+                    MATCH (p:Product {product_id: pid})-[r:SIMILAR_TO]->(q:Product)
+                    WHERE NOT q.product_id IN $pids
+                    WITH q.product_id AS product_id,
+                         avg(coalesce(r.score, 1.0)) AS avg_score,
+                         count(r) AS degree
+                    ORDER BY degree DESC, avg_score DESC
+                    LIMIT $limit
+                    RETURN product_id
+                    """,
+                    pids=product_ids,
+                    limit=limit,
+                )
+                ids = [rec["product_id"] for rec in result if rec.get("product_id")]
+                logger.info(
+                    f"KG get_diverse_alternatives found {len(ids)} "
+                    f"for {len(product_ids)} source products"
+                )
+                return ids
+        except Exception as exc:
+            logger.warning(f"KG get_diverse_alternatives failed: {exc}")
             return []
 
 
