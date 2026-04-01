@@ -1127,6 +1127,16 @@ async def _handle_post_recommendation(
         # Battery life questions — user wants text answer for all products, not a spec table
         "battery life on these",      # "How is the battery life on these laptops?"
         "how is the battery",         # "How is the battery life on..."
+        # Q2: natural paraphrases that previously fell through to LLM
+        "strengths and weaknesses",   # "What are the strengths and weaknesses?"
+        "upsides and downsides",      # "What are the upsides and downsides?"
+        "upside and downside",
+        "advantages and disadvantages",
+        "what's good and bad",        # "What's good and bad about these?"
+        "good and bad about",
+        "break it down for me",       # informal: "Can you break it down for me?"
+        "give me the rundown",        # "Give me the rundown on these"
+        "walk me through",            # "Walk me through the options"
     )
     # Targeted Q&A: "which has the best X?" → show only the 1-2 winning products
     # with detailed reasoning.  Must be checked BEFORE _FAST_COMPARE_KWS because
@@ -1224,6 +1234,33 @@ async def _handle_post_recommendation(
         "similar laptops", "similar products",
         "something similar", "similar to",  # "show me something similar to the best pick"
     )
+    # Q2: explain_fit — user asks *why* a product does/doesn't fit after
+    # filter changes.  Currently misrouted to targeted_qa which returns cards
+    # instead of reasoning.  Route to a dedicated handler below.
+    _FAST_EXPLAIN_FIT_KWS = (
+        "why is it no longer",            # "Why is it no longer recommended?"
+        "why was it dropped",             # "Why was it dropped?"
+        "why did it disappear",           # "Why did it disappear from the list?"
+        "why isn't it showing",           # "Why isn't it showing anymore?"
+        "no longer a good fit",           # "Why is the Dell no longer a good fit?"
+        "no longer recommended",
+        "still a good fit",               # "Is the MacBook still a good fit?"
+        "still a good option",
+        "still fit my needs",
+        "how does it fit",                # "How does this one fit my updated needs?"
+        "why did you remove",             # "Why did you remove the HP?"
+        "what changed",                   # "What changed about my results?"
+        "why are the results different",  # "Why are the results different now?"
+    )
+    # Q2: casual purchase intent — ordinal references or informal idioms that
+    # indicate the user wants to add a product without explicitly mentioning
+    # "cart" / "favorites".  Checked BEFORE the LLM call.
+    _CASUAL_PURCHASE_RE = re.compile(
+        r"\b(?:i'?ll take|i(?:'?ll| will) get|let me get|give me|i want)"
+        r"\s+(?:the\s+|that\s+|this\s+)?"
+        r"(?:first|second|third|fourth|1st|2nd|3rd|4th|one|two|three|four|[1-4]|it|that(?: one)?|this(?: one)?)\b",
+        re.IGNORECASE,
+    )
     # Guard: don't intercept for best-value when the message is really a see-similar request
     if any(kw in msg_lower for kw in _FAST_BEST_VALUE_KWS) and "similar" not in msg_lower:
         intent = "best_value"
@@ -1241,6 +1278,9 @@ async def _handle_post_recommendation(
         # Bare brand name (e.g. "Acer", "HP") from the brand-picker quick-reply.
         # Must be treated as "refine" — NOT compare/new_search.
         intent = "refine"
+    elif any(kw in msg_lower for kw in _FAST_EXPLAIN_FIT_KWS):
+        # Q2: explain_fit — why a product appeared/disappeared after filter changes
+        intent = "explain_fit"
     elif any(kw in msg_lower for kw in ("research", "explain features", "check compatibility", "summarize reviews")):
         # "Research" quickReply chip and related phrases — bypass LLM to avoid "new_search"
         # misclassification. Falls through to the research keyword handler further below.
@@ -1252,6 +1292,9 @@ async def _handle_post_recommendation(
         # "add X to my cart" — catch BEFORE the LLM call so product names with
         # specs (e.g. "add Lenovo IdeaPad L340 Gaming Laptop, 15.6 Inch FHD to cart")
         # don't get misclassified as "new_search" and wipe the session.
+        intent = "add_to_cart"
+    elif _CASUAL_PURCHASE_RE.search(msg_lower):
+        # Q2: casual purchase — "I'll take it", "let me get the second one"
         intent = "add_to_cart"
     else:
         intent = await detect_post_rec_intent(clean_message)
@@ -1271,6 +1314,48 @@ async def _handle_post_recommendation(
         )
         session_manager.reset_session(session_id)
         return None  # Falls through to UniversalAgent in process_chat
+
+    # -----------------------------------------------------------------------
+    # Q2: explain_fit — the user asks WHY a product does/doesn't fit after
+    # filter changes.  Return a text explanation grounded in current filters,
+    # NOT product cards (which is what targeted_qa would do).
+    # -----------------------------------------------------------------------
+    if intent == "explain_fit":
+        session_manager.add_message(session_id, "user", request.message)
+        products = list(getattr(session, "last_recommendation_data", []))
+        filters_text = ", ".join(
+            f"{k}: {v}" for k, v in (session.explicit_filters or {}).items()
+        ) or "none"
+        # Build a concise explanation using current filters and products
+        product_names = [
+            (p.get("name") or p.get("title") or "Unknown")[:50]
+            for p in (products or [])[:5]
+        ]
+        explanation = (
+            f"Based on your current filters ({filters_text}), "
+            f"the recommendations were updated to better match your criteria. "
+        )
+        if product_names:
+            explanation += (
+                f"The current top picks are: {', '.join(product_names)}. "
+                f"Products that no longer appear may have been outside your "
+                f"updated budget, brand preference, or spec requirements."
+            )
+        else:
+            explanation += (
+                "If a product you liked disappeared, it likely fell outside "
+                "your updated budget, brand, or spec requirements."
+            )
+        return ChatResponse(
+            response_type="question",
+            message=explanation,
+            session_id=session_id,
+            quick_replies=["See similar items", "Compare items", "Refine my search"],
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
 
     # -----------------------------------------------------------------------
     # Add-to-cart intent: user wants to add a specific product to their cart.
