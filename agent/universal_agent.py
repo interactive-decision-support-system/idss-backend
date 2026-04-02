@@ -234,6 +234,74 @@ def _extract_brand_semantic(message: str) -> Optional[str]:
         return None
 
 
+def _detect_excluded_brands(message: str) -> List[str]:
+    """
+    Detect brands the user wants to EXCLUDE from both regex patterns and LLM semantic analysis.
+    Used in both the interview extraction path (_extract_criteria) and post-rec refinement
+    (process_refinement) so that brand exclusions like 'no HP' are never missed.
+
+    Returns a deduplicated list of canonical brand names to exclude.
+    """
+    _known_brands_list = [
+        "HP", "Acer", "Dell", "Lenovo", "Apple", "ASUS", "Asus",
+        "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
+        "Framework", "System76", "ROG", "Alienware",
+    ]
+    _excl_kw_pat = re.compile(
+        r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|skip)\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
+        re.IGNORECASE
+    )
+    excl_brands: List[str] = []
+    for _m in _excl_kw_pat.finditer(message):
+        raw_group = _m.group(1).strip()
+        parts = re.split(r'\s+(?:or|and)\s+|[,;]\s*', raw_group)
+        for part in parts:
+            candidate = part.strip().split()[0]
+            candidate_normalized = _BRAND_VALUE_ALIASES.get(candidate.lower(), candidate)
+            for brand in _known_brands_list:
+                if brand.lower() == candidate_normalized.lower():
+                    if brand not in excl_brands:
+                        excl_brands.append(brand)
+
+    # LLM semantic detection — handles indirect phrases, sarcasm, bad experiences
+    _llm_excl = _extract_excluded_brands_semantic(message)
+    for _eb in _llm_excl:
+        if _eb not in excl_brands:
+            excl_brands.append(_eb)
+
+    return excl_brands
+
+
+def _detect_allowed_brands(message: str, currently_excluded: List[str]) -> List[str]:
+    """
+    Detect brands the user is NOW OKAY WITH after having previously excluded them.
+    Used to implement "mind-change" un-exclusions: "actually HP is fine", "I changed
+    my mind about Dell", "HP is okay now".
+
+    Only checks brands that are currently excluded to avoid spurious un-exclusions.
+    Returns list of brands to REMOVE from the exclusion list.
+    """
+    if not currently_excluded:
+        return []
+
+    _UN_EXCL_PHRASES = (
+        "is fine", "is ok", "is okay", "is alright", "is good",
+        "changed my mind", "don't mind", "don't care about",
+        "never mind about", "actually fine with",
+        "is acceptable", "is allowed", "want to see",
+    )
+    msg_lower = message.lower()
+    # Quick gate: if no un-exclusion phrase present, skip
+    if not any(p in msg_lower for p in _UN_EXCL_PHRASES):
+        return []
+
+    to_allow = []
+    for brand in currently_excluded:
+        if brand.lower() in msg_lower:
+            to_allow.append(brand)
+    return to_allow
+
+
 def _extract_excluded_brands_semantic(message: str) -> List[str]:
     """
     Use a tiny LLM call to detect brands the user wants to EXCLUDE.
@@ -503,9 +571,10 @@ class UniversalAgent:
                 search_filters["_soft_preferences"] = {"liked_features": [value] if isinstance(value, str) else value}
 
             elif slot_name == "excluded_brands":
-                # Comma-separated list of brands to EXCLUDE, e.g. "HP,Acer"
-                raw = str(value).strip()
-                brands = [b.strip() for b in re.split(r"[,;/|]", raw) if b.strip()]
+                # Comma-separated list or Python list of brands to EXCLUDE, e.g. "HP,Acer" or ["HP","Acer"]
+                # Use _to_brand_list() so that list-stored values (["HP"]) are handled correctly.
+                # Previously used str(value) which turned ["HP"] into "['HP']" — wrong!
+                brands = _to_brand_list(value)
                 if brands:
                     search_filters["excluded_brands"] = brands
                     logger.info(f"Excluded brands: {brands}")
@@ -1163,39 +1232,10 @@ class UniversalAgent:
                 criteria.append(SlotValue(slot_name="min_ram_gb", value=str(val_gb)))
 
         # ── Brand exclusions ─────────────────────────────────────────────────
-        # Matches: "no HP", "not HP", "anything but HP", "avoid HP", "hate HP",
-        #          "no HP or Acer", "no HP, no Acer"
-        _known_brands = [
-            "HP", "Acer", "Dell", "Lenovo", "Apple", "ASUS", "Asus",
-            "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
-            "Framework", "System76", "ROG", "Alienware",
-        ]
-        _excl_kw_pat = re.compile(
-            r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|skip)\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
-            re.IGNORECASE
-        )
-        excl_brands: List[str] = []
-        for _m in _excl_kw_pat.finditer(message):
-            # Group can be "HP or Acer" or "HP, no Acer" — split on or/and/, to get each brand
-            raw_group = _m.group(1).strip()
-            parts = re.split(r'\s+(?:or|and)\s+|[,;]\s*', raw_group)
-            for part in parts:
-                candidate = part.strip().split()[0]  # first word of each part
-                # Resolve through brand aliases so "mac"→"Apple", "macbook"→"Apple", etc.
-                candidate_normalized = _BRAND_VALUE_ALIASES.get(candidate.lower(), candidate)
-                for brand in _known_brands:
-                    if brand.lower() == candidate_normalized.lower():
-                        if brand not in excl_brands:
-                            excl_brands.append(brand)
-
-        # LLM semantic exclusion: catches indirect phrases, bad experiences, sarcasm
-        # that the regex above can't handle ("steer clear of HP", "we hate mac", etc.)
-        _llm_excl = _extract_excluded_brands_semantic(message)
-        for _eb in _llm_excl:
-            if _eb not in excl_brands:
-                excl_brands.append(_eb)
-                logger.info(f"LLM exclusion detected: {_eb}")
-
+        # Delegate to _detect_excluded_brands which handles regex + LLM detection.
+        excl_brands = _detect_excluded_brands(message)
+        for _eb in excl_brands:
+            logger.info(f"Brand exclusion detected: {_eb}")
         if excl_brands:
             criteria.append(SlotValue(slot_name="excluded_brands", value=",".join(excl_brands)))
 

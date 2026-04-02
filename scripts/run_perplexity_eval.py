@@ -2,9 +2,14 @@
 """
 Perplexity Baseline Evaluator — IDSS G-Eval Paper Comparison
 =============================================================
-Sends each query in QUERIES to Perplexity's sonar model (single-turn, web-augmented)
-and scores the response using the IDENTICAL judge and metrics as run_geval.py and
-run_gpt_baseline.py.
+Sends each query in QUERIES to Perplexity's sonar model and scores the response
+using the IDENTICAL judge and metrics as run_geval.py and run_gpt_baseline.py.
+
+NOTE: All Perplexity API models use web search by design — there is no offline
+Perplexity model available via their API. Per mentor feedback (Negin Golrezaei):
+"the baseline shouldn't use web search." Therefore Perplexity results are labeled
+⚠ web-augmented and treated as informational only, excluded from the primary
+fair comparison. Primary fair comparison: IDSS vs GPT-4o-mini (catalog-bound) vs Sajjad.
 
 Scoring (identical structure to run_gpt_baseline.py):
   type_score    — inferred from free text (same heuristic as GPT baseline)
@@ -15,10 +20,6 @@ Scoring (identical structure to run_gpt_baseline.py):
 
 Final score = compute_final_score(type_score, None, None, quality_score, None)
   → type 40% + quality 60% (same as GPT baseline for fair comparison)
-
-NOTE: Perplexity sonar has live web search, giving it real product knowledge.
-This means the comparison is not perfectly controlled for information access.
-We report this as a disclosure in the paper.
 
 Required env vars:
   PERPLEXITY_API_KEY   — Perplexity API key
@@ -38,6 +39,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -83,7 +85,8 @@ except ImportError as e:
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 DEFAULT_MODEL  = "sonar"
-CONCURRENCY    = 8    # Perplexity supports higher concurrency
+CONCURRENCY    = 2    # keep low to avoid 429s
+RETRY_DELAYS   = [5, 15, 30]  # seconds to wait after each 429 before retrying
 
 GREEN = "\033[92m"; RED = "\033[91m"; YEL = "\033[93m"
 CYN   = "\033[96m"; BOLD = "\033[1m"; RST  = "\033[0m"
@@ -92,11 +95,11 @@ def color_score(s: float) -> str:
     c = GREEN if s >= PASS_THRESHOLD else (YEL if s >= 0.5 else RED)
     return f"{c}{s:.3f}{RST}"
 
-# Perplexity pricing (sonar/sonar-pro, approximate early 2026)
-PRICE_IN  = {"sonar": 1.00, "sonar-pro": 3.00}
-PRICE_OUT = {"sonar": 1.00, "sonar-pro": 15.00}
+# Perplexity pricing (approximate early 2026, per 1M tokens)
+PRICE_IN  = {"r1-1776": 0.50, "sonar": 1.00, "sonar-pro": 3.00}
+PRICE_OUT = {"r1-1776": 2.18, "sonar": 1.00, "sonar-pro": 15.00}
 
-# Perplexity system prompt — neutral shopping assistant (no IDSS-specific context)
+# Perplexity system prompt — neutral shopping assistant, no web-search context
 PERPLEXITY_SYSTEM = (
     "You are a knowledgeable laptop shopping assistant. "
     "When a user describes what they need, recommend specific laptop models with "
@@ -117,27 +120,40 @@ async def query_perplexity_async(
     model: str,
     message: str,
 ) -> Tuple[str, int, int, int]:
-    """Send one query to Perplexity.
+    """Send one query to Perplexity with automatic retry on 429 rate limits.
 
     Returns (response_text, elapsed_ms, prompt_tokens, completion_tokens).
     """
     async with sem:
         t0 = time.perf_counter()
-        try:
-            completion = await pplx.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": PERPLEXITY_SYSTEM},
-                    {"role": "user",   "content": message},
-                ],
-                max_tokens=600,
-            )
-            text = completion.choices[0].message.content.strip()
-            pt   = getattr(completion.usage, "prompt_tokens",     0) or 0
-            ct   = getattr(completion.usage, "completion_tokens", 0) or 0
-        except Exception as exc:
-            text = f"[ERROR: {exc}]"
-            pt, ct = 0, 0
+        pt, ct = 0, 0
+        text = ""
+        for attempt, delay in enumerate([0] + RETRY_DELAYS):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                completion = await pplx.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": PERPLEXITY_SYSTEM},
+                        {"role": "user",   "content": message},
+                    ],
+                    max_tokens=600,
+                )
+                text = completion.choices[0].message.content.strip()
+                # r1-1776 may emit <think>...</think> chain-of-thought; strip it
+                text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+                pt   = getattr(completion.usage, "prompt_tokens",     0) or 0
+                ct   = getattr(completion.usage, "completion_tokens", 0) or 0
+                break  # success
+            except Exception as exc:
+                err_str = str(exc)
+                if "429" in err_str and attempt < len(RETRY_DELAYS):
+                    print(f"\n  [rate-limit] 429 on attempt {attempt+1}, retrying in {RETRY_DELAYS[attempt]}s...",
+                          end=" ", flush=True)
+                    continue
+                text = f"[ERROR: {exc}]"
+                break
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         return text, elapsed_ms, pt, ct
 
@@ -186,12 +202,13 @@ async def run_perplexity_eval(
     total = len(queries)
     print(f"\n{BOLD}Perplexity Baseline Evaluator{RST}")
     print(f"  Queries     : {total}")
-    print(f"  Model       : {model} (web-augmented search)")
+    print(f"  Model       : {model} (⚠ web-augmented — all Perplexity models use web search)")
     print(f"  Judge       : gpt-4o-mini (same as IDSS eval)")
     print(f"  Threshold   : {PASS_THRESHOLD}")
     print(f"  Concurrency : {CONCURRENCY}")
-    print(f"  {YEL}NOTE: Perplexity sonar has live web access — product knowledge is")
-    print(f"  not constrained to our catalog. Comparison is quality-of-reasoning only.{RST}\n")
+    print(f"  {YEL}⚠ Perplexity has live web access — no offline API model exists.")
+    print(f"  Results are INFORMATIONAL ONLY, excluded from primary fair comparison.")
+    print(f"  Primary fair comparison: IDSS vs GPT-4o-mini (catalog-bound) vs Sajjad.{RST}\n")
 
     # ── Phase 1: Query Perplexity in parallel ──────────────────────────────
     print(f"  Phase 1 — Querying Perplexity/{model} ({total} queries) ...")
@@ -305,7 +322,7 @@ async def run_perplexity_eval(
 
     hdr = f"  {'Category':<28} {'N':>4}  {'Avg':>7}  {'Pass%':>7}  {'TypeAcc%':>9}"
     sep = f"  {'─'*60}"
-    print(f"\n{BOLD}  {'Perplexity/' + model + ' Baseline — G-Eval':^60}{RST}\n")
+    print(f"\n{BOLD}  {'Perplexity/sonar (⚠ web-augmented) — G-Eval':^60}{RST}\n")
     print(f"  Results by Difficulty")
     print(hdr); print(sep)
     print(f"  {'Specified (expect recs)':<28} {ns:>4}  {as_:>7.3f}  {ps:>6.1f}%  {ts:>8.1f}%")
@@ -361,8 +378,10 @@ async def run_perplexity_eval(
     print(f"  Total cost        : ${pplx_cost + judge_cost:.4f} USD")
     print(f"  Avg Perplexity latency: {avg_ms:.0f}ms")
     print(f"  Total time: queries={phase1_elapsed:.1f}s + scoring={phase2_elapsed:.1f}s\n")
-    print(f"  {YEL}brand/filter/stock scores are N/A — no structured output.")
-    print(f"  Compare quality_score and overall score (type+quality) for fair paper delta.{RST}\n")
+    print(f"  {YEL}⚠ INFORMATIONAL ONLY — Perplexity sonar uses web search.")
+    print(f"  All Perplexity API models use live web search; no offline model exists.")
+    print(f"  brand/filter/stock scores are N/A — no structured output.")
+    print(f"  Primary fair comparison: IDSS vs GPT+Catalog (augmented) vs Sajjad.{RST}\n")
 
     # ── Save JSON ─────────────────────────────────────────────────────────
     if save_path:
@@ -372,8 +391,9 @@ async def run_perplexity_eval(
             "threshold": PASS_THRESHOLD,
             "note": (
                 "brand/filter/stock scores are N/A — Perplexity has no structured output. "
-                "Perplexity sonar has live web search — catalog is not constrained. "
-                "Compare quality_score for fairest paper delta."
+                "Model: sonar (⚠ web-augmented). All Perplexity API models use web search. "
+                "INFORMATIONAL ONLY — excluded from primary fair comparison. "
+                "Primary fair: IDSS vs GPT+Catalog vs Sajjad."
             ),
             "summary": {
                 "specified":      {"n": ns, "avg_score": round(as_, 4), "pass_pct": round(ps, 1)},
@@ -408,7 +428,7 @@ def main() -> None:
     )
     parser.add_argument("--model", default=DEFAULT_MODEL,
                         choices=["sonar", "sonar-pro"],
-                        help=f"Perplexity model (default: {DEFAULT_MODEL})")
+                        help=f"Perplexity model (default: {DEFAULT_MODEL}; all models use web search)")
     parser.add_argument("--save",     help="Path to save JSON results")
     parser.add_argument("--baseline", help="IDSS results JSON to compare against (shows delta)")
     parser.add_argument("--group",    help="Only run queries from this group")

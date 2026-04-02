@@ -127,6 +127,26 @@ async def detect_post_rec_intent(message: str) -> str:
     compare:     user wants a side-by-side breakdown of all shown products
                  (e.g. "compare these", "pros and cons of each", "how do they differ?").
     """
+    lower = message.lower().strip()
+
+    # --- Pre-LLM guard: follow-up phrases that can NEVER be a standalone new_search ---
+    # Phrases like "what about X", "does it need Y", "can it be Z" are context-dependent
+    # follow-ups that reference the existing conversation. Return targeted_qa immediately
+    # so the LLM cannot misclassify them as new_search and wipe the session.
+    _FOLLOWUP_STARTERS = (
+        "what about", "how about", "what if", "does it",
+        "is it", "can it", "could it", "do they", "are they",
+        "does the", "is the", "is there", "what's the",
+        "what are the", "tell me more", "show me more",
+        "show me the", "what model", "which model",
+        "latest model", "newest model", "refurbished",
+    )
+    if any(lower.startswith(p) or lower == p for p in _FOLLOWUP_STARTERS):
+        return "targeted_qa"
+    # Short messages with question words are almost always follow-ups
+    if len(lower.split()) <= 6 and lower.endswith("?"):
+        return "targeted_qa"
+
     try:
         from openai import AsyncOpenAI
         client = AsyncOpenAI()
@@ -151,8 +171,11 @@ async def detect_post_rec_intent(message: str) -> str:
             "CRITICAL rules:\n"
             "- 'targeted_qa' → asking for THE BEST one or two; only 1-2 products will be highlighted.\n"
             "- 'compare' → asking for ALL products to be shown side by side.\n"
-            "- Use 'new_search' only for fully self-contained new queries.\n"
+            "- Use 'new_search' ONLY for fully self-contained new queries naming a completely different product or use case.\n"
+            "- 'new_search' is NEVER correct for: 'what about X', 'how about X', 'what if X', 'does it need X', "
+            "'can it be X', 'show me the latest', 'refurbished is fine', 'what model', or any question that depends on context.\n"
             "- Default to 'targeted_qa' when unsure between compare and targeted_qa.\n"
+            "- Default to 'refine' when unsure between refine and targeted_qa for filter-change-like messages.\n"
             "- ONLY return 'compare' when the user explicitly asks for a side-by-side or asks about ALL products.\n"
             "Return valid JSON with a single key 'intent'."
         )

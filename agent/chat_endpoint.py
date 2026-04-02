@@ -2685,8 +2685,104 @@ async def _handle_post_recommendation(
                 agent=agent,
             )
 
-    # Not a refinement — return None to continue to agent processing
-    return None
+    # Not a refinement — treat as a contextual follow-up about the existing recommendations.
+    # Returning None here would trigger agent.process_message() which may lose the domain
+    # context for messages like "What about the latest model options?" or "Can it be refurbished?"
+    # Instead, answer within the existing session context using generate_targeted_answer().
+    session_manager.add_message(session_id, "user", request.message)
+    products = list(getattr(session, "last_recommendation_data", []))
+    if not products and getattr(session, "last_recommendation_ids", None):
+        products = _fetch_products_by_ids(session.last_recommendation_ids[:12], session_id=session_id)
+
+    if products:
+        try:
+            narrative, selected_ids, selected_names = await generate_targeted_answer(
+                products, clean_message, active_domain or "laptops"
+            )
+        except Exception as _e:
+            logger.error("not_refinement_fallback_failed", str(_e), {})
+            narrative = (
+                f"Could you clarify what you'd like to change or know more about? "
+                f"I can help you refine the {active_domain or 'product'} search."
+            )
+            selected_ids, selected_names = [], []
+
+        # Match selected product objects (same as targeted_qa handler)
+        selected_products: list = []
+        if selected_ids:
+            str_sel = [str(sid) for sid in selected_ids]
+            selected_products = [
+                p for p in products
+                if str(p.get("id") or p.get("product_id", "")) in str_sel
+            ]
+        if not selected_products and selected_names:
+            _STOP_NR = frozenset([
+                "laptop", "intel", "amd", "with", "and", "the", "for",
+                "gaming", "screen", "memory", "storage", "ssd",
+            ])
+            def _dw_nr(text: str) -> set:
+                return {
+                    w.lower().strip('",.-()[]') for w in text.split()
+                    if len(w) > 3 and w.lower().strip('",.-()[]') not in _STOP_NR
+                }
+            for _tname in selected_names:
+                if not _tname:
+                    continue
+                _tw = _dw_nr(_tname)
+                _bs, _bm = 0, None
+                for _p in products:
+                    _s = len(_tw & _dw_nr(_p.get("name") or ""))
+                    if _s > _bs:
+                        _bs, _bm = _s, _p
+                if _bm and _bs >= 2 and _bm not in selected_products:
+                    selected_products.append(_bm)
+        if not selected_products:
+            selected_products = sorted(
+                products, key=lambda p: float(p.get("rating") or 0), reverse=True
+            )[:1]
+
+        # Deduplicate
+        _seen_nr: set = set()
+        _deduped_nr = []
+        for _p in selected_products:
+            _pid = str(_p.get("id", ""))
+            if _pid not in _seen_nr:
+                _seen_nr.add(_pid)
+                _deduped_nr.append(_p)
+        selected_products = _deduped_nr[:2]
+
+        from app.formatters import format_product
+        _fmt_domain_nr = "books" if _domain_to_category(active_domain) == "Books" else (active_domain or "laptops")
+        formatted_products = [
+            format_product(p, _fmt_domain_nr).model_dump(mode="json", exclude_none=True)
+            for p in selected_products
+        ]
+        return ChatResponse(
+            response_type="recommendations",
+            message=narrative,
+            session_id=session_id,
+            quick_replies=["See similar items", "Refine search", "Compare items"],
+            recommendations=[formatted_products] if formatted_products else [],
+            filters=session.explicit_filters,
+            preferences={},
+            question_count=session.question_count,
+            domain=active_domain,
+        )
+
+    # No products in session — ask for clarification without losing domain
+    return ChatResponse(
+        response_type="question",
+        message=(
+            f"Could you let me know what you'd like to change or learn more about? "
+            f"I can adjust the {active_domain or 'product'} search or answer specific questions."
+        ),
+        session_id=session_id,
+        quick_replies=["Change budget", "Different brand", "Better specs"],
+        filters=session.explicit_filters,
+        preferences={},
+        question_count=session.question_count,
+        domain=active_domain,
+    )
 
 
 # ============================================================================
