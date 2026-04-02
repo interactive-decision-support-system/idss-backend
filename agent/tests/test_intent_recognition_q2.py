@@ -7,7 +7,7 @@ routes natural-language paraphrases that were previously missed.
 Three categories:
   1. pros_cons — expanded natural paraphrases
   2. add_to_cart — casual purchase intent (ordinal + informal idioms)
-  3. explain_fit — new intent for fit-analysis after filter changes
+  3. best_value — expanded keyword coverage for value/recommendation queries
 """
 import re
 import pytest
@@ -42,24 +42,26 @@ def _match_pros_cons(msg: str) -> bool:
     return any(kw in msg.lower() for kw in _FAST_PROS_CONS_KWS)
 
 
-def _match_explain_fit(msg: str) -> bool:
-    """Return True if msg would be routed to explain_fit by the fast-path."""
-    _FAST_EXPLAIN_FIT_KWS = (
-        "why is it no longer",
-        "why was it dropped",
-        "why did it disappear",
-        "why isn't it showing",
-        "no longer a good fit",
-        "no longer recommended",
-        "still a good fit",
-        "still a good option",
-        "still fit my needs",
-        "how does it fit",
-        "why did you remove",
-        "what changed",
-        "why are the results different",
+def _match_best_value(msg: str) -> bool:
+    """Return True if msg would be routed to best_value by the fast-path."""
+    _FAST_BEST_VALUE_KWS = (
+        "best value", "get best", "show me the best", "best pick",
+        # Q2 additions
+        "top pick",
+        "best bang for the buck",
+        "bang for your buck",
+        "most value for money",
+        "value for money",
+        "best deal",
+        "best option overall",
+        "best overall",
+        "best one",
+        "which do you recommend",
+        "what would you pick",
+        "what do you suggest",
     )
-    return any(kw in msg.lower() for kw in _FAST_EXPLAIN_FIT_KWS)
+    msg_lower = msg.lower()
+    return any(kw in msg_lower for kw in _FAST_BEST_VALUE_KWS) and "similar" not in msg_lower
 
 
 def _match_casual_purchase(msg: str) -> bool:
@@ -131,29 +133,33 @@ class TestCasualPurchaseIntent:
 
 
 # ---------------------------------------------------------------------------
-# 3. explain_fit — fit-analysis after refinement (Q2)
+# 3. best_value — expanded keyword coverage (Q2)
 # ---------------------------------------------------------------------------
 
-class TestExplainFitIntent:
-    """Verify that fit-analysis questions hit the new explain_fit fast-path."""
+class TestBestValueExpanded:
+    """Verify that natural value/recommendation queries hit the best_value fast-path."""
 
     @pytest.mark.parametrize("phrase", [
-        "Why is the Dell no longer recommended?",
-        "Why was it dropped from the list?",
-        "Why did it disappear?",
-        "Is the MacBook still a good fit?",
-        "Does this still fit my needs?",
-        "What changed about my results?",
-        "Why are the results different now?",
-        "Why did you remove the HP?",
+        "What's the top pick?",
+        "Which gives the best bang for the buck?",
+        "Best bang for your buck?",
+        "Which has the best value for money?",
+        "What's the best deal here?",
+        "What's the best option overall?",
+        "Which is the best overall?",
+        "Which is the best one?",
+        "Which do you recommend?",
+        "What would you pick?",
+        "What do you suggest?",
     ])
-    def test_explain_fit_matches(self, phrase):
-        assert _match_explain_fit(phrase), f"Expected explain_fit match for: {phrase!r}"
+    def test_natural_paraphrases_match(self, phrase):
+        assert _match_best_value(phrase), f"Expected best_value match for: {phrase!r}"
 
     @pytest.mark.parametrize("phrase", [
-        "Which has the best display?",    # targeted_qa
-        "compare these",                  # compare
-        "show me cheaper ones",           # refine
+        "compare these laptops",          # should be compare
+        "show me cheaper ones",           # should be refine
+        "which has the best display?",    # should be targeted_qa (specific dimension)
+        "show me the best similar ones",  # "similar" guard should exclude this
     ])
-    def test_non_explain_fit_do_not_match(self, phrase):
-        assert not _match_explain_fit(phrase), f"Expected NO explain_fit match for: {phrase!r}"
+    def test_non_best_value_do_not_match(self, phrase):
+        assert not _match_best_value(phrase), f"Expected NO best_value match for: {phrase!r}"
