@@ -66,6 +66,15 @@ _BRAND_VALUE_ALIASES: Dict[str, str] = {
 # etc. Without normalisation those end up in self.filters under wrong keys and
 # _get_next_missing_slot() still sees them as missing, re-asking the user.
 # ---------------------------------------------------------------------------
+# Maps canonical use_case values (from domain_registry LAPTOP_SCHEMA) to the
+# corresponding good_for_* boolean flag used by the Supabase product store.
+_USE_CASE_TO_FILTER: Dict[str, str] = {
+    "gaming":           "good_for_gaming",
+    "machine_learning": "good_for_ml",
+    "creative":         "good_for_creative",
+    "web_dev":          "good_for_web_dev",
+}
+
 _SLOT_NAME_ALIASES: Dict[str, Dict[str, str]] = {
     "laptops": {
         "ram": "min_ram_gb",
@@ -426,16 +435,12 @@ class UniversalAgent:
                 elif domain == "books":
                     search_filters["subcategory"] = value
                 else:
-                    # For electronics/laptops: map to good_for_* boolean attribute
-                    use_lower = str(value).lower()
-                    if any(k in use_lower for k in ("gaming", "game")):
-                        search_filters["good_for_gaming"] = True
-                    elif any(k in use_lower for k in ("ml", "machine learning", "ai", "deep learning", "pytorch")):
-                        search_filters["good_for_ml"] = True
-                    elif any(k in use_lower for k in ("creative", "design", "video", "photo", "art")):
-                        search_filters["good_for_creative"] = True
-                    elif any(k in use_lower for k in ("web", "dev", "develop")):
-                        search_filters["good_for_web_dev"] = True
+                    # For electronics/laptops: map canonical use_case to good_for_* flag.
+                    # Uses exact match against schema-defined values (domain_registry)
+                    # instead of substring search, which broke for "machine_learning".
+                    filter_key = _USE_CASE_TO_FILTER.get(str(value).lower().strip())
+                    if filter_key:
+                        search_filters[filter_key] = True
                     # Always keep as soft preference for ranking
                     search_filters.setdefault("_soft_preferences", {})["use_case"] = value
 
