@@ -27,7 +27,8 @@ Five fixes for session memory bugs where search-facing filters diverged from wha
    - Copy `.env.example` to `.env` and fill in:
      - `SUPABASE_URL` and `SUPABASE_KEY` (from Supabase dashboard → Settings → API)
      - `OPENAI_API_KEY`
-     - `DATABASE_URL` (PostgreSQL connection string — can use Supabase's built-in Postgres)
+
+   > **Note:** Leave `DATABASE_URL` commented out. Supabase free-tier projects pause the direct Postgres connection (`db.*.supabase.co`) after inactivity. The backend automatically falls back to the Supabase REST API, which remains available.
 
 3. **Seed the database:**
    ```bash
