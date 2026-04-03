@@ -117,6 +117,58 @@ _SHOPPING_OVERRIDE_RE = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# Fast-path keyword / regex constants for post-recommendation intent routing.
+# Defined at module level so tests can import and verify against production.
+# ---------------------------------------------------------------------------
+_FAST_BEST_VALUE_KWS = (
+    "best value", "get best", "show me the best", "best pick",
+    # Q2: natural paraphrases that previously fell through to targeted_qa
+    "top pick",                       # "What's the top pick?"
+    "best bang for the buck",         # "Which gives the best bang for the buck?"
+    "bang for your buck",             # "Best bang for your buck?"
+    "most value for money",           # "Which gives the most value for money?"
+    "value for money",               # "Best value for money?"
+    "best deal",                      # "What's the best deal here?"
+    "best option overall",            # "What's the best option overall?"
+    "best overall",                   # "Which is the best overall?"
+    "best one",                       # "Which is the best one?"
+    "which do you recommend",         # "Which do you recommend?"  (no "would")
+    "what would you pick",            # "What would you pick?"
+    "what do you suggest",            # "What do you suggest?"
+)
+
+_FAST_PROS_CONS_KWS = (
+    "tell me more about these",   # exact text from the action bar button
+    "pros and cons",              # any pros/cons request
+    "worth the price",            # ActionBar "Worth the price?" chip
+    # Price-spread and trade-off questions — should return prose explanation,
+    # NOT a comparison table. Keep them here so they bypass the compare handler.
+    "what do you get for the extra",  # RAG chip: "What do you get for the extra $X?"
+    "trade-off", "trade off", "tradeoff", "tradeoffs",  # "What are the trade-offs?"
+    # Battery life questions — user wants text answer for all products, not a spec table
+    "battery life on these",      # "How is the battery life on these laptops?"
+    "how is the battery",         # "How is the battery life on..."
+    # Q2: natural paraphrases that previously fell through to LLM
+    "strengths and weaknesses",   # "What are the strengths and weaknesses?"
+    "upsides and downsides",      # "What are the upsides and downsides?"
+    "upside and downside",
+    "advantages and disadvantages",
+    "what's good and bad",        # "What's good and bad about these?"
+    "good and bad about",
+    "break it down for me",       # informal: "Can you break it down for me?"
+    "give me the rundown",        # "Give me the rundown on these"
+    "walk me through",            # "Walk me through the options"
+)
+
+_CASUAL_PURCHASE_RE = re.compile(
+    r"\b(?:i'?ll take|i(?:'?ll| will) get|let me get|give me|i want)"
+    r"\s+(?:the\s+|that\s+|this\s+)?"
+    r"(?:first|second|third|fourth|1st|2nd|3rd|4th|one|two|three|four|[1-4]|it|that(?: one)?|this(?: one)?)\b",
+    re.IGNORECASE,
+)
+
+
 async def _llm_injection_check(message: str) -> bool:
     """Call gpt-4o-mini to classify ambiguous messages. Fails open (returns False) on error."""
     try:
@@ -1111,46 +1163,8 @@ async def _handle_post_recommendation(
     # -----------------------------------------------------------------------
     # Fast intent router: compare vs. refine vs. other
     # -----------------------------------------------------------------------
-    # Keyword fast-path skips the LLM call for obvious fixed-button messages
-    _FAST_BEST_VALUE_KWS = (
-        "best value", "get best", "show me the best", "best pick",
-        # Q2: natural paraphrases that previously fell through to targeted_qa
-        "top pick",                       # "What's the top pick?"
-        "best bang for the buck",         # "Which gives the best bang for the buck?"
-        "bang for your buck",             # "Best bang for your buck?"
-        "most value for money",           # "Which gives the most value for money?"
-        "value for money",               # "Best value for money?"
-        "best deal",                      # "What's the best deal here?"
-        "best option overall",            # "What's the best option overall?"
-        "best overall",                   # "Which is the best overall?"
-        "best one",                       # "Which is the best one?"
-        "which do you recommend",         # "Which do you recommend?"  (no "would")
-        "what would you pick",            # "What would you pick?"
-        "what do you suggest",            # "What do you suggest?"
-    )
-    # "Tell me more" and "pros and cons" → text-only response, NO product cards
-    _FAST_PROS_CONS_KWS = (
-        "tell me more about these",   # exact text from the action bar button
-        "pros and cons",              # any pros/cons request
-        "worth the price",            # ActionBar "Worth the price?" chip
-        # Price-spread and trade-off questions — should return prose explanation,
-        # NOT a comparison table. Keep them here so they bypass the compare handler.
-        "what do you get for the extra",  # RAG chip: "What do you get for the extra $X?"
-        "trade-off", "trade off", "tradeoff", "tradeoffs",  # "What are the trade-offs?"
-        # Battery life questions — user wants text answer for all products, not a spec table
-        "battery life on these",      # "How is the battery life on these laptops?"
-        "how is the battery",         # "How is the battery life on..."
-        # Q2: natural paraphrases that previously fell through to LLM
-        "strengths and weaknesses",   # "What are the strengths and weaknesses?"
-        "upsides and downsides",      # "What are the upsides and downsides?"
-        "upside and downside",
-        "advantages and disadvantages",
-        "what's good and bad",        # "What's good and bad about these?"
-        "good and bad about",
-        "break it down for me",       # informal: "Can you break it down for me?"
-        "give me the rundown",        # "Give me the rundown on these"
-        "walk me through",            # "Walk me through the options"
-    )
+    # _FAST_BEST_VALUE_KWS, _FAST_PROS_CONS_KWS, and _CASUAL_PURCHASE_RE
+    # are defined at module level for importability.
     # Targeted Q&A: "which has the best X?" → show only the 1-2 winning products
     # with detailed reasoning.  Must be checked BEFORE _FAST_COMPARE_KWS because
     # "which is better" is a compare (all products) but "which has the best X" is
@@ -1246,15 +1260,6 @@ async def _handle_post_recommendation(
         "see similar", "similar items", "show me similar",
         "similar laptops", "similar products",
         "something similar", "similar to",  # "show me something similar to the best pick"
-    )
-    # Q2: casual purchase intent — ordinal references or informal idioms that
-    # indicate the user wants to add a product without explicitly mentioning
-    # "cart" / "favorites".  Checked BEFORE the LLM call.
-    _CASUAL_PURCHASE_RE = re.compile(
-        r"\b(?:i'?ll take|i(?:'?ll| will) get|let me get|give me|i want)"
-        r"\s+(?:the\s+|that\s+|this\s+)?"
-        r"(?:first|second|third|fourth|1st|2nd|3rd|4th|one|two|three|four|[1-4]|it|that(?: one)?|this(?: one)?)\b",
-        re.IGNORECASE,
     )
     # Guard: don't intercept for best-value when the message is really a see-similar request
     if any(kw in msg_lower for kw in _FAST_BEST_VALUE_KWS) and "similar" not in msg_lower:

@@ -4,74 +4,41 @@ Q2 — Intent Recognition Tests
 Tests that the keyword fast-path in _handle_post_recommendation correctly
 routes natural-language paraphrases that were previously missed.
 
+Imports the actual keyword lists and regex from chat_endpoint.py so that
+any production change is automatically covered by these tests.
+
 Three categories:
   1. pros_cons — expanded natural paraphrases
   2. add_to_cart — casual purchase intent (ordinal + informal idioms)
   3. best_value — expanded keyword coverage for value/recommendation queries
 """
-import re
 import pytest
+
+from agent.chat_endpoint import (
+    _FAST_PROS_CONS_KWS,
+    _FAST_BEST_VALUE_KWS,
+    _CASUAL_PURCHASE_RE,
+)
 
 
 # ---------------------------------------------------------------------------
-# Helpers — extract the keyword lists and regex from chat_endpoint.py so we
-# can test the matching logic directly without needing a running server.
+# Helpers — thin wrappers that replicate the matching logic used in
+# _handle_post_recommendation, using the production constants.
 # ---------------------------------------------------------------------------
 
 def _match_pros_cons(msg: str) -> bool:
     """Return True if msg would be routed to pros_cons by the fast-path."""
-    _FAST_PROS_CONS_KWS = (
-        "tell me more about these",
-        "pros and cons",
-        "worth the price",
-        "what do you get for the extra",
-        "trade-off", "trade off", "tradeoff", "tradeoffs",
-        "battery life on these",
-        "how is the battery",
-        # Q2 additions
-        "strengths and weaknesses",
-        "upsides and downsides",
-        "upside and downside",
-        "advantages and disadvantages",
-        "what's good and bad",
-        "good and bad about",
-        "break it down for me",
-        "give me the rundown",
-        "walk me through",
-    )
     return any(kw in msg.lower() for kw in _FAST_PROS_CONS_KWS)
 
 
 def _match_best_value(msg: str) -> bool:
     """Return True if msg would be routed to best_value by the fast-path."""
-    _FAST_BEST_VALUE_KWS = (
-        "best value", "get best", "show me the best", "best pick",
-        # Q2 additions
-        "top pick",
-        "best bang for the buck",
-        "bang for your buck",
-        "most value for money",
-        "value for money",
-        "best deal",
-        "best option overall",
-        "best overall",
-        "best one",
-        "which do you recommend",
-        "what would you pick",
-        "what do you suggest",
-    )
     msg_lower = msg.lower()
     return any(kw in msg_lower for kw in _FAST_BEST_VALUE_KWS) and "similar" not in msg_lower
 
 
 def _match_casual_purchase(msg: str) -> bool:
     """Return True if msg would be routed to add_to_cart via _CASUAL_PURCHASE_RE."""
-    _CASUAL_PURCHASE_RE = re.compile(
-        r"\b(?:i'?ll take|i(?:'?ll| will) get|let me get|give me|i want)"
-        r"\s+(?:the\s+|that\s+|this\s+)?"
-        r"(?:first|second|third|fourth|1st|2nd|3rd|4th|one|two|three|four|[1-4]|it|that(?: one)?|this(?: one)?)\b",
-        re.IGNORECASE,
-    )
     return bool(_CASUAL_PURCHASE_RE.search(msg.lower()))
 
 
