@@ -1,0 +1,46 @@
+
+  Overall Comparison  (n=43 shared queries)
+  Metric                              IDSS      Sajjad  GPT+Catalog  Gemini+Catalog  Δ(IDSS vs Sajjad)  Δ(IDSS vs GPT+Catalog)  Δ(IDSS vs Gemini+Catalog)
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Avg score (final)                  0.678       0.271       0.662       0.671       +0.407       +0.017       +0.008
+  Pass%  (≥0.60)                     83.7%       11.6%       65.1%       58.1%       +72.1%       +18.6%       +25.6%
+  Catalog grounding                  1.000        N/A        1.000       1.000            N/A                 0.000                 0.000
+  Avg quality score                  0.498       0.088       0.381       0.370       +0.409       +0.116       +0.128
+  Type accuracy (%)                  51.2%       18.6%       74.4%       74.4%       +32.6%       -23.3%       -23.3%
+  Avg type score                     0.878       0.552       0.884       0.901       +0.326       -0.006       -0.023
+  Avg brand score                    1.000       0.000        N/A         N/A        +1.000            N/A            N/A
+  Avg filter score                   1.000       0.000        N/A         N/A        +1.000            N/A            N/A
+  Avg stock score                     N/A         N/A         N/A         N/A             N/A            N/A            N/A
+
+  Specified queries (n_recs > 0, n=34)
+  Metric                              IDSS      Sajjad  GPT+Catalog  Gemini+Catalog  Δ(IDSS vs Sajjad)  Δ(IDSS vs GPT+Catalog)  Δ(IDSS vs Gemini+Catalog)
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Avg score                          0.668       0.229       0.684       0.725       +0.439       -0.016       -0.056
+  Pass%                              88.2%        5.9%       73.5%       73.5%       +82.4%       +14.7%       +14.7%
+  Avg quality                        0.471       0.056       0.412       0.465       +0.415       +0.059       +0.006
+  Type accuracy %                    52.9%       14.7%       88.2%       91.2%       +38.2%       -35.3%       -38.2%
+
+  Underspecified queries (n_recs = 0, n=9)
+  Metric                              IDSS      Sajjad  GPT+Catalog  Gemini+Catalog  Δ(IDSS vs Sajjad)  Δ(IDSS vs GPT+Catalog)  Δ(IDSS vs Gemini+Catalog)
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Avg score                          0.716       0.427       0.577       0.466       +0.289       +0.138       +0.249
+  Pass%                              66.7%       33.3%       33.3%        0.0%       +33.3%       +33.3%       +66.7%
+  Avg quality                        0.600       0.211       0.267       0.011       +0.389       +0.333       +0.589
+  Type accuracy %                    44.4%       33.3%       22.2%       11.1%       +11.1%       +22.2%       +33.3%
+
+  Per-Group avg_score breakdown
+  Group                      N       IDSS     Sajjad  GPT+Catalog  Gemini+Catalog  Δ(IDSS-Sajjad)  Δ(IDSS-GPT+Catalog)  Δ(IDSS-Gemini+Catalog)
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  brand_exclusion            3      0.700      0.253      0.835      0.835      +0.447      -0.135      -0.135
+  budget                     3      0.597      0.400      0.685      0.745      +0.197      -0.088      -0.148
+  contradictory              3      0.690      0.100      0.522      0.507      +0.590      +0.168      +0.183
+  cross_product              3      0.600      0.340      0.610      0.562      +0.260               -0.010      +0.038
+  domain_switch              3      0.523      0.433      0.472      0.667      +0.090      +0.052      -0.143
+  expert                     5      0.680      0.000      0.507      0.703      +0.680      +0.173      -0.023
+  forum                      3      0.613      0.333      0.577      0.458      +0.280      +0.037      +0.155
+  lifestyle                  3      0.703      0.283      0.760      0.775      +0.420      -0.057      -0.072
+  no_tech                    4      0.667      0.240      0.772      0.806      +0.427      -0.105      -0.139
+  one_liner                  4      0.855      0.440      0.790      0.475      +0.415      +0.065      +0.380
+  typos                      4      0.665      0.432      0.752      0.809      +0.233      -0.087      -0.144
+  urgency                    2      0.675      0.150      0.657      0.703      +0.525               +0.018      -0.027
+  wrong_info                 3      0.793      0.153      0.652      0.637      +0.640      +0.142      +0.157
