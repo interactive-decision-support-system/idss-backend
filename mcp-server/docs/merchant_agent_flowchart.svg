@@ -1,0 +1,173 @@
+<svg width="1500" height="940" viewBox="0 0 1500 940" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1500" y2="940" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#EFF6FF"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .title { font-family: Avenir, Helvetica, Arial, sans-serif; font-size: 31px; font-weight: 700; fill: #0F172A; }
+      .subtitle { font-family: Avenir, Helvetica, Arial, sans-serif; font-size: 14px; fill: #475569; }
+      .section-title { font-family: Avenir, Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 700; fill: #FFFFFF; }
+      .label { font-family: Avenir, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 700; fill: #0F172A; }
+      .body { font-family: Avenir, Helvetica, Arial, sans-serif; font-size: 12px; fill: #334155; }
+      .small { font-family: Avenir, Helvetica, Arial, sans-serif; font-size: 11px; fill: #475569; }
+      .outer { fill: #FEFFFE; stroke: #0F766E; stroke-width: 2.4; }
+      .layer-interface { fill: #EFF6FF; stroke: #BFDBFE; stroke-width: 1.4; }
+      .layer-orch { fill: #F7FEE7; stroke: #D9F99D; stroke-width: 1.4; }
+      .layer-retr { fill: #FFF7ED; stroke: #FED7AA; stroke-width: 1.4; }
+      .comp-interface { fill: #E0F2FE; stroke: #0284C7; stroke-width: 1.6; }
+      .comp-orch { fill: #ECFCCB; stroke: #65A30D; stroke-width: 1.6; }
+      .comp-retr { fill: #FFEDD5; stroke: #F97316; stroke-width: 1.6; }
+      .external { fill: #FFFFFF; stroke: #64748B; stroke-width: 1.6; }
+      .pill { fill: #0F172A; }
+      .arrow { stroke: #334155; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .arrow-soft { stroke: #475569; stroke-width: 1.9; fill: none; marker-end: url(#arrow); }
+      .dashed { stroke-dasharray: 7 6; }
+    </style>
+  </defs>
+
+  <rect width="1500" height="940" fill="url(#bg)"/>
+
+  <text x="750" y="52" text-anchor="middle" class="title">Merchant Agent Architecture For Catalog Discovery And Commerce Execution</text>
+  <text x="750" y="78" text-anchor="middle" class="subtitle">Simplified research view of the merchant-side system: protocol entry, query understanding, catalog retrieval, ranking, and structured response generation.</text>
+
+  <rect x="40" y="330" width="205" height="150" rx="20" class="external"/>
+  <text x="143" y="363" text-anchor="middle" class="label">User / Frontend /</text>
+  <text x="143" y="383" text-anchor="middle" class="label">Shopping LLM</text>
+  <text x="143" y="410" text-anchor="middle" class="body">requests via MCP, UCP, or ACP</text>
+  <text x="143" y="428" text-anchor="middle" class="body">query text, IDs, quick replies</text>
+  <text x="143" y="446" text-anchor="middle" class="body">receives products or follow-up questions</text>
+
+  <rect x="280" y="110" width="1180" height="760" rx="30" class="outer"/>
+  <text x="320" y="145" class="title" font-size="26">Merchant Agent</text>
+  <text x="320" y="166" class="subtitle">Merchant-facing subsystem inside the MCP server that exposes the catalog, interprets user intent, retrieves candidates, ranks products, and executes merchant actions.</text>
+
+  <rect x="310" y="180" width="1120" height="95" rx="18" class="layer-interface"/>
+  <rect x="310" y="295" width="1120" height="295" rx="18" class="layer-orch"/>
+  <rect x="310" y="610" width="1120" height="215" rx="18" class="layer-retr"/>
+
+  <rect x="332" y="192" width="165" height="24" rx="12" class="pill"/>
+  <text x="414" y="209" text-anchor="middle" class="section-title">1. Interface Layer</text>
+
+  <rect x="332" y="307" width="320" height="24" rx="12" class="pill"/>
+  <text x="492" y="324" text-anchor="middle" class="section-title">2. Orchestration And Query Understanding</text>
+
+  <rect x="332" y="622" width="270" height="24" rx="12" class="pill"/>
+  <text x="467" y="639" text-anchor="middle" class="section-title">3. Retrieval, Ranking, And Response</text>
+
+  <rect x="345" y="204" width="220" height="50" rx="14" class="comp-interface"/>
+  <text x="455" y="226" text-anchor="middle" class="label">MCP Tool API</text>
+  <text x="455" y="243" text-anchor="middle" class="body">search, get-product, cart, checkout</text>
+
+  <rect x="620" y="204" width="180" height="50" rx="14" class="comp-interface"/>
+  <text x="710" y="226" text-anchor="middle" class="label">UCP Adapter</text>
+  <text x="710" y="243" text-anchor="middle" class="body">maps UCP requests to MCP</text>
+
+  <rect x="855" y="204" width="180" height="50" rx="14" class="comp-interface"/>
+  <text x="945" y="226" text-anchor="middle" class="label">ACP Adapter</text>
+  <text x="945" y="243" text-anchor="middle" class="body">feed and checkout session API</text>
+
+  <rect x="1090" y="194" width="300" height="70" rx="14" class="comp-interface"/>
+  <text x="1240" y="219" text-anchor="middle" class="label">Tool Schemas And Discovery</text>
+  <text x="1240" y="237" text-anchor="middle" class="body">provider-neutral tool metadata for</text>
+  <text x="1240" y="254" text-anchor="middle" class="body">OpenAI, Gemini, and Claude clients</text>
+
+  <rect x="710" y="340" width="320" height="58" rx="14" class="comp-orch"/>
+  <text x="870" y="364" text-anchor="middle" class="label">Request Orchestrator</text>
+  <text x="870" y="382" text-anchor="middle" class="body">dispatches search, product detail, and execution paths</text>
+
+  <rect x="360" y="430" width="245" height="58" rx="14" class="comp-orch"/>
+  <text x="482" y="454" text-anchor="middle" class="label">Search Orchestrator</text>
+  <text x="482" y="472" text-anchor="middle" class="body">merchant-side search workflow</text>
+
+  <rect x="655" y="430" width="220" height="58" rx="14" class="comp-orch"/>
+  <text x="765" y="454" text-anchor="middle" class="label">Get Product Service</text>
+  <text x="765" y="472" text-anchor="middle" class="body">IDs-only detail retrieval</text>
+
+  <rect x="930" y="430" width="255" height="58" rx="14" class="comp-orch"/>
+  <text x="1057" y="454" text-anchor="middle" class="label">Cart / Checkout Service</text>
+  <text x="1057" y="472" text-anchor="middle" class="body">IDs-only add-to-cart and checkout</text>
+
+  <rect x="340" y="515" width="180" height="56" rx="14" class="comp-orch"/>
+  <text x="430" y="539" text-anchor="middle" class="label">Query Normalizer</text>
+  <text x="430" y="557" text-anchor="middle" class="body">typos and synonym expansion</text>
+
+  <rect x="560" y="515" width="190" height="56" rx="14" class="comp-orch"/>
+  <text x="655" y="539" text-anchor="middle" class="label">Filter / Spec Parser</text>
+  <text x="655" y="557" text-anchor="middle" class="body">price, GPU, RAM, genre, use-case</text>
+
+  <rect x="790" y="515" width="180" height="56" rx="14" class="comp-orch"/>
+  <text x="880" y="539" text-anchor="middle" class="label">Domain Router</text>
+  <text x="880" y="557" text-anchor="middle" class="body">books, laptops, vehicles</text>
+
+  <rect x="1010" y="505" width="310" height="76" rx="14" class="comp-orch"/>
+  <text x="1165" y="531" text-anchor="middle" class="label">Interview / Session Bridge</text>
+  <text x="1165" y="549" text-anchor="middle" class="body">asks follow-up questions when the query</text>
+  <text x="1165" y="566" text-anchor="middle" class="body">is underspecified and preserves session filters</text>
+
+  <rect x="380" y="645" width="260" height="60" rx="14" class="comp-retr"/>
+  <text x="510" y="670" text-anchor="middle" class="label">Catalog Search Engine</text>
+  <text x="510" y="688" text-anchor="middle" class="body">Supabase / PostgreSQL catalog filtering</text>
+
+  <rect x="705" y="645" width="220" height="60" rx="14" class="comp-retr"/>
+  <text x="815" y="670" text-anchor="middle" class="label">KG Candidate Retrieval</text>
+  <text x="815" y="688" text-anchor="middle" class="body">Neo4j candidates and compatibility hints</text>
+
+  <rect x="970" y="645" width="180" height="60" rx="14" class="comp-retr"/>
+  <text x="1060" y="670" text-anchor="middle" class="label">Vector Search</text>
+  <text x="1060" y="688" text-anchor="middle" class="body">semantic candidate pool</text>
+
+  <rect x="1190" y="645" width="215" height="60" rx="14" class="comp-retr"/>
+  <text x="1297" y="670" text-anchor="middle" class="label">Progressive Relaxation</text>
+  <text x="1297" y="688" text-anchor="middle" class="body">drops soft filters when recall is low</text>
+
+  <rect x="575" y="735" width="300" height="70" rx="14" class="comp-retr"/>
+  <text x="725" y="760" text-anchor="middle" class="label">IDSS Ranking And Reasoning</text>
+  <text x="725" y="778" text-anchor="middle" class="body">scores coverage, relevance, and recommendation fit</text>
+  <text x="725" y="795" text-anchor="middle" class="body">to produce an ordered merchant result set</text>
+
+  <rect x="930" y="735" width="300" height="70" rx="14" class="comp-retr"/>
+  <text x="1080" y="760" text-anchor="middle" class="label">Response Builder</text>
+  <text x="1080" y="778" text-anchor="middle" class="body">returns product summaries, details, follow-up</text>
+  <text x="1080" y="795" text-anchor="middle" class="body">questions, and MCP / UCP / ACP envelopes</text>
+
+  <path d="M245 366 C290 330, 320 250, 345 230" class="arrow"/>
+  <path d="M245 400 C330 380, 510 300, 620 230" class="arrow"/>
+  <path d="M245 432 C370 430, 680 315, 855 230" class="arrow"/>
+
+  <path d="M455 254 C560 300, 675 325, 770 340" class="arrow"/>
+  <path d="M710 254 C760 300, 805 325, 840 340" class="arrow"/>
+  <path d="M945 254 C950 300, 940 323, 925 340" class="arrow"/>
+  <path d="M1240 264 C1150 300, 1040 325, 980 340" class="arrow-soft"/>
+
+  <path d="M870 398 L870 410" class="arrow-soft"/>
+  <path d="M482 410 L1057 410" class="arrow-soft"/>
+  <path d="M482 410 L482 430" class="arrow"/>
+  <path d="M765 410 L765 430" class="arrow"/>
+  <path d="M1057 410 L1057 430" class="arrow"/>
+
+  <path d="M482 488 L430 515" class="arrow"/>
+  <path d="M520 543 L560 543" class="arrow"/>
+  <path d="M750 543 L790 543" class="arrow"/>
+  <path d="M970 543 L1010 543" class="arrow-soft dashed"/>
+
+  <path d="M880 571 C780 610, 650 635, 640 660" class="arrow"/>
+  <path d="M925 675 C900 675, 760 675, 640 675" class="arrow"/>
+  <path d="M970 675 C880 620, 760 620, 640 675" class="arrow-soft"/>
+  <path d="M640 705 C820 730, 1050 730, 1190 705" class="arrow"/>
+  <path d="M1297 705 C1255 725, 1080 740, 875 770" class="arrow"/>
+  <path d="M875 770 L930 770" class="arrow"/>
+
+  <path d="M765 488 C780 585, 920 675, 1015 735" class="arrow"/>
+  <path d="M1057 488 C1080 565, 1090 650, 1085 735" class="arrow-soft"/>
+
+  <path d="M1010 558 C760 560, 470 585, 245 470" class="arrow-soft dashed"/>
+  <text x="1060" y="494" class="small">optional clarification path</text>
+
+  <path d="M930 790 C700 830, 400 820, 245 450" class="arrow"/>
+
+  <text x="42" y="905" class="small">Solid arrows show the main merchant-agent flow. Dashed arrows show optional follow-up questioning.</text>
+</svg>
