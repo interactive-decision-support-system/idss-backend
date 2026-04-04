@@ -315,7 +315,12 @@ def test_use_case_downgrade_clears_performance_slots():
     """
     Scenario: user discussed gaming (use_case=gaming, gpu_tier set) then says
     'actually it's just for email and Netflix'.  Performance slots must clear.
+
+    Uses the shared _check_use_case_downgrade method — the same code path
+    that fires in both process_message and process_refinement.
     """
+    from agent.universal_agent import SlotValue
+
     agent = UniversalAgent(session_id="test-usecase-downgrade")
     agent.domain = "laptops"
     agent.filters = {
@@ -326,17 +331,77 @@ def test_use_case_downgrade_clears_performance_slots():
         "price_max_cents": 100000,
     }
 
-    _LIGHT_USE_CASES = {"email", "everyday", "basic", "general", "home", "school", "browsing"}
-    _HEAVY_USE_CASES = {"gaming", "machine learning", "ml", "video editing", "3d", "streaming"}
-    _prior_use_case = str(agent.filters.get("use_case") or "").lower()
-    new_use_case = "email"
-
-    if new_use_case.lower() in _LIGHT_USE_CASES and _prior_use_case in _HEAVY_USE_CASES:
-        for slot in {"min_ram_gb", "gpu_vendor", "gpu_tier", "refresh_rate_min_hz"}:
-            agent.filters.pop(slot, None)
+    prior_uc = str(agent.filters.get("use_case") or "")
+    # Simulate the merge having already updated use_case
+    agent.filters["use_case"] = "email"
+    agent._check_use_case_downgrade(
+        [SlotValue(slot_name="use_case", value="email")],
+        prior_uc,
+    )
 
     assert "gpu_tier" not in agent.filters, "gpu_tier persists after use_case downgrade"
     assert "refresh_rate_min_hz" not in agent.filters, "refresh_rate persists"
     assert "min_ram_gb" not in agent.filters, "min_ram_gb persists"
     # Budget preserved
     assert agent.filters.get("price_max_cents") == 100000
+    # use_case updated
+    assert agent.filters.get("use_case") == "email"
+
+
+# ---------------------------------------------------------------------------
+# _normalize_and_merge_criteria: alias remapping
+# ---------------------------------------------------------------------------
+
+def test_normalize_and_merge_criteria_remaps_aliases():
+    """
+    LLM returns 'ram' and 'price' instead of canonical 'min_ram_gb' and 'budget'.
+    _normalize_and_merge_criteria must remap them via _SLOT_NAME_ALIASES.
+    """
+    from agent.universal_agent import SlotValue
+
+    agent = UniversalAgent(session_id="test-alias-remap")
+    agent.domain = "laptops"
+    agent.filters = {}
+    schema = get_domain_schema("laptops")
+
+    agent._normalize_and_merge_criteria(
+        [
+            SlotValue(slot_name="ram", value="16"),
+            SlotValue(slot_name="price", value="1000"),
+            SlotValue(slot_name="brand", value="Dell"),
+        ],
+        schema,
+    )
+
+    assert "min_ram_gb" in agent.filters, "ram was not remapped to min_ram_gb"
+    assert agent.filters["min_ram_gb"] == "16"
+    assert "budget" in agent.filters, "price was not remapped to budget"
+    assert agent.filters["budget"] == "1000"
+    assert agent.filters["brand"] == "Dell"
+    # The raw alias keys should NOT appear
+    assert "ram" not in agent.filters
+    assert "price" not in agent.filters
+
+
+# ---------------------------------------------------------------------------
+# get_search_filters: exact use_case → good_for_* mapping
+# ---------------------------------------------------------------------------
+
+def test_get_search_filters_use_case_exact_match():
+    """
+    'machine_learning' must map to good_for_ml via exact dict lookup.
+    The old substring approach failed because 'machine_learning' doesn't
+    substring-match 'ml'.
+    """
+    agent = UniversalAgent(session_id="test-usecase-exact")
+    agent.domain = "laptops"
+    agent.filters = {"use_case": "machine_learning"}
+
+    sf = agent.get_search_filters()
+    assert sf.get("good_for_ml") is True, "machine_learning did not map to good_for_ml"
+
+    # Also verify the other canonical values
+    for uc, expected_key in [("gaming", "good_for_gaming"), ("creative", "good_for_creative"), ("web_dev", "good_for_web_dev")]:
+        agent.filters = {"use_case": uc}
+        sf = agent.get_search_filters()
+        assert sf.get(expected_key) is True, f"{uc} did not map to {expected_key}"

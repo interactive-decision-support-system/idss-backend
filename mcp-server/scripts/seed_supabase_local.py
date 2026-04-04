@@ -54,6 +54,21 @@ from sqlalchemy import create_engine, text
 from app.database import DATABASE_URL
 
 
+def _strip_sql_line_comments(sql: str) -> str:
+    """Remove full-line SQL comments before statement splitting.
+
+    The seed SQL file groups INSERT statements under comment banners. Splitting
+    on semicolons first and then dropping chunks that start with `--` discards
+    the entire INSERT block, which results in an empty products table.
+    """
+    lines: list[str] = []
+    for line in sql.splitlines():
+        if line.lstrip().startswith("--"):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def main():
     print("=" * 70)
     print("SEEDING SUPABASE-COMPATIBLE LOCAL DATABASE")
@@ -82,12 +97,12 @@ def main():
         sys.exit(1)
 
     print(f"\n1. Reading seed SQL: {seed_sql_path.name}")
-    sql_content = seed_sql_path.read_text()
+    sql_content = _strip_sql_line_comments(seed_sql_path.read_text())
 
     print("2. Executing seed SQL...")
     with engine.begin() as conn:
         # Split on semicolons and execute each statement
-        statements = [s.strip() for s in sql_content.split(";") if s.strip() and not s.strip().startswith("--")]
+        statements = [s.strip() for s in sql_content.split(";") if s.strip()]
         for i, stmt in enumerate(statements):
             try:
                 conn.execute(text(stmt))

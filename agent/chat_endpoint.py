@@ -94,6 +94,29 @@ _LLM_GUARD_SYSTEM = (
 )
 
 
+# Layer 2b: Shopping-context override — when a suspicion keyword ("forget",
+# "ignore", etc.) appears alongside shopping terms rather than instruction/role
+# language, it's a filter refinement, not an injection attempt.  Skip the LLM
+# call to prevent false positives like "forget the 450 dollars".
+_SHOPPING_OVERRIDE_RE = re.compile(
+    # "forget/ignore/drop/remove …" + shopping term
+    r"(?:forget|ignore|drop|remove|skip|ditch|scrap|disregard)"
+    r"\s+(?:the\s+|about\s+(?:the\s+)?|my\s+)?"
+    r"(?:"
+    r"\$?\d"                                            # dollar amounts
+    r"|budget|price|cost|dollars?"                      # price language
+    r"|brand|screen|ram|storage|specs?"                  # spec language
+    r"|gaming|machine.learning|creative|web.dev|ml\b"   # use-case language
+    r"|requirement|filter|preference|constraint|limit"  # meta / filter language
+    r")"
+    # "let's say / suppose / imagine" + shopping qualifier
+    r"|(?:let'?s\s+say|suppose|imagine)"
+    r"\s+(?:\S+\s+){0,4}"  # up to 4 words gap
+    r"(?:under|over|about|around|budget|cheaper|more|less|bigger|smaller|\$\d)",
+    re.IGNORECASE,
+)
+
+
 async def _llm_injection_check(message: str) -> bool:
     """Call gpt-4o-mini to classify ambiguous messages. Fails open (returns False) on error."""
     try:
@@ -121,6 +144,9 @@ async def _is_prompt_injection(message: str) -> bool:
         return True
     # Layer 2: suspicion pre-screen — skip LLM entirely for normal messages
     if not _SUSPICION_RE.search(message):
+        return False
+    # Layer 2b: shopping-context override — "forget the budget" is refinement, not injection
+    if _SHOPPING_OVERRIDE_RE.search(message):
         return False
     # Layer 3: LLM classifier — only reached for messages that look suspicious
     return await _llm_injection_check(message)
@@ -533,7 +559,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
     session.question_count = agent_state["question_count"]
     if agent_state["domain"]:
         session_manager.set_active_domain(session_id, agent_state["domain"])
-    session_manager.update_filters(session_id, agent.get_search_filters())
+    session_manager.update_filters(session_id, agent.get_search_filters(), replace=True)
     session_manager._persist(session_id)
 
     response_type = agent_response.get("response_type")
@@ -2636,7 +2662,7 @@ async def _handle_post_recommendation(
         session.agent_filters = agent_state["filters"]
         session.agent_questions_asked = agent_state["questions_asked"]
         session.agent_history = agent_state["history"]
-        session_manager.update_filters(session_id, search_filters)
+        session_manager.update_filters(session_id, search_filters, replace=True)
         session_manager._persist(session_id)
 
         if active_domain == "vehicles":

@@ -77,7 +77,8 @@ def pull_supabase_products() -> int:
                 ).fetchall()
 
                 for row in rows:
-                    supa_id = str(row.id)
+                    supa_uuid = row.id
+                    supa_id = str(supa_uuid)
 
                     if supa_id in existing_ids:
                         skipped += 1
@@ -85,7 +86,7 @@ def pull_supabase_products() -> int:
 
                     # Directly map the Supabase row to our new Product model
                     product = Product(
-                        product_id=supa_id, # Maps to 'id' in the DB
+                        product_id=supa_uuid, # Preserve UUID type for UUID(as_uuid=True)
                         name=row.title or "Unknown Product",
                         price_value=row.price,
                         brand=row.brand,

@@ -66,6 +66,15 @@ _BRAND_VALUE_ALIASES: Dict[str, str] = {
 # etc. Without normalisation those end up in self.filters under wrong keys and
 # _get_next_missing_slot() still sees them as missing, re-asking the user.
 # ---------------------------------------------------------------------------
+# Maps canonical use_case values (from domain_registry LAPTOP_SCHEMA) to the
+# corresponding good_for_* boolean flag used by the Supabase product store.
+_USE_CASE_TO_FILTER: Dict[str, str] = {
+    "gaming":           "good_for_gaming",
+    "machine_learning": "good_for_ml",
+    "creative":         "good_for_creative",
+    "web_dev":          "good_for_web_dev",
+}
+
 _SLOT_NAME_ALIASES: Dict[str, Dict[str, str]] = {
     "laptops": {
         "ram": "min_ram_gb",
@@ -494,16 +503,12 @@ class UniversalAgent:
                 elif domain == "books":
                     search_filters["subcategory"] = value
                 else:
-                    # For electronics/laptops: map to good_for_* boolean attribute
-                    use_lower = str(value).lower()
-                    if any(k in use_lower for k in ("gaming", "game")):
-                        search_filters["good_for_gaming"] = True
-                    elif any(k in use_lower for k in ("ml", "machine learning", "ai", "deep learning", "pytorch")):
-                        search_filters["good_for_ml"] = True
-                    elif any(k in use_lower for k in ("creative", "design", "video", "photo", "art")):
-                        search_filters["good_for_creative"] = True
-                    elif any(k in use_lower for k in ("web", "dev", "develop")):
-                        search_filters["good_for_web_dev"] = True
+                    # For electronics/laptops: map canonical use_case to good_for_* flag.
+                    # Uses exact match against schema-defined values (domain_registry)
+                    # instead of substring search, which broke for "machine_learning".
+                    filter_key = _USE_CASE_TO_FILTER.get(str(value).lower().strip())
+                    if filter_key:
+                        search_filters[filter_key] = True
                     # Always keep as soft preference for ranking
                     search_filters.setdefault("_soft_preferences", {})["use_case"] = value
 
@@ -689,34 +694,16 @@ class UniversalAgent:
             resp["timings_ms"] = timings
             return resp
 
+        # Capture prior use_case BEFORE extraction overwrites it.
+        _prior_use_case = str(self.filters.get("use_case") or "")
+
         t2 = time.perf_counter()
         extraction_result = self._extract_criteria(message, schema)
         timings["criteria_extraction_ms"] = (time.perf_counter() - t2) * 1000
 
-        # 2a. Use-case contradiction: if user shifts to a light/basic use case
-        # ("just email and Netflix", "nothing heavy") after having set performance-
-        # heavy slots from a prior gaming/ML use case, clear the derived hardware
-        # requirements so the new query isn't anchored to the old workload.
+        # 2a. Use-case downgrade: clear performance slots when shifting heavy → light.
         if extraction_result and extraction_result.criteria:
-            _new_use_case = next(
-                (c.value for c in extraction_result.criteria if c.slot_name == "use_case"),
-                None,
-            )
-            _LIGHT_USE_CASES = {"email", "everyday", "basic", "general", "home", "school", "browsing"}
-            _HEAVY_USE_CASES = {"gaming", "machine learning", "ml", "video editing", "3d", "streaming"}
-            _prior_use_case = str(self.filters.get("use_case") or "").lower()
-            if (
-                _new_use_case
-                and _new_use_case.lower() in _LIGHT_USE_CASES
-                and _prior_use_case in _HEAVY_USE_CASES
-            ):
-                _perf_slots = {"min_ram_gb", "gpu_vendor", "gpu_tier", "refresh_rate_min_hz"}
-                for _ps in _perf_slots:
-                    self.filters.pop(_ps, None)
-                logger.info(
-                    f"Use-case downgrade detected ({_prior_use_case!r} → {_new_use_case!r}); "
-                    f"cleared performance slots: {_perf_slots}"
-                )
+            self._check_use_case_downgrade(extraction_result.criteria, _prior_use_case)
 
         # 2b. Vagueness gate — bare "best laptop 2024" style queries must NOT jump
         # straight to recommendations even if the LLM set wants_recommendations=True.
@@ -985,6 +972,104 @@ class UniversalAgent:
 
 
 
+    # Extra slots that are valid but not defined in the domain schema.
+    _ALWAYS_ALLOW = frozenset({
+        "excluded_brands", "_soft_preferences",
+        "good_for_gaming", "good_for_creative",
+        "good_for_web_dev", "good_for_ml",
+        "use_case",
+    })
+
+    _LIGHT_USE_CASES = frozenset({"email", "everyday", "basic", "general", "home", "school", "browsing"})
+    _HEAVY_USE_CASES = frozenset({"gaming", "machine learning", "ml", "video editing", "3d", "streaming"})
+    _PERF_SLOTS = frozenset({"min_ram_gb", "gpu_vendor", "gpu_tier", "refresh_rate_min_hz"})
+
+    def _check_use_case_downgrade(self, new_criteria: List["SlotValue"], prior_use_case: str) -> None:
+        """Clear performance slots when use-case shifts from heavy to light.
+
+        Must be called AFTER _normalize_and_merge_criteria.  *prior_use_case*
+        is the value from self.filters BEFORE the merge overwrote it.
+        """
+        new_use_case = next(
+            (c.value for c in new_criteria if c.slot_name == "use_case"),
+            None,
+        )
+        if not new_use_case:
+            return
+        if (
+            new_use_case.lower() in self._LIGHT_USE_CASES
+            and prior_use_case.lower() in self._HEAVY_USE_CASES
+        ):
+            for slot in self._PERF_SLOTS:
+                self.filters.pop(slot, None)
+            logger.info(
+                f"Use-case downgrade detected ({prior_use_case!r} → {new_use_case!r}); "
+                f"cleared performance slots: {self._PERF_SLOTS}"
+            )
+
+    def _normalize_and_merge_criteria(
+        self,
+        criteria: List["SlotValue"],
+        schema: "DomainSchema",
+        *,
+        validate_against_schema: bool = True,
+    ) -> Dict[str, Any]:
+        """Normalize slot names, validate against schema, and merge into self.filters.
+
+        Shared by _extract_criteria, _regex_extract_criteria, and process_refinement
+        so that all paths apply the same alias remapping and brand normalization.
+
+        Returns the dict of new_filters that were actually merged.
+        """
+        domain_aliases = _SLOT_NAME_ALIASES.get(schema.domain, {})
+        _schema_slot_names = {s.name for s in schema.slots}
+
+        new_filters: Dict[str, Any] = {}
+        for item in criteria:
+            canonical = domain_aliases.get(item.slot_name, item.slot_name)
+            if validate_against_schema:
+                if not (
+                    canonical in _schema_slot_names
+                    or canonical in self._ALWAYS_ALLOW
+                    or canonical.startswith("good_for_")
+                ):
+                    logger.info(
+                        f"Dropping unknown slot '{item.slot_name}' "
+                        f"(canonical='{canonical}') — not in schema for domain '{schema.domain}'"
+                    )
+                    continue
+            new_filters[canonical] = item.value
+
+        # Normalise brand value (e.g., "Mac" → "Apple", "ThinkPad" → "Lenovo")
+        if "brand" in new_filters and isinstance(new_filters["brand"], str):
+            raw_brand = new_filters["brand"].strip()
+            new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
+
+        logger.info(f"Normalized filters: {new_filters}")
+
+        # Merge into self.filters: excluded_brands EXTENDS across turns,
+        # all other slots replace the old value.
+        for _k, _v in new_filters.items():
+            if _k == "excluded_brands":
+                self.filters[_k] = _merge_excluded_brands(self.filters.get(_k), _v)
+            else:
+                self.filters[_k] = _v
+
+        # If user explicitly chose a brand, remove it from excluded_brands (mind change)
+        if "brand" in new_filters:
+            _newly_preferred = new_filters["brand"]
+            _excl = self.filters.get("excluded_brands")
+            if _excl:
+                if isinstance(_excl, list):
+                    self.filters["excluded_brands"] = [b for b in _excl if b.lower() != _newly_preferred.lower()] or None
+                elif isinstance(_excl, str):
+                    self.filters["excluded_brands"] = [b.strip() for b in _excl.split(",") if b.strip().lower() != _newly_preferred.lower()] or None
+                if not self.filters.get("excluded_brands"):
+                    self.filters.pop("excluded_brands", None)
+                logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
+
+        return new_filters
+
     def _extract_criteria(self, message: str, schema: DomainSchema) -> Optional[ExtractedCriteria]:
         """
         Uses LLM to extract criteria based on the active schema.
@@ -1037,60 +1122,9 @@ class UniversalAgent:
                 logger.warning("Criteria extraction returned None")
                 return None
 
-            # Merge extracted filters into state — normalise slot names first.
-            # The LLM sometimes returns "ram" / "price" instead of the canonical
-            # schema slot names "min_ram_gb" / "budget".  Map them back so that
-            # _get_next_missing_slot() correctly sees them as already filled.
+            # Normalize slot names, validate against schema, and merge into self.filters.
             if result.criteria:
-                domain_aliases = _SLOT_NAME_ALIASES.get(schema.domain, {})
-                # Build valid slot name set from schema — prevents spurious slots like
-                # min_year=2024 (from "best laptop 2024") from polluting the filters.
-                _schema_slot_names = {s.name for s in schema.slots}
-                # Extra slots that are valid but not in the schema definition.
-                _ALWAYS_ALLOW = {
-                    "excluded_brands", "_soft_preferences",
-                    "good_for_gaming", "good_for_creative",
-                    "good_for_web_dev", "good_for_ml",
-                    "use_case",
-                }
-                new_filters: Dict[str, Any] = {}
-                for item in result.criteria:
-                    canonical = domain_aliases.get(item.slot_name, item.slot_name)
-                    if (
-                        canonical in _schema_slot_names
-                        or canonical in _ALWAYS_ALLOW
-                        or canonical.startswith("good_for_")
-                    ):
-                        new_filters[canonical] = item.value
-                    else:
-                        logger.info(
-                            f"Dropping unknown slot '{item.slot_name}' "
-                            f"(canonical='{canonical}') — not in schema for domain '{schema.domain}'"
-                        )
-                # Normalise brand value (e.g., "Mac" → "Apple", "ThinkPad" → "Lenovo")
-                if "brand" in new_filters and isinstance(new_filters["brand"], str):
-                    raw_brand = new_filters["brand"].strip()
-                    new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
-                logger.info(f"Extracted filters (normalised): {new_filters}")
-                # Merge filters: excluded_brands EXTENDS across turns (don't lose prior exclusions).
-                # All other slots replace the old value (e.g. new budget overwrites old budget).
-                for _k, _v in new_filters.items():
-                    if _k == "excluded_brands":
-                        self.filters[_k] = _merge_excluded_brands(self.filters.get(_k), _v)
-                    else:
-                        self.filters[_k] = _v
-                # If user explicitly chose a brand, remove it from excluded_brands (mind change)
-                if "brand" in new_filters:
-                    _newly_preferred = new_filters["brand"]
-                    _excl = self.filters.get("excluded_brands")
-                    if _excl:
-                        if isinstance(_excl, list):
-                            self.filters["excluded_brands"] = [b for b in _excl if b.lower() != _newly_preferred.lower()] or None
-                        elif isinstance(_excl, str):
-                            self.filters["excluded_brands"] = [b.strip() for b in _excl.split(",") if b.strip().lower() != _newly_preferred.lower()] or None
-                        if not self.filters.get("excluded_brands"):
-                            self.filters.pop("excluded_brands", None)
-                        logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
+                new_filters = self._normalize_and_merge_criteria(result.criteria, schema)
 
             # Mirror regex fallback heuristic: if user provides ≥2 substantive criteria
             # in a single statement-style message, they've stated their requirements →
@@ -1322,34 +1356,8 @@ class UniversalAgent:
             wants_recs = True
 
         if criteria:
-            domain_aliases = _SLOT_NAME_ALIASES.get(domain, {})
-            new_filters: Dict[str, Any] = {}
-            for item in criteria:
-                canonical = domain_aliases.get(item.slot_name, item.slot_name)
-                new_filters[canonical] = item.value
-            # Normalise brand value (e.g., "mac" → "Apple", "ThinkPad" → "Lenovo")
-            if "brand" in new_filters and isinstance(new_filters["brand"], str):
-                raw_brand = new_filters["brand"].strip()
-                new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
-            logger.info(f"Regex fallback extracted (normalised): {new_filters}")
-            # Merge filters: excluded_brands EXTENDS across turns; all other slots replace.
-            for _k, _v in new_filters.items():
-                if _k == "excluded_brands":
-                    self.filters[_k] = _merge_excluded_brands(self.filters.get(_k), _v)
-                else:
-                    self.filters[_k] = _v
-            # If user explicitly chose a brand, remove it from excluded_brands (mind change)
-            if "brand" in new_filters:
-                _newly_preferred = new_filters["brand"]
-                _excl = self.filters.get("excluded_brands")
-                if _excl:
-                    if isinstance(_excl, list):
-                        self.filters["excluded_brands"] = [b for b in _excl if b.lower() != _newly_preferred.lower()] or None
-                    elif isinstance(_excl, str):
-                        self.filters["excluded_brands"] = [b.strip() for b in _excl.split(",") if b.strip().lower() != _newly_preferred.lower()] or None
-                    if not self.filters.get("excluded_brands"):
-                        self.filters.pop("excluded_brands", None)
-                    logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
+            # Regex only emits known slot names, so skip schema validation
+            self._normalize_and_merge_criteria(criteria, schema, validate_against_schema=False)
         else:
             logger.info("Regex fallback: no criteria found")
 
@@ -1765,60 +1773,11 @@ Write the recommendation message."""}
             logger.info(f"Refinement classification: intent={result.intent}, reasoning={result.reasoning}")
 
             if result.intent == "refine_filters":
-                # Apply slot-name aliases (e.g. "price" → "budget", "ram" → "min_ram_gb")
-                # so that LLM variations land on the canonical key.
-                domain_aliases = _SLOT_NAME_ALIASES.get(self.domain or "", {})
-                for item in result.updated_criteria:
-                    canonical = domain_aliases.get(item.slot_name, item.slot_name)
-                    if canonical == "excluded_brands":
-                        # Accumulate exclusions — never replace prior exclusions with a new set
-                        self.filters[canonical] = _merge_excluded_brands(
-                            self.filters.get(canonical), item.value
-                        )
-                    elif canonical == "use_case":
-                        # Pivot: clear stale good_for_* flags so the old use-case doesn't bleed through
-                        for _gf in ("good_for_gaming", "good_for_ml", "good_for_creative",
-                                    "good_for_web_dev", "good_for_data_science"):
-                            self.filters.pop(_gf, None)
-                        self.filters[canonical] = item.value
-                    else:
-                        self.filters[canonical] = item.value
-                    logger.info(f"Refinement updated filter: {canonical}={self.filters.get(canonical)}")
-                # Always supplement with deterministic brand exclusion detection so that
-                # "no HP", "please no HP laptops" etc. are never missed even if the LLM
-                # doesn't include them in updated_criteria.
-                _raw_excl = _detect_excluded_brands(message)
-                if _raw_excl:
-                    self.filters["excluded_brands"] = _merge_excluded_brands(
-                        self.filters.get("excluded_brands"), ",".join(_raw_excl)
-                    )
-                    logger.info(f"Refinement raw brand exclusions merged: {_raw_excl}")
-                # Mind-change path 1: explicit brand un-exclusion phrases
-                # e.g. "actually HP is fine", "I changed my mind about Dell"
-                _current_excl = _to_brand_list(self.filters.get("excluded_brands"))
-                _allowed = _detect_allowed_brands(message, _current_excl)
-                if _allowed:
-                    new_excl = [b for b in _current_excl if b not in _allowed]
-                    if new_excl:
-                        self.filters["excluded_brands"] = new_excl
-                    else:
-                        self.filters.pop("excluded_brands", None)
-                    logger.info(f"Refinement un-excluded brands: {_allowed}")
-
-                # Mind-change path 2: if brand preference was SET, also purge it from exclusions
-                _preferred_brand = self.filters.get("brand")
-                if _preferred_brand:
-                    _excl = self.filters.get("excluded_brands")
-                    if _excl:
-                        cleaned = [b for b in _to_brand_list(_excl)
-                                   if b.lower() != str(_preferred_brand).lower()]
-                        if cleaned:
-                            self.filters["excluded_brands"] = cleaned
-                        else:
-                            self.filters.pop("excluded_brands", None)
-                        logger.info(f"Refinement mind-change: purged {_preferred_brand} from excluded_brands")
-                self.history.append({"role": "user", "content": message})
+                _prior_uc = str(self.filters.get("use_case") or "")
                 schema = get_domain_schema(self.domain)
+                self._normalize_and_merge_criteria(result.updated_criteria, schema)
+                self._check_use_case_downgrade(result.updated_criteria, _prior_uc)
+                self.history.append({"role": "user", "content": message})
                 return self._handoff_to_search(schema)
 
             elif result.intent == "domain_switch":
@@ -1832,19 +1791,15 @@ Write the recommendation message."""}
                 }
 
             elif result.intent == "new_search":
-                # Clear all filters and apply new criteria with alias normalisation
+                # Clear all filters and apply new criteria
+                _prior_uc = str(self.filters.get("use_case") or "")
                 self.filters = {}
                 self.questions_asked = []
                 self.question_count = 0
-                domain_aliases = _SLOT_NAME_ALIASES.get(self.domain or "", {})
-                for item in result.updated_criteria:
-                    canonical = domain_aliases.get(item.slot_name, item.slot_name)
-                    if canonical == "excluded_brands":
-                        self.filters[canonical] = _merge_excluded_brands(None, item.value)
-                    else:
-                        self.filters[canonical] = item.value
-                self.history.append({"role": "user", "content": message})
                 schema = get_domain_schema(self.domain)
+                self._normalize_and_merge_criteria(result.updated_criteria, schema)
+                self._check_use_case_downgrade(result.updated_criteria, _prior_uc)
+                self.history.append({"role": "user", "content": message})
                 return self._handoff_to_search(schema)
 
             else:
