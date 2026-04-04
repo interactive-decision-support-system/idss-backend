@@ -94,6 +94,81 @@ _LLM_GUARD_SYSTEM = (
 )
 
 
+# Layer 2b: Shopping-context override — when a suspicion keyword ("forget",
+# "ignore", etc.) appears alongside shopping terms rather than instruction/role
+# language, it's a filter refinement, not an injection attempt.  Skip the LLM
+# call to prevent false positives like "forget the 450 dollars".
+_SHOPPING_OVERRIDE_RE = re.compile(
+    # "forget/ignore/drop/remove …" + shopping term
+    r"(?:forget|ignore|drop|remove|skip|ditch|scrap|disregard)"
+    r"\s+(?:the\s+|about\s+(?:the\s+)?|my\s+)?"
+    r"(?:"
+    r"\$?\d"                                            # dollar amounts
+    r"|budget|price|cost|dollars?"                      # price language
+    r"|brand|screen|ram|storage|specs?"                  # spec language
+    r"|gaming|machine.learning|creative|web.dev|ml\b"   # use-case language
+    r"|requirement|filter|preference|constraint|limit"  # meta / filter language
+    r")"
+    # "let's say / suppose / imagine" + shopping qualifier
+    r"|(?:let'?s\s+say|suppose|imagine)"
+    r"\s+(?:\S+\s+){0,4}"  # up to 4 words gap
+    r"(?:under|over|about|around|budget|cheaper|more|less|bigger|smaller|\$\d)",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Fast-path keyword / regex constants for post-recommendation intent routing.
+# Defined at module level so tests can import and verify against production.
+# ---------------------------------------------------------------------------
+_FAST_BEST_VALUE_KWS = (
+    "best value", "get best", "show me the best", "best pick",
+    # Q2: natural paraphrases that previously fell through to targeted_qa
+    "top pick",                       # "What's the top pick?"
+    "best bang for the buck",         # "Which gives the best bang for the buck?"
+    "bang for your buck",             # "Best bang for your buck?"
+    "most value for money",           # "Which gives the most value for money?"
+    "value for money",               # "Best value for money?"
+    "best deal",                      # "What's the best deal here?"
+    "best option overall",            # "What's the best option overall?"
+    "best overall",                   # "Which is the best overall?"
+    "best one",                       # "Which is the best one?"
+    "which do you recommend",         # "Which do you recommend?"  (no "would")
+    "what would you pick",            # "What would you pick?"
+    "what do you suggest",            # "What do you suggest?"
+)
+
+_FAST_PROS_CONS_KWS = (
+    "tell me more about these",   # exact text from the action bar button
+    "pros and cons",              # any pros/cons request
+    "worth the price",            # ActionBar "Worth the price?" chip
+    # Price-spread and trade-off questions — should return prose explanation,
+    # NOT a comparison table. Keep them here so they bypass the compare handler.
+    "what do you get for the extra",  # RAG chip: "What do you get for the extra $X?"
+    "trade-off", "trade off", "tradeoff", "tradeoffs",  # "What are the trade-offs?"
+    # Battery life questions — user wants text answer for all products, not a spec table
+    "battery life on these",      # "How is the battery life on these laptops?"
+    "how is the battery",         # "How is the battery life on..."
+    # Q2: natural paraphrases that previously fell through to LLM
+    "strengths and weaknesses",   # "What are the strengths and weaknesses?"
+    "upsides and downsides",      # "What are the upsides and downsides?"
+    "upside and downside",
+    "advantages and disadvantages",
+    "what's good and bad",        # "What's good and bad about these?"
+    "good and bad about",
+    "break it down for me",       # informal: "Can you break it down for me?"
+    "give me the rundown",        # "Give me the rundown on these"
+    "walk me through",            # "Walk me through the options"
+)
+
+_CASUAL_PURCHASE_RE = re.compile(
+    r"\b(?:i'?ll take|i(?:'?ll| will) get|let me get|give me|i want)"
+    r"\s+(?:the\s+|that\s+|this\s+)?"
+    r"(?:first|second|third|fourth|1st|2nd|3rd|4th|one|two|three|four|[1-4]|it|that(?: one)?|this(?: one)?)\b",
+    re.IGNORECASE,
+)
+
+
 async def _llm_injection_check(message: str) -> bool:
     """Call gpt-4o-mini to classify ambiguous messages. Fails open (returns False) on error."""
     try:
@@ -121,6 +196,9 @@ async def _is_prompt_injection(message: str) -> bool:
         return True
     # Layer 2: suspicion pre-screen — skip LLM entirely for normal messages
     if not _SUSPICION_RE.search(message):
+        return False
+    # Layer 2b: shopping-context override — "forget the budget" is refinement, not injection
+    if _SHOPPING_OVERRIDE_RE.search(message):
         return False
     # Layer 3: LLM classifier — only reached for messages that look suspicious
     return await _llm_injection_check(message)
@@ -533,7 +611,7 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
     session.question_count = agent_state["question_count"]
     if agent_state["domain"]:
         session_manager.set_active_domain(session_id, agent_state["domain"])
-    session_manager.update_filters(session_id, agent.get_search_filters())
+    session_manager.update_filters(session_id, agent.get_search_filters(), replace=True)
     session_manager._persist(session_id)
 
     response_type = agent_response.get("response_type")
@@ -1085,23 +1163,8 @@ async def _handle_post_recommendation(
     # -----------------------------------------------------------------------
     # Fast intent router: compare vs. refine vs. other
     # -----------------------------------------------------------------------
-    # Keyword fast-path skips the LLM call for obvious fixed-button messages
-    _FAST_BEST_VALUE_KWS = (
-        "best value", "get best", "show me the best", "best pick",
-    )
-    # "Tell me more" and "pros and cons" → text-only response, NO product cards
-    _FAST_PROS_CONS_KWS = (
-        "tell me more about these",   # exact text from the action bar button
-        "pros and cons",              # any pros/cons request
-        "worth the price",            # ActionBar "Worth the price?" chip
-        # Price-spread and trade-off questions — should return prose explanation,
-        # NOT a comparison table. Keep them here so they bypass the compare handler.
-        "what do you get for the extra",  # RAG chip: "What do you get for the extra $X?"
-        "trade-off", "trade off", "tradeoff", "tradeoffs",  # "What are the trade-offs?"
-        # Battery life questions — user wants text answer for all products, not a spec table
-        "battery life on these",      # "How is the battery life on these laptops?"
-        "how is the battery",         # "How is the battery life on..."
-    )
+    # _FAST_BEST_VALUE_KWS, _FAST_PROS_CONS_KWS, and _CASUAL_PURCHASE_RE
+    # are defined at module level for importability.
     # Targeted Q&A: "which has the best X?" → show only the 1-2 winning products
     # with detailed reasoning.  Must be checked BEFORE _FAST_COMPARE_KWS because
     # "which is better" is a compare (all products) but "which has the best X" is
@@ -1226,6 +1289,9 @@ async def _handle_post_recommendation(
         # "add X to my cart" — catch BEFORE the LLM call so product names with
         # specs (e.g. "add Lenovo IdeaPad L340 Gaming Laptop, 15.6 Inch FHD to cart")
         # don't get misclassified as "new_search" and wipe the session.
+        intent = "add_to_cart"
+    elif _CASUAL_PURCHASE_RE.search(msg_lower):
+        # Q2: casual purchase — "I'll take it", "let me get the second one"
         intent = "add_to_cart"
     else:
         intent = await detect_post_rec_intent(clean_message)
@@ -2636,7 +2702,7 @@ async def _handle_post_recommendation(
         session.agent_filters = agent_state["filters"]
         session.agent_questions_asked = agent_state["questions_asked"]
         session.agent_history = agent_state["history"]
-        session_manager.update_filters(session_id, search_filters)
+        session_manager.update_filters(session_id, search_filters, replace=True)
         session_manager._persist(session_id)
 
         if active_domain == "vehicles":

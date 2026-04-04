@@ -67,3 +67,27 @@ def test_other_slots_still_replace():
     sm.update_filters(sid, {"price_max_cents": 80000})
     sm.update_filters(sid, {"price_max_cents": 60000})
     assert sm.get_session(sid).explicit_filters["price_max_cents"] == 60000
+
+
+# ---------------------------------------------------------------------------
+# replace=True must fully replace explicit_filters
+# ---------------------------------------------------------------------------
+
+def test_update_filters_replace_drops_stale_keys():
+    """
+    With replace=True, stale keys from a previous turn must be gone.
+    Scenario: turn 1 sets good_for_gaming, turn 2 replaces with a budget-only
+    filter set — good_for_gaming should not survive.
+    """
+    sm = InterviewSessionManager()
+    sid = _fresh_sid("replace-mode")
+
+    sm.update_filters(sid, {"good_for_gaming": True, "min_ram_gb": 16})
+    assert sm.get_session(sid).explicit_filters.get("good_for_gaming") is True
+
+    # Replace with a completely new filter set
+    sm.update_filters(sid, {"price_max_cents": 80000}, replace=True)
+    ef = sm.get_session(sid).explicit_filters
+    assert ef.get("price_max_cents") == 80000
+    assert "good_for_gaming" not in ef, "stale key survived replace=True"
+    assert "min_ram_gb" not in ef, "stale key survived replace=True"
