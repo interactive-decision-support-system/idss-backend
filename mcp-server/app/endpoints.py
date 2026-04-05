@@ -1906,9 +1906,9 @@ async def search_products(
     
     db_query = db_query.offset(offset).limit(request.limit)
 
-    # ── Search result cache check ────────────────────────────────────────
+    # ── Search result cache check (with Layered Freshness Check) ─────────────
     search_cache_key = cache_client.make_search_key(filters, filters.get("category", ""), offset, request.limit)
-    cached_search = cache_client.get_search_results(search_cache_key)
+    cached_search = cache_client.get_search_results(search_cache_key, freshness_check=True)
     if cached_search is not None:
         # Cache HIT — reconstruct ProductSummary list from cached dicts
         cache_hit = True
@@ -3122,7 +3122,20 @@ def checkout(
         except Exception:
             pass
 
+    # Handle out-of-stock: invalidate cache + return error
     if out_of_stock_items:
+        # Event-Driven Invalidation: clear search cache for out-of-stock products
+        try:
+            for oos_item in out_of_stock_items:
+                oos_pid = oos_item.get("product_id")
+                if oos_pid:
+                    cache_client.invalidate_product(oos_pid)
+                    logger.info("checkout_invalidation", f"Invalidated cache for out-of-stock product {oos_pid}", {})
+            cache_client.invalidate_search_cache()
+            logger.info("checkout_invalidation", "Cleared search cache due to out-of-stock items", {})
+        except Exception as _e:
+            logger.warning("checkout_invalidation_failed", f"Failed to invalidate cache: {_e}", {})
+        
         timings["db"] = (time.time() - db_start) * 1000
         timings["total"] = (time.time() - start_time) * 1000
         record_request_metrics("checkout", timings["total"], cache_hit, is_error=False)
