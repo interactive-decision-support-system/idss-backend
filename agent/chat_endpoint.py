@@ -1202,11 +1202,13 @@ async def _handle_post_recommendation(
         "real-world difference",      # "What's the real-world difference between 16GB and 64GB?"
         "real world difference",
     )
-    # Explicit compare (user named products or pressed Compare dialog) → show cards
-    # Also catches all ActionBar common-question chips so they never hit the LLM
-    # intent router (which occasionally misclassifies them as "new_search").
-    # NOTE: entries accumulate case-by-case.  If this list exceeds ~20 entries,
-    # consider a pattern-based approach (e.g. compare-verb + demonstrative regex).
+    # Explicit compare (user named products or pressed Compare dialog) → show cards.
+    # Also catches ActionBar chips so they never reach the LLM intent router
+    # (which occasionally misclassifies them as "new_search").
+    # Intentionally enumerated rather than pattern-based: each entry is a
+    # predictable, high-confidence signal.  A regex covering compare-verb +
+    # any demonstrative would also match refine-style phrasing and increase
+    # false-positive risk without meaningful coverage gain.
     _FAST_COMPARE_KWS = (
         " vs ", "vs.", "compare my", "compare these", "compare them",
         "compare items", "compare all",  # quickReply chip texts from recommendation responses

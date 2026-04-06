@@ -141,11 +141,19 @@ _BRAND_EXTRACT_SYSTEM = (
     "Output ONLY the brand name or 'none' — no punctuation, no explanation."
 )
 
-_KNOWN_BRANDS = frozenset({
+# Single authoritative brand list — all other brand constants are derived from
+# this tuple so they can never diverge.  Add new brands here only.
+_CANONICAL_BRANDS = (
     "Apple", "Dell", "HP", "Lenovo", "ASUS", "MSI", "Razer",
     "Microsoft", "Samsung", "Acer", "Gigabyte", "Framework",
-    "System76", "Toshiba", "LG",
-})
+    "System76", "Toshiba", "LG", "ROG", "Alienware",
+)
+
+# Frozenset for O(1) membership tests (used by LLM extraction validators).
+_KNOWN_BRANDS = frozenset(_CANONICAL_BRANDS)
+
+# Ordered list for iteration (used by regex-based exclusion detection).
+_KNOWN_BRANDS_LIST = list(_CANONICAL_BRANDS)
 
 def _to_brand_list(value: Any) -> List[str]:
     """Normalize an excluded_brands value (string or list) to a deduplicated list."""
@@ -194,23 +202,13 @@ _BRAND_EXCLUDE_SYSTEM = (
     "Output ONLY brand names (comma-separated) or 'none' — no explanation, no punctuation."
 )
 
-# Compiled once at module load — never inside a function body.
-# The optional suffix `(?:\s+experiences?\s+with)?` lets the pattern skip
-# bridging phrases like "bad experiences with Dell" so the capture group lands
-# on "Dell" instead of "experiences".
-# NOTE: false positives (e.g. "poor battery life") are filtered downstream by
-# the _known_brands_list allowlist — only known brand names survive the capture
-# group.  "awful" is intentionally excluded: it almost always precedes an
-# adjective ("awful design", "awful battery"), never a brand name.
-# Canonical brand names used by _detect_excluded_brands to validate regex
-# captures — only names in this list can be added to the exclusion set.
-# Hoisted to module level so the list is not rebuilt on every function call.
-_KNOWN_BRANDS_LIST = [
-    "HP", "Acer", "Dell", "Lenovo", "Apple", "ASUS", "Asus",
-    "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
-    "Framework", "System76", "ROG", "Alienware",
-]
-
+# Keyword-prefix regex for brand exclusion detection.
+# The optional suffix `(?:\s+experiences?\s+with)?` consumes bridging phrases
+# like "bad experiences with Dell" so the capture group lands on "Dell", not
+# "experiences".  False positives (e.g. "poor battery life") are filtered
+# downstream by _KNOWN_BRANDS_LIST — only canonical brand names survive.
+# "awful" is intentionally absent: it overwhelmingly precedes adjectives
+# ("awful design", "awful battery"), never a brand name.
 _EXCL_KW_PAT = re.compile(
     r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|poor|skip)'
     r'(?:\s+experiences?\s+with)?'
