@@ -8,6 +8,7 @@ from agent.chat_endpoint import (
     _compute_diversity_score,
     _diversify_by_brand,
     _handle_post_recommendation,
+    _message_references_shown_recommendation_set,
 )
 from agent.interview.session_manager import InterviewSessionState, STAGE_RECOMMENDATIONS
 
@@ -324,3 +325,131 @@ def test_see_similar_kg_exception_falls_back_gracefully():
 
     assert resp is not None  # no unhandled exception
     assert resp.response_type in ("recommendations", "question")
+
+
+# ===========================================================================
+# Intent recognition — compare, add-to-cart, anaphora handling
+# ===========================================================================
+
+
+def _make_unified_mock(pid: str, name: str) -> MagicMock:
+    """Minimal UnifiedProduct-like mock with model_dump()."""
+    m = MagicMock()
+    m.model_dump.return_value = {
+        "id": pid, "name": name, "brand": "TestBrand", "price": 999.0,
+    }
+    return m
+
+
+def test_post_rec_compare_lay_these_out_fast_path():
+    """'Lay these out side by side' must be classified as compare via the
+    fast-keyword path (no LLM call) and return a recommendations response
+    containing the comparison narrative.
+    """
+    session = _make_rec_session()
+    sm = _make_mock_sm(session)
+    req = ChatRequest(message="Lay these out side by side", session_id="s-compare-anaphoric")
+
+    fake_narrative = "Here is a side-by-side comparison of the laptops."
+    fake_ids = ["prod-001", "prod-002"]
+    fake_names = ["Lenovo Slim 5 Pro 16", "Dell XPS 15 9510"]
+
+    with (
+        patch(
+            "agent.chat_endpoint.generate_comparison_narrative",
+            return_value=(fake_narrative, fake_ids, fake_names),
+        ),
+        patch(
+            "app.formatters.format_product",
+            side_effect=lambda p, d: _make_unified_mock(p["id"], p["name"]),
+        ),
+        # Ensure the LLM router is never reached — any call here means the
+        # fast-keyword path failed to fire.
+        patch(
+            "agent.chat_endpoint.detect_post_rec_intent",
+            side_effect=AssertionError("LLM router must not be called for this phrase"),
+        ),
+    ):
+        resp = asyncio.run(_handle_post_recommendation(req, session, "s-compare-anaphoric", sm))
+
+    assert resp is not None
+    assert resp.response_type == "recommendations"
+    assert fake_narrative in resp.message
+
+
+def test_add_to_cart_ill_take_second_no_cart_keyword():
+    """'I'll take the second one' contains no cart/bag word but must still
+    resolve to add_to_cart for the second recommended product.
+    """
+    session = _make_rec_session()
+    sm = _make_mock_sm(session)
+    req = ChatRequest(message="I'll take the second one", session_id="s-purchase-idiom-ordinal")
+
+    resp = asyncio.run(_handle_post_recommendation(req, session, "s-purchase-idiom-ordinal", sm))
+
+    assert resp is not None
+    assert resp.cart_action is not None
+    assert resp.cart_action["action"] == "add_to_cart"
+    assert resp.cart_action["product"]["id"] == "prod-002"
+    assert "Dell XPS 15 9510" in resp.message
+
+
+def test_add_to_cart_ill_take_it_defaults_to_first():
+    """When the entire stripped message is 'I'll take it.' with no ordinal,
+    the first recommended product should be added.
+    """
+    session = _make_rec_session()
+    sm = _make_mock_sm(session)
+    req = ChatRequest(message="I'll take it.", session_id="s-purchase-idiom-default")
+
+    resp = asyncio.run(_handle_post_recommendation(req, session, "s-purchase-idiom-default", sm))
+
+    assert resp is not None
+    assert resp.cart_action is not None
+    assert resp.cart_action["product"]["id"] == "prod-001"
+    assert "Lenovo Slim 5 Pro 16" in resp.message
+
+
+def test_post_rec_anaphora_downgrades_new_search_no_session_reset():
+    """If the LLM router returns 'new_search' but the message contains an
+    anaphoric reference ('these'), the veto guard must fire: session must NOT
+    be reset and the handler must return a non-None response (targeted_qa path).
+    """
+    session = _make_rec_session()
+    sm = _make_mock_sm(session)
+    req = ChatRequest(
+        message="Which of these has the best build quality?",
+        session_id="s-anaphora-veto",
+    )
+
+    with (
+        patch(
+            "agent.chat_endpoint.detect_post_rec_intent",
+            return_value="new_search",
+        ),
+        patch(
+            "agent.chat_endpoint.generate_targeted_answer",
+            return_value="The Dell XPS 15 has the best build quality.",
+        ),
+    ):
+        resp = asyncio.run(_handle_post_recommendation(req, session, "s-anaphora-veto", sm))
+
+    # Session must NOT have been wiped
+    sm.reset_session.assert_not_called()
+    # Handler must return a real response (not None, which signals session reset)
+    assert resp is not None
+
+
+def test_message_references_shown_recommendation_set():
+    """_message_references_shown_recommendation_set returns True for anaphoric
+    references to the visible product set and False for self-contained queries.
+    """
+    # Anaphoric references → True
+    assert _message_references_shown_recommendation_set("which of these has the best battery")
+    assert _message_references_shown_recommendation_set("them vs each other")
+    assert _message_references_shown_recommendation_set("compare those two")
+    assert _message_references_shown_recommendation_set("add the second one to my cart")
+
+    # Fresh queries with no reference → False
+    assert not _message_references_shown_recommendation_set("I want a gaming laptop under $1500")
+    assert not _message_references_shown_recommendation_set("show me RTX 4070 laptops with 32GB RAM")

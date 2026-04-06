@@ -9,7 +9,7 @@ Covers:
 - query_rewriter integration: accessory disambiguation wired in
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from agent.universal_agent import UniversalAgent
 from agent.domain_registry import get_domain_schema
 
@@ -240,6 +240,26 @@ def test_excluded_brands_no_duplicate_regex():
     if isinstance(excl, str):
         excl = [b.strip() for b in excl.split(",") if b.strip()]
     assert excl.count("HP") == 1, f"HP duplicated: {excl}"
+
+
+def test_excluded_brands_bad_experiences_with_brand_regex():
+    """'I've had bad experiences with Dell' must yield ['Dell'] via the regex
+    path alone.  The LLM semantic fallback is patched out so any result comes
+    exclusively from _excl_kw_pat.
+
+    Previously, the pattern r'bad\\s+...' captured 'experiences' as the brand
+    token.  The optional suffix (?:\\s+experiences?\\s+with)? skips the bridging
+    phrase so the capture group lands on 'Dell'.
+    """
+    from agent.universal_agent import _detect_excluded_brands
+
+    with patch("agent.universal_agent._extract_excluded_brands_semantic", return_value=[]):
+        result = _detect_excluded_brands("I've had bad experiences with Dell")
+
+    assert "Dell" in result, (
+        f"Expected 'Dell' in exclusion list, got {result!r}.  "
+        "Check that _excl_kw_pat has the optional '(?:\\s+experiences?\\s+with)?' suffix."
+    )
 
 
 def test_mind_change_removes_brand_from_exclusions():

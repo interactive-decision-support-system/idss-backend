@@ -995,6 +995,47 @@ def _explain_best_value(product: dict, domain: str, all_products: Optional[list]
 
 
 # ============================================================================
+# Post-Recommendation Intent Helpers
+# ============================================================================
+
+# Matches purchase idioms that express intent to buy without using cart/bag
+# vocabulary.  The pattern is intentionally narrow: it requires a purchase verb
+# ("take", "want", "get", etc.) followed by an ordinal or product-reference word
+# so that long sentences like "I'll take it if it has enough RAM" do NOT match
+# (they contain a conditional clause after the pronoun).
+_PURCHASE_IDIOMS_RE = re.compile(
+    r"\b(?:i'?ll\s+take|i\s+want|give\s+me|i'?d\s+like|get\s+me)\s+"
+    r"(?:the\s+)?(?:first|second|third|fourth|1st|2nd|3rd|4th|[1-4]|this|that)\b",
+    re.IGNORECASE,
+)
+
+# Matches the entire (stripped) message for casual "I'll take it / that" with no
+# qualifying clause.  Anchored to ^…$ so it never fires inside a longer sentence.
+_CASUAL_TAKE_DEFAULT_RE = re.compile(
+    r"^i'?ll\s+take\s+(?:it|that)\.?$",
+    re.IGNORECASE,
+)
+
+
+def _message_references_shown_recommendation_set(message: str) -> bool:
+    """Return True if the message contains anaphoric references to the currently
+    shown recommendation set (e.g. "these", "those", "them", "the second one").
+
+    Used as a safety veto: if the LLM router returns ``new_search`` but the
+    message clearly refers to products already on screen, downgrade the intent
+    to ``targeted_qa`` instead of wiping the session.
+    """
+    lower = message.lower()
+    # Pronoun references to the visible product set
+    if re.search(r'\b(these|those|them)\b', lower):
+        return True
+    # Ordinal reference to a specific shown item ("the second one", "option 3")
+    if re.search(r'\b(first|second|third|fourth|1st|2nd|3rd|4th|[1-4])\s+one\b', lower):
+        return True
+    return False
+
+
+# ============================================================================
 # Post-Recommendation Handlers
 # ============================================================================
 
@@ -1150,6 +1191,7 @@ async def _handle_post_recommendation(
         "contrast",                    # "contrast X and Y"
         "how does it compare",         # "how does this compare to the others?"
         "lay them out",                # informal: "can you lay them out side by side?"
+        "lay these out",               # anaphoric "these" variant: "lay these out side by side"
         "side by side",
         "break down the differences",
         "what sets them apart",
@@ -1223,12 +1265,40 @@ async def _handle_post_recommendation(
         ("cart" in msg_lower or "favorites" in msg_lower or "wishlist" in msg_lower or "bag" in msg_lower)
         and any(kw in msg_lower for kw in ("add", "put", "save", "get", "take", "want", "buy"))
     ):
-        # "add X to my cart" — catch BEFORE the LLM call so product names with
-        # specs (e.g. "add Lenovo IdeaPad L340 Gaming Laptop, 15.6 Inch FHD to cart")
-        # don't get misclassified as "new_search" and wipe the session.
+        # Explicit cart/bag vocabulary: "add X to my cart", "put it in my bag".
+        # Caught before the LLM call so product names with specs don't get
+        # misclassified as "new_search" and wipe the session.
+        intent = "add_to_cart"
+    elif (
+        bool(_PURCHASE_IDIOMS_RE.search(msg_lower))
+        or bool(_CASUAL_TAKE_DEFAULT_RE.match(clean_message.strip()))
+    ):
+        # Purchase idioms without cart vocabulary: "I'll take the second one",
+        # "give me the first", "I'd like that one", or the full-message "I'll take it."
+        # _CASUAL_TAKE_DEFAULT_RE is anchored (^…$) so it only fires when the
+        # entire stripped message is that phrase — avoids false positives.
         intent = "add_to_cart"
     else:
         intent = await detect_post_rec_intent(clean_message)
+
+    # -----------------------------------------------------------------------
+    # Anaphora veto: if the LLM router returned new_search but the message
+    # contains pronouns or ordinals that refer to the current recommendation
+    # set ("these", "those", "them", "the second one"), the model was likely
+    # wrong.  Downgrade to targeted_qa (answer a question about shown products)
+    # instead of wiping the session — session reset is destructive and hard to
+    # recover from.  targeted_qa is chosen over refine because it asks the
+    # agent to answer about the visible set rather than trigger a re-search.
+    # -----------------------------------------------------------------------
+    _anaphora_blocked_reset = False
+    if intent == "new_search" and _message_references_shown_recommendation_set(clean_message):
+        _anaphora_blocked_reset = True
+        intent = "targeted_qa"
+        logger.info(
+            "anaphora_veto",
+            "new_search downgraded to targeted_qa — message references shown products",
+            {"session_id": session_id, "msg_preview": clean_message[:80]},
+        )
 
     # -----------------------------------------------------------------------
     # New-search intent: user sent a completely fresh product query unrelated
@@ -1245,6 +1315,29 @@ async def _handle_post_recommendation(
         )
         session_manager.reset_session(session_id)
         return None  # Falls through to UniversalAgent in process_chat
+
+    # -----------------------------------------------------------------------
+    # Observability: emit one structured log line per post-rec resolution so
+    # we can grep/trace intent decisions in staging without guesswork.
+    # Fields: router_layer (fast_keyword | llm_router), final intent,
+    # whether the anaphora veto fired, and a message preview.
+    # -----------------------------------------------------------------------
+    _router_layer = (
+        "fast_keyword"
+        if intent not in ("other",) and not _anaphora_blocked_reset
+        else "llm_router"
+    )
+    logger.info(
+        "post_rec_intent_resolved",
+        "Post-recommendation intent resolved",
+        {
+            "session_id": session_id,
+            "intent": intent,
+            "router_layer": _router_layer,
+            "anaphora_blocked_reset": _anaphora_blocked_reset,
+            "msg_preview": clean_message[:80],
+        },
+    )
 
     # -----------------------------------------------------------------------
     # Add-to-cart intent: user wants to add a specific product to their cart.

@@ -238,8 +238,13 @@ def _detect_excluded_brands(message: str) -> List[str]:
         "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
         "Framework", "System76", "ROG", "Alienware",
     ]
+    # The optional suffix `(?:\s+experiences?\s+with)?` lets the pattern skip
+    # the bridging phrase in "bad experiences with Dell" so the capture group
+    # lands on "Dell" instead of "experiences" (which is not a brand name).
     _excl_kw_pat = re.compile(
-        r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|skip)\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
+        r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|awful|poor|skip)'
+        r'(?:\s+experiences?\s+with)?'
+        r'\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
         re.IGNORECASE
     )
     excl_brands: List[str] = []
