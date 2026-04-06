@@ -413,12 +413,15 @@ def test_add_to_cart_ill_take_it_defaults_to_first():
 def test_post_rec_anaphora_downgrades_new_search_no_session_reset():
     """If the LLM router returns 'new_search' but the message contains an
     anaphoric reference ('these'), the veto guard must fire: session must NOT
-    be reset and the handler must return a non-None response (targeted_qa path).
+    be reset and the handler must return a non-None recommendations response.
+
+    Message chosen to avoid all fast-keyword paths so the LLM mock is reached.
+    generate_targeted_answer returns a 3-tuple (narrative, ids, names).
     """
     session = _make_rec_session()
     sm = _make_mock_sm(session)
     req = ChatRequest(
-        message="Which of these has the best build quality?",
+        message="Are these good for everyday use?",
         session_id="s-anaphora-veto",
     )
 
@@ -429,27 +432,126 @@ def test_post_rec_anaphora_downgrades_new_search_no_session_reset():
         ),
         patch(
             "agent.chat_endpoint.generate_targeted_answer",
-            return_value="The Dell XPS 15 has the best build quality.",
+            return_value=(
+                "Both laptops handle everyday tasks well.",
+                ["prod-001", "prod-002"],
+                ["Lenovo Slim 5 Pro 16", "Dell XPS 15 9510"],
+            ),
+        ),
+        patch(
+            "app.formatters.format_product",
+            side_effect=lambda p, d: _make_unified_mock(p["id"], p["name"]),
         ),
     ):
         resp = asyncio.run(_handle_post_recommendation(req, session, "s-anaphora-veto", sm))
 
     # Session must NOT have been wiped
     sm.reset_session.assert_not_called()
-    # Handler must return a real response (not None, which signals session reset)
+    # Handler returns a real recommendations response via the targeted_qa path
     assert resp is not None
+    assert resp.response_type == "recommendations"
+
+
+def test_genuine_new_search_without_anaphora_resets_session():
+    """A fresh, self-contained search with no anaphoric reference must NOT be
+    blocked by the veto — reset_session must be called and handler returns None.
+
+    Message avoids fast-keyword paths (no "gaming", "school", "compare", etc.)
+    so the LLM mock is reached and new_search triggers the session reset.
+    """
+    session = _make_rec_session()
+    sm = _make_mock_sm(session)
+    req = ChatRequest(
+        message="I want to switch to looking at cameras instead",
+        session_id="s-new-search-no-anaphora",
+    )
+
+    with patch(
+        "agent.chat_endpoint.detect_post_rec_intent",
+        return_value="new_search",
+    ):
+        resp = asyncio.run(_handle_post_recommendation(req, session, "s-new-search-no-anaphora", sm))
+
+    sm.reset_session.assert_called_once_with("s-new-search-no-anaphora")
+    assert resp is None  # None signals the caller to fall through to UniversalAgent
+
+
+def test_purchase_idiom_conditional_clause_not_add_to_cart():
+    """'I'll take it if it has 32GB RAM' must NOT route to add_to_cart.
+    The conditional clause after 'it' disqualifies _CASUAL_TAKE_DEFAULT_RE
+    (anchored ^...$), and there is no ordinal so _PURCHASE_IDIOMS_RE also misses.
+    The LLM router is patched to return targeted_qa to confirm we reach it.
+    """
+    session = _make_rec_session()
+    sm = _make_mock_sm(session)
+    req = ChatRequest(
+        message="I'll take it if it has 32GB RAM",
+        session_id="s-conditional-not-cart",
+    )
+
+    with (
+        patch(
+            "agent.chat_endpoint.detect_post_rec_intent",
+            return_value="targeted_qa",
+        ),
+        patch(
+            "agent.chat_endpoint.generate_targeted_answer",
+            return_value="Yes, both options have 32GB RAM.",
+        ),
+    ):
+        resp = asyncio.run(_handle_post_recommendation(req, session, "s-conditional-not-cart", sm))
+
+    assert resp is not None
+    assert resp.cart_action is None  # must NOT have added to cart
+
+
+def test_purchase_idiom_preference_statement_not_add_to_cart():
+    """'I want this to be under $1000' is a filter/preference statement.
+    Without an ordinal, _PURCHASE_IDIOMS_RE must not match it.
+    """
+    session = _make_rec_session()
+    sm = _make_mock_sm(session)
+    req = ChatRequest(
+        message="I want this to be under $1000",
+        session_id="s-preference-not-cart",
+    )
+
+    with (
+        patch(
+            "agent.chat_endpoint.detect_post_rec_intent",
+            return_value="refine",
+        ),
+    ):
+        resp = asyncio.run(_handle_post_recommendation(req, session, "s-preference-not-cart", sm))
+
+    assert resp is not None
+    assert resp.cart_action is None  # must NOT have added to cart
 
 
 def test_message_references_shown_recommendation_set():
     """_message_references_shown_recommendation_set returns True for anaphoric
     references to the visible product set and False for self-contained queries.
     """
-    # Anaphoric references → True
+    # Strong demonstratives → True
     assert _message_references_shown_recommendation_set("which of these has the best battery")
-    assert _message_references_shown_recommendation_set("them vs each other")
     assert _message_references_shown_recommendation_set("compare those two")
-    assert _message_references_shown_recommendation_set("add the second one to my cart")
+    # "them" in clear comparative/reference context → True
+    assert _message_references_shown_recommendation_set("compare them side by side")
+    assert _message_references_shown_recommendation_set("what's the difference between them")
+    assert _message_references_shown_recommendation_set("them vs each other")
+    assert _message_references_shown_recommendation_set("all of them have good reviews")
+    # "them" as informal determiner without comparative context → False
+    assert not _message_references_shown_recommendation_set("get me one of them cheap Windows laptops")
+    # Ordinal with "the" prefix → True (bare ordinal referring to shown product)
+    assert _message_references_shown_recommendation_set("what are the specs of the third?")
+    assert _message_references_shown_recommendation_set("is the second one worth it?")
+    assert _message_references_shown_recommendation_set("add the second to my cart")
 
+    # "them" without comparative context → False (informal new-search phrasing)
+    assert not _message_references_shown_recommendation_set("I want one of them gaming laptops with RTX 4090")
+    assert not _message_references_shown_recommendation_set("get me one of them cheap Windows laptops")
     # Fresh queries with no reference → False
     assert not _message_references_shown_recommendation_set("I want a gaming laptop under $1500")
     assert not _message_references_shown_recommendation_set("show me RTX 4070 laptops with 32GB RAM")
+    # Bare ordinal without "the"/"option" prefix → False
+    assert not _message_references_shown_recommendation_set("first, I'd like to know the price range")

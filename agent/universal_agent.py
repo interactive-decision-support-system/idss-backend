@@ -194,6 +194,21 @@ _BRAND_EXCLUDE_SYSTEM = (
     "Output ONLY brand names (comma-separated) or 'none' — no explanation, no punctuation."
 )
 
+# Compiled once at module load — never inside a function body.
+# The optional suffix `(?:\s+experiences?\s+with)?` lets the pattern skip
+# bridging phrases like "bad experiences with Dell" so the capture group lands
+# on "Dell" instead of "experiences".
+# NOTE: false positives (e.g. "poor battery life") are filtered downstream by
+# the _known_brands_list allowlist — only known brand names survive the capture
+# group.  "awful" is intentionally excluded: it almost always precedes an
+# adjective ("awful design", "awful battery"), never a brand name.
+_EXCL_KW_PAT = re.compile(
+    r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|poor|skip)'
+    r'(?:\s+experiences?\s+with)?'
+    r'\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
+    re.IGNORECASE,
+)
+
 
 def _extract_brand_semantic(message: str) -> Optional[str]:
     """
@@ -238,17 +253,8 @@ def _detect_excluded_brands(message: str) -> List[str]:
         "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
         "Framework", "System76", "ROG", "Alienware",
     ]
-    # The optional suffix `(?:\s+experiences?\s+with)?` lets the pattern skip
-    # the bridging phrase in "bad experiences with Dell" so the capture group
-    # lands on "Dell" instead of "experiences" (which is not a brand name).
-    _excl_kw_pat = re.compile(
-        r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|awful|poor|skip)'
-        r'(?:\s+experiences?\s+with)?'
-        r'\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
-        re.IGNORECASE
-    )
     excl_brands: List[str] = []
-    for _m in _excl_kw_pat.finditer(message):
+    for _m in _EXCL_KW_PAT.finditer(message):
         raw_group = _m.group(1).strip()
         parts = re.split(r'\s+(?:or|and)\s+|[,;]\s*', raw_group)
         for part in parts:
