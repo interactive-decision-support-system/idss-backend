@@ -32,7 +32,30 @@ This architecture keeps median intent latency under 5ms for ~80% of post-rec mes
 
 ---
 
-## 2. Intent Taxonomy
+## 2. Post-Recommendation Intent Inventory
+
+Every message received when `session.stage == STAGE_RECOMMENDATIONS` passes through `_handle_post_recommendation()`. The table below maps every supported intent to its detection method and handler:
+
+| Intent | Detection | Handler / outcome |
+|--------|-----------|-------------------|
+| Prompt injection | `_is_prompt_injection()` (regex + LLM) | Blocked — canned safety reply |
+| Popular QA cache | `_POPULAR_QA` key match | Cached answer + quick replies |
+| Rate | Exact chip text (`"5 stars"`, …) | Rating acknowledgement |
+| **best_value** | `_FAST_BEST_VALUE_KWS` substring | Best-value narrative |
+| **pros_cons** | `_FAST_PROS_CONS_KWS` substring | Price-spread comparison narrative |
+| **targeted_qa** | `_FAST_TARGETED_QA_KWS` substring or LLM | 1–2 winner products + reasoning |
+| **compare** | `_FAST_COMPARE_KWS` substring or LLM | Side-by-side comparison cards |
+| **see_similar** | `_FAST_SEE_SIMILAR_KWS` substring | KG → SQL similar-product flow |
+| **refine** | `_FAST_REFINE_KWS` + quick-reply branches or LLM | Re-search with updated filters |
+| **add_to_cart** | Cart vocab OR `_PURCHASE_IDIOMS_RE` / `_CASUAL_TAKE_DEFAULT_RE` | `cart_action` payload to frontend |
+| **research** | `research`, `explain features`, … keywords | RAG-style product research |
+| **checkout** | `checkout`, `pay`, `transaction` | Cart summary message |
+| **new_search** | LLM router → `new_search` (anaphora-vetoed) | Session reset → UniversalAgent |
+| Fallback | No match above | `UniversalAgent.process_refinement()` |
+
+---
+
+## 3. Intent Taxonomy (Target Coverage)
 
 | Intent | Trigger | Example phrasings |
 |--------|---------|-------------------|
@@ -51,7 +74,7 @@ This architecture keeps median intent latency under 5ms for ~80% of post-rec mes
 
 ---
 
-## 3. Bugs Identified & Root Causes
+## 4. Bugs Identified & Root Causes
 
 Six failure modes were identified from the exam spec and code inspection:
 
@@ -66,14 +89,14 @@ Six failure modes were identified from the exam spec and code inspection:
 
 ---
 
-## 4. Changes Implemented
+## 5. Changes Implemented
 
-### 4.1 Compare — fast-keyword extension
+### 5.1 Compare — fast-keyword extension
 **File:** `agent/chat_endpoint.py`
 
 Added `"lay these out"` to `_FAST_COMPARE_KWS`. The set already had `"lay them out"` but `"these"` and `"them"` are distinct tokens and both appear in natural speech. This is a zero-latency, zero-cost fix with no LLM involvement.
 
-### 4.2 Add-to-cart — purchase idiom regexes
+### 5.2 Add-to-cart — purchase idiom regexes
 **File:** `agent/chat_endpoint.py`
 
 Added two module-level compiled patterns:
@@ -94,7 +117,7 @@ _CASUAL_TAKE_DEFAULT_RE = re.compile(
 `_PURCHASE_IDIOMS_RE` matches ordinal purchase phrases without cart vocabulary.
 `_CASUAL_TAKE_DEFAULT_RE` is called with `fullmatch()` — it only fires when the **entire stripped message** matches, which prevents it from triggering inside conditional sentences (`"I'll take it if it has 32GB RAM"` → no match).
 
-### 4.3 Brand exclusion — bridging phrase suffix
+### 5.3 Brand exclusion — bridging phrase suffix
 **File:** `agent/universal_agent.py`
 
 Extended `_EXCL_KW_PAT` with an optional non-capturing group:
@@ -112,7 +135,7 @@ The suffix is optional so existing patterns (`"no HP"`, `"avoid Dell"`) are unaf
 
 `_KNOWN_BRANDS_LIST` was also hoisted to module level — it was being rebuilt on every function call, which is wasteful and inconsistent with `_EXCL_KW_PAT` which was already at module level.
 
-### 4.4 Anaphora veto — session-reset safety
+### 5.4 Anaphora veto — session-reset safety
 **File:** `agent/chat_endpoint.py`
 
 Added `_message_references_shown_recommendation_set()`:
@@ -139,14 +162,14 @@ def _message_references_shown_recommendation_set(message: str) -> bool:
 
 If the LLM router returns `new_search` and this helper returns `True`, the intent is downgraded to `targeted_qa` (not `refine`, which would trigger a re-search). The session is preserved. The decision and the blocking are captured in the `post_rec_intent_resolved` structured log.
 
-### 4.5 LLM router exception path — word-boundary fix
+### 5.5 LLM router exception path — word-boundary fix
 **File:** `agent/comparison_agent.py`
 
 Replaced `" them"` substring with `re.search(r'\b(these|those|them)\b', lower)` in the exception-path fallback. The old approach required a leading space, so `"them"` at sentence start was invisible. Word boundaries handle all positions correctly.
 
 The anaphora logic is intentionally **inlined** rather than imported from `chat_endpoint.py` — that module imports `comparison_agent` at the top level, making a reverse import circular. The comment documents this constraint explicitly.
 
-### 4.6 Observability — structured intent log
+### 5.6 Observability — structured intent log
 **File:** `agent/chat_endpoint.py`
 
 Moved the `post_rec_intent_resolved` log to fire **before** the `new_search` early return, so it captures all intent resolutions including the one that triggers session reset. The log emits:
@@ -164,7 +187,7 @@ One `grep post_rec_intent_resolved` on production logs is sufficient to trace an
 
 ---
 
-## 5. Test Coverage
+## 6. Test Coverage
 
 13 new offline tests were added (no DB, no LLM, no network — all mocked):
 
@@ -191,9 +214,28 @@ One `grep post_rec_intent_resolved` on production logs is sufficient to trace an
 | `mcp-server/tests/` | 527 passed | **527 passed** |
 | **Full** | **604 passed** | **616 passed, 4 skipped** |
 
+**Actual run output:**
+
+```
+agent/tests/test_chat_endpoint.py::test_post_rec_compare_lay_these_out_fast_path PASSED
+agent/tests/test_chat_endpoint.py::test_add_to_cart_ill_take_second_no_cart_keyword PASSED
+agent/tests/test_chat_endpoint.py::test_add_to_cart_ill_take_it_defaults_to_first PASSED
+agent/tests/test_chat_endpoint.py::test_post_rec_anaphora_downgrades_new_search_no_session_reset PASSED
+agent/tests/test_chat_endpoint.py::test_genuine_new_search_without_anaphora_resets_session PASSED
+agent/tests/test_chat_endpoint.py::test_purchase_idiom_conditional_clause_not_add_to_cart PASSED
+agent/tests/test_chat_endpoint.py::test_purchase_idiom_preference_statement_not_add_to_cart PASSED
+agent/tests/test_chat_endpoint.py::test_message_references_shown_recommendation_set PASSED
+agent/tests/test_universal_agent.py::test_excluded_brands_bad_experiences_with_brand_regex PASSED
+agent/tests/test_universal_agent.py::test_excluded_brands_awful_adjective_not_captured PASSED
+agent/tests/test_universal_agent.py::test_excluded_brands_poor_adjective_not_captured PASSED
+agent/tests/test_universal_agent.py::test_excluded_brands_generic_sentiment_not_captured PASSED
+
+============================== 89 passed in 26.40s ==============================
+```
+
 ---
 
-## 6. Design Trade-offs
+## 7. Design Trade-offs
 
 **Keyword-first routing over a learned classifier**
 A similarity-based classifier would require a labelled evaluation set and a chosen threshold — both absent in this codebase. Keyword/regex guards are auditable, deterministic, and reviewable in a code diff. The LLM router provides broad coverage for everything not explicitly enumerated. The two layers are complementary, not alternatives.
