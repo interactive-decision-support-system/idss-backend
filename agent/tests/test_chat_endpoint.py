@@ -479,8 +479,9 @@ def test_genuine_new_search_without_anaphora_resets_session():
 def test_purchase_idiom_conditional_clause_not_add_to_cart():
     """'I'll take it if it has 32GB RAM' must NOT route to add_to_cart.
     The conditional clause after 'it' disqualifies _CASUAL_TAKE_DEFAULT_RE
-    (anchored ^...$), and there is no ordinal so _PURCHASE_IDIOMS_RE also misses.
+    (fullmatch), and there is no ordinal so _PURCHASE_IDIOMS_RE also misses.
     The LLM router is patched to return targeted_qa to confirm we reach it.
+    generate_targeted_answer returns a 3-tuple (narrative, ids, names).
     """
     session = _make_rec_session()
     sm = _make_mock_sm(session)
@@ -496,7 +497,15 @@ def test_purchase_idiom_conditional_clause_not_add_to_cart():
         ),
         patch(
             "agent.chat_endpoint.generate_targeted_answer",
-            return_value="Yes, both options have 32GB RAM.",
+            return_value=(
+                "Yes, both options have 32GB RAM.",
+                ["prod-001", "prod-002"],
+                ["Lenovo Slim 5 Pro 16", "Dell XPS 15 9510"],
+            ),
+        ),
+        patch(
+            "app.formatters.format_product",
+            side_effect=lambda p, d: _make_unified_mock(p["id"], p["name"]),
         ),
     ):
         resp = asyncio.run(_handle_post_recommendation(req, session, "s-conditional-not-cart", sm))
@@ -541,15 +550,12 @@ def test_message_references_shown_recommendation_set():
     assert _message_references_shown_recommendation_set("them vs each other")
     assert _message_references_shown_recommendation_set("all of them have good reviews")
     # "them" as informal determiner without comparative context → False
+    assert not _message_references_shown_recommendation_set("I want one of them gaming laptops with RTX 4090")
     assert not _message_references_shown_recommendation_set("get me one of them cheap Windows laptops")
     # Ordinal with "the" prefix → True (bare ordinal referring to shown product)
     assert _message_references_shown_recommendation_set("what are the specs of the third?")
     assert _message_references_shown_recommendation_set("is the second one worth it?")
     assert _message_references_shown_recommendation_set("add the second to my cart")
-
-    # "them" without comparative context → False (informal new-search phrasing)
-    assert not _message_references_shown_recommendation_set("I want one of them gaming laptops with RTX 4090")
-    assert not _message_references_shown_recommendation_set("get me one of them cheap Windows laptops")
     # Fresh queries with no reference → False
     assert not _message_references_shown_recommendation_set("I want a gaming laptop under $1500")
     assert not _message_references_shown_recommendation_set("show me RTX 4070 laptops with 32GB RAM")

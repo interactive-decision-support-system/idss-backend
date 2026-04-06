@@ -202,6 +202,15 @@ _BRAND_EXCLUDE_SYSTEM = (
 # the _known_brands_list allowlist — only known brand names survive the capture
 # group.  "awful" is intentionally excluded: it almost always precedes an
 # adjective ("awful design", "awful battery"), never a brand name.
+# Canonical brand names used by _detect_excluded_brands to validate regex
+# captures — only names in this list can be added to the exclusion set.
+# Hoisted to module level so the list is not rebuilt on every function call.
+_KNOWN_BRANDS_LIST = [
+    "HP", "Acer", "Dell", "Lenovo", "Apple", "ASUS", "Asus",
+    "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
+    "Framework", "System76", "ROG", "Alienware",
+]
+
 _EXCL_KW_PAT = re.compile(
     r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|poor|skip)'
     r'(?:\s+experiences?\s+with)?'
@@ -248,11 +257,6 @@ def _detect_excluded_brands(message: str) -> List[str]:
 
     Returns a deduplicated list of canonical brand names to exclude.
     """
-    _known_brands_list = [
-        "HP", "Acer", "Dell", "Lenovo", "Apple", "ASUS", "Asus",
-        "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
-        "Framework", "System76", "ROG", "Alienware",
-    ]
     excl_brands: List[str] = []
     for _m in _EXCL_KW_PAT.finditer(message):
         raw_group = _m.group(1).strip()
@@ -260,7 +264,7 @@ def _detect_excluded_brands(message: str) -> List[str]:
         for part in parts:
             candidate = part.strip().split()[0]
             candidate_normalized = _BRAND_VALUE_ALIASES.get(candidate.lower(), candidate)
-            for brand in _known_brands_list:
+            for brand in _KNOWN_BRANDS_LIST:
                 if brand.lower() == candidate_normalized.lower():
                     if brand not in excl_brands:
                         excl_brands.append(brand)

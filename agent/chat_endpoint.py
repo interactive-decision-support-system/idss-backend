@@ -1009,14 +1009,15 @@ def _explain_best_value(product: dict, domain: str, all_products: Optional[list]
 # _CASUAL_TAKE_DEFAULT_RE below covers the "I'll take it/that" full-message case.
 _PURCHASE_IDIOMS_RE = re.compile(
     r"\b(?:i'?ll\s+take|i\s+want|give\s+me|i'?d\s+like|get\s+me)\s+"
-    r"(?:the\s+)?(?:first|second|third|fourth|1st|2nd|3rd|4th|[1-4])\b",
+    r"(?:the\s+)?(?:first|second|third|fourth|1st|2nd|3rd|4th)\b",
     re.IGNORECASE,
 )
 
-# Matches the entire (stripped) message for casual "I'll take it / that" with no
-# qualifying clause.  Anchored to ^…$ so it never fires inside a longer sentence.
+# Matches the entire message for casual "I'll take it / that" with no qualifying
+# clause.  fullmatch() anchors at both ends so it never fires inside a longer
+# sentence ("I'll take it if it has 32GB RAM" → no match).
 _CASUAL_TAKE_DEFAULT_RE = re.compile(
-    r"^i'?ll\s+take\s+(?:it|that)\.?$",
+    r"i'?ll\s+take\s+(?:it|that)\.?",
     re.IGNORECASE,
 )
 
@@ -1031,7 +1032,7 @@ def _message_references_shown_recommendation_set(message: str) -> bool:
 
     "these" and "those" are reliable demonstratives — they almost always refer
     to a visible set.  "them" is kept but requires comparative/reference context
-    (e.g. "compare them", "of them", "between them") to avoid false positives on
+    (e.g. "compare them", "between them", "all of them") to avoid false positives on
     informal new-search phrasing like "one of them gaming laptops".
     """
     lower = message.lower()
@@ -1046,10 +1047,17 @@ def _message_references_shown_recommendation_set(message: str) -> bool:
         return True
     if re.search(r'\bthem\s+(vs\.?|versus|against)\b', lower):
         return True
-    # Ordinal reference to a specific shown item: "the second", "option 3",
-    # "the second one".  Requires "the" or "option" prefix to avoid matching
-    # ordinals in unrelated contexts ("first, I'd like to know...").
-    if re.search(r'\b(?:the\s+|option\s+)(first|second|third|fourth|1st|2nd|3rd|4th|[1-4])\b', lower):
+    # Ordinal reference to a specific shown item: "the second", "option 3".
+    # Requires "the" or "option" prefix to avoid matching ordinals in unrelated
+    # contexts ("first, I'd like to know the price").
+    # Design note: [1-4] is included for the "option N" form ("option 3" is
+    # natural English) but not for the "the N" form ("the 3" is not — "the
+    # third" is the natural phrasing, covered by the word-form alternatives).
+    if re.search(
+        r"\b(?:the\s+(?:first|second|third|fourth|1st|2nd|3rd|4th)|"
+        r"option\s+(?:first|second|third|fourth|1st|2nd|3rd|4th|[1-4]))\b",
+        lower,
+    ):
         return True
     return False
 
@@ -1296,7 +1304,7 @@ async def _handle_post_recommendation(
         intent = "add_to_cart"
     elif (
         _PURCHASE_IDIOMS_RE.search(msg_lower)
-        or _CASUAL_TAKE_DEFAULT_RE.match(clean_message)
+        or _CASUAL_TAKE_DEFAULT_RE.fullmatch(clean_message)
     ):
         # Purchase idioms without cart vocabulary: "I'll take the second one",
         # "give me the first", "I'd like that one", or the full-message "I'll take it."

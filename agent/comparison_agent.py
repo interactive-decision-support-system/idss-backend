@@ -216,10 +216,13 @@ async def detect_post_rec_intent(message: str) -> str:
             return "targeted_qa"
         # Word-boundary checks for all anaphoric tokens — "them" at sentence
         # start, "currently" (not "current"), "showing" (not "shown") are all
-        # correctly excluded.
+        # correctly excluded.  These patterns mirror the logic in
+        # chat_endpoint._message_references_shown_recommendation_set; they are
+        # intentionally inlined here to avoid a circular import (chat_endpoint
+        # imports this module at the top level).
         _references_current_set = (
-            bool(re.search(r'\b(these|those|them)\b', lower))
-            or bool(re.search(r'\b(current|shown)\b', lower))
+            re.search(r'\b(these|those|them)\b', lower) is not None
+            or re.search(r'\b(current|shown)\b', lower) is not None
         )
         _has_specs = any(sig in lower for sig in ("rtx ", "gtx ", "ryzen", "i7", "i9", "i5", "32gb", "16gb", "ram", "budget"))
         _has_new_intent = any(sig in lower for sig in ("i want to play", "i need a laptop for", "looking for a laptop that", "need rtx", "gaming laptop with"))
