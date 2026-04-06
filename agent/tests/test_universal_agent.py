@@ -9,8 +9,8 @@ Covers:
 - query_rewriter integration: accessory disambiguation wired in
 """
 
-from unittest.mock import MagicMock
-from agent.universal_agent import UniversalAgent
+from unittest.mock import MagicMock, patch
+from agent.universal_agent import UniversalAgent, _detect_excluded_brands
 from agent.domain_registry import get_domain_schema
 
 
@@ -240,6 +240,60 @@ def test_excluded_brands_no_duplicate_regex():
     if isinstance(excl, str):
         excl = [b.strip() for b in excl.split(",") if b.strip()]
     assert excl.count("HP") == 1, f"HP duplicated: {excl}"
+
+
+def test_excluded_brands_bad_experiences_with_brand_regex():
+    """'I've had bad experiences with Dell' must yield ['Dell'] via the regex
+    path alone.  The LLM semantic fallback is patched out so any result comes
+    exclusively from _EXCL_KW_PAT.
+
+    Previously, the pattern r'bad\\s+...' captured 'experiences' as the brand
+    token.  The optional suffix (?:\\s+experiences?\\s+with)? skips the bridging
+    phrase so the capture group lands on 'Dell'.
+    """
+    with patch("agent.universal_agent._extract_excluded_brands_semantic", return_value=[]):
+        result = _detect_excluded_brands("I've had bad experiences with Dell")
+
+    assert "Dell" in result, (
+        f"Expected 'Dell' in exclusion list, got {result!r}.  "
+        "Check that _EXCL_KW_PAT has the optional '(?:\\s+experiences?\\s+with)?' suffix."
+    )
+
+
+def test_excluded_brands_awful_adjective_not_captured():
+    """'awful battery life' must NOT add 'battery' or any non-brand token.
+    'awful' was removed from the keyword list — it precedes adjectives/nouns,
+    not brand names, and the false-positive risk outweighs the coverage gain.
+    """
+    with patch("agent.universal_agent._extract_excluded_brands_semantic", return_value=[]):
+        result = _detect_excluded_brands("The battery life is awful on this laptop")
+
+    assert result == [], (
+        f"Expected empty exclusion list for adjective phrase, got {result!r}."
+    )
+
+
+def test_excluded_brands_poor_adjective_not_captured():
+    """'poor performance at this price' must NOT add 'performance' or similar.
+    Even though 'poor' is in the keyword list, the capture group is validated
+    against _known_brands_list, so non-brand tokens are filtered out.
+    """
+    with patch("agent.universal_agent._extract_excluded_brands_semantic", return_value=[]):
+        result = _detect_excluded_brands("poor performance at this price point")
+
+    assert result == [], (
+        f"Expected empty exclusion list for non-brand noun, got {result!r}."
+    )
+
+
+def test_excluded_brands_generic_sentiment_not_captured():
+    """'bad luck in general' contains no brand name — must return empty list."""
+    with patch("agent.universal_agent._extract_excluded_brands_semantic", return_value=[]):
+        result = _detect_excluded_brands("I've had bad luck in general with laptops")
+
+    assert result == [], (
+        f"Expected empty list for non-brand phrase, got {result!r}."
+    )
 
 
 def test_mind_change_removes_brand_from_exclusions():

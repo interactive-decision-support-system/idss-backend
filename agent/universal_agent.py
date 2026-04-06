@@ -141,11 +141,19 @@ _BRAND_EXTRACT_SYSTEM = (
     "Output ONLY the brand name or 'none' — no punctuation, no explanation."
 )
 
-_KNOWN_BRANDS = frozenset({
+# Single authoritative brand list — all other brand constants are derived from
+# this tuple so they can never diverge.  Add new brands here only.
+_CANONICAL_BRANDS = (
     "Apple", "Dell", "HP", "Lenovo", "ASUS", "MSI", "Razer",
     "Microsoft", "Samsung", "Acer", "Gigabyte", "Framework",
-    "System76", "Toshiba", "LG",
-})
+    "System76", "Toshiba", "LG", "ROG", "Alienware",
+)
+
+# Frozenset for O(1) membership tests (used by LLM extraction validators).
+_KNOWN_BRANDS = frozenset(_CANONICAL_BRANDS)
+
+# Ordered list for iteration (used by regex-based exclusion detection).
+_KNOWN_BRANDS_LIST = list(_CANONICAL_BRANDS)
 
 def _to_brand_list(value: Any) -> List[str]:
     """Normalize an excluded_brands value (string or list) to a deduplicated list."""
@@ -194,6 +202,20 @@ _BRAND_EXCLUDE_SYSTEM = (
     "Output ONLY brand names (comma-separated) or 'none' — no explanation, no punctuation."
 )
 
+# Keyword-prefix regex for brand exclusion detection.
+# The optional suffix `(?:\s+experiences?\s+with)?` consumes bridging phrases
+# like "bad experiences with Dell" so the capture group lands on "Dell", not
+# "experiences".  False positives (e.g. "poor battery life") are filtered
+# downstream by _KNOWN_BRANDS_LIST — only canonical brand names survive.
+# "awful" is intentionally absent: it overwhelmingly precedes adjectives
+# ("awful design", "awful battery"), never a brand name.
+_EXCL_KW_PAT = re.compile(
+    r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|poor|skip)'
+    r'(?:\s+experiences?\s+with)?'
+    r'\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
+    re.IGNORECASE,
+)
+
 
 def _extract_brand_semantic(message: str) -> Optional[str]:
     """
@@ -233,23 +255,14 @@ def _detect_excluded_brands(message: str) -> List[str]:
 
     Returns a deduplicated list of canonical brand names to exclude.
     """
-    _known_brands_list = [
-        "HP", "Acer", "Dell", "Lenovo", "Apple", "ASUS", "Asus",
-        "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
-        "Framework", "System76", "ROG", "Alienware",
-    ]
-    _excl_kw_pat = re.compile(
-        r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|skip)\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
-        re.IGNORECASE
-    )
     excl_brands: List[str] = []
-    for _m in _excl_kw_pat.finditer(message):
+    for _m in _EXCL_KW_PAT.finditer(message):
         raw_group = _m.group(1).strip()
         parts = re.split(r'\s+(?:or|and)\s+|[,;]\s*', raw_group)
         for part in parts:
             candidate = part.strip().split()[0]
             candidate_normalized = _BRAND_VALUE_ALIASES.get(candidate.lower(), candidate)
-            for brand in _known_brands_list:
+            for brand in _KNOWN_BRANDS_LIST:
                 if brand.lower() == candidate_normalized.lower():
                     if brand not in excl_brands:
                         excl_brands.append(brand)

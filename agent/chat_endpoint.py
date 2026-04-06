@@ -1069,6 +1069,74 @@ def _explain_best_value(product: dict, domain: str, all_products: Optional[list]
 
 
 # ============================================================================
+# Post-Recommendation Intent Helpers
+# ============================================================================
+
+# Matches purchase idioms that express intent to buy without using cart/bag
+# vocabulary.  Intentionally narrow: requires a purchase verb followed by an
+# EXPLICIT ORDINAL so that filter/preference statements do NOT match:
+#   "I'll take the second one"  → matches  ✓
+#   "I want this to be under $1000" → no match ✓  (no ordinal)
+#   "I'd like that in black"    → no match ✓  (no ordinal)
+# "this" and "that" are excluded — they are pronouns used in preference/filter
+# statements far more often than in purchase decisions.  The anchored
+# _CASUAL_TAKE_DEFAULT_RE below covers the "I'll take it/that" full-message case.
+_PURCHASE_IDIOMS_RE = re.compile(
+    r"\b(?:i'?ll\s+take|i\s+want|give\s+me|i'?d\s+like|get\s+me)\s+"
+    r"(?:the\s+)?(?:first|second|third|fourth|1st|2nd|3rd|4th)\b",
+    re.IGNORECASE,
+)
+
+# Matches the entire message for casual "I'll take it / that" with no qualifying
+# clause.  fullmatch() anchors at both ends so it never fires inside a longer
+# sentence ("I'll take it if it has 32GB RAM" → no match).
+_CASUAL_TAKE_DEFAULT_RE = re.compile(
+    r"i'?ll\s+take\s+(?:it|that)\.?",
+    re.IGNORECASE,
+)
+
+
+def _message_references_shown_recommendation_set(message: str) -> bool:
+    """Return True if the message contains anaphoric references to the currently
+    shown recommendation set (e.g. "these", "those", "compare them", "the second").
+
+    Used as a safety veto: if the LLM router returns ``new_search`` but the
+    message clearly refers to products already on screen, downgrade the intent
+    to ``targeted_qa`` instead of wiping the session.
+
+    "these" and "those" are reliable demonstratives — they almost always refer
+    to a visible set.  "them" is kept but requires comparative/reference context
+    (e.g. "compare them", "between them", "all of them") to avoid false positives on
+    informal new-search phrasing like "one of them gaming laptops".
+    """
+    lower = message.lower()
+    # "these" / "those" — strong demonstratives, nearly always reference shown set
+    if re.search(r'\b(these|those)\b', lower):
+        return True
+    # "them" only in a clear comparative/reference context.
+    # "of them" is intentionally excluded — "one of them gaming laptops" is
+    # informal new-search phrasing, not a reference to the shown set.
+    # "all of them" is kept because "all" implies a bounded, visible set.
+    if re.search(r'\b(compare|between|all\s+of)\s+them\b', lower):
+        return True
+    if re.search(r'\bthem\s+(vs\.?|versus|against)\b', lower):
+        return True
+    # Ordinal reference to a specific shown item: "the second", "option 3".
+    # Requires "the" or "option" prefix to avoid matching ordinals in unrelated
+    # contexts ("first, I'd like to know the price").
+    # Design note: [1-4] is included for the "option N" form ("option 3" is
+    # natural English) but not for the "the N" form ("the 3" is not — "the
+    # third" is the natural phrasing, covered by the word-form alternatives).
+    if re.search(
+        r"\b(?:the\s+(?:first|second|third|fourth|1st|2nd|3rd|4th)|"
+        r"option\s+(?:first|second|third|fourth|1st|2nd|3rd|4th|[1-4]))\b",
+        lower,
+    ):
+        return True
+    return False
+
+
+# ============================================================================
 # Post-Recommendation Handlers
 # ============================================================================
 
@@ -1193,9 +1261,13 @@ async def _handle_post_recommendation(
         "real-world difference",      # "What's the real-world difference between 16GB and 64GB?"
         "real world difference",
     )
-    # Explicit compare (user named products or pressed Compare dialog) → show cards
-    # Also catches all ActionBar common-question chips so they never hit the LLM
-    # intent router (which occasionally misclassifies them as "new_search").
+    # Explicit compare (user named products or pressed Compare dialog) → show cards.
+    # Also catches ActionBar chips so they never reach the LLM intent router
+    # (which occasionally misclassifies them as "new_search").
+    # Intentionally enumerated rather than pattern-based: each entry is a
+    # predictable, high-confidence signal.  A regex covering compare-verb +
+    # any demonstrative would also match refine-style phrasing and increase
+    # false-positive risk without meaningful coverage gain.
     _FAST_COMPARE_KWS = (
         " vs ", "vs.", "compare my", "compare these", "compare them",
         "compare items", "compare all",  # quickReply chip texts from recommendation responses
@@ -1209,6 +1281,7 @@ async def _handle_post_recommendation(
         "contrast",                    # "contrast X and Y"
         "how does it compare",         # "how does this compare to the others?"
         "lay them out",                # informal: "can you lay them out side by side?"
+        "lay these out",               # anaphoric "these" variant: "lay these out side by side"
         "side by side",
         "break down the differences",
         "what sets them apart",
@@ -1257,6 +1330,10 @@ async def _handle_post_recommendation(
         "similar laptops", "similar products",
         "something similar", "similar to",  # "show me something similar to the best pick"
     )
+    # Tracked at routing time so the observability log below is always accurate.
+    # Set to "llm_router" in the else branch when detect_post_rec_intent is called.
+    _router_layer = "fast_keyword"
+
     # Guard: don't intercept for best-value when the message is really a see-similar request
     if any(kw in msg_lower for kw in _FAST_BEST_VALUE_KWS) and "similar" not in msg_lower:
         intent = "best_value"
@@ -1282,9 +1359,18 @@ async def _handle_post_recommendation(
         ("cart" in msg_lower or "favorites" in msg_lower or "wishlist" in msg_lower or "bag" in msg_lower)
         and any(kw in msg_lower for kw in ("add", "put", "save", "get", "take", "want", "buy"))
     ):
-        # "add X to my cart" — catch BEFORE the LLM call so product names with
-        # specs (e.g. "add Lenovo IdeaPad L340 Gaming Laptop, 15.6 Inch FHD to cart")
-        # don't get misclassified as "new_search" and wipe the session.
+        # Explicit cart/bag vocabulary: "add X to my cart", "put it in my bag".
+        # Caught before the LLM call so product names with specs don't get
+        # misclassified as "new_search" and wipe the session.
+        intent = "add_to_cart"
+    elif (
+        _PURCHASE_IDIOMS_RE.search(msg_lower)
+        or _CASUAL_TAKE_DEFAULT_RE.fullmatch(clean_message)
+    ):
+        # Purchase idioms without cart vocabulary: "I'll take the second one",
+        # "give me the first", "I'd like that one", or the full-message "I'll take it."
+        # _CASUAL_TAKE_DEFAULT_RE is anchored (^…$) so it only fires when the
+        # entire stripped message is that phrase — avoids false positives.
         intent = "add_to_cart"
     elif _CASUAL_PURCHASE_RE.search(msg_lower):
         # Casual purchase: "I'll take the second one", "let me get that", "give me the first"
@@ -1293,6 +1379,44 @@ async def _handle_post_recommendation(
         intent = "add_to_cart"
     else:
         intent = await detect_post_rec_intent(clean_message)
+        _router_layer = "llm_router"
+
+    # -----------------------------------------------------------------------
+    # Anaphora veto: if the LLM router returned new_search but the message
+    # contains pronouns or ordinals that refer to the current recommendation
+    # set ("these", "those", "compare them", "the second"), the model was
+    # likely wrong.  Downgrade to targeted_qa instead of wiping the session —
+    # session reset is destructive and hard to recover from.
+    # -----------------------------------------------------------------------
+    _anaphora_blocked_reset = False
+    if intent == "new_search" and _message_references_shown_recommendation_set(clean_message):
+        _anaphora_blocked_reset = True
+        intent = "targeted_qa"
+        logger.info(
+            "anaphora_veto",
+            "new_search downgraded to targeted_qa — message references shown products",
+            {"session_id": session_id, "msg_preview": clean_message[:80]},
+        )
+
+    # -----------------------------------------------------------------------
+    # Observability: emit one structured log line per post-rec resolution so
+    # we can grep/trace intent decisions in staging without guesswork.
+    # Logged here — before the new_search early return — so ALL intents are
+    # captured in a single queryable event type, including session resets.
+    # Fields: router_layer (fast_keyword | llm_router), final intent,
+    # whether the anaphora veto fired, and a message preview.
+    # -----------------------------------------------------------------------
+    logger.info(
+        "post_rec_intent_resolved",
+        "Post-recommendation intent resolved",
+        {
+            "session_id": session_id,
+            "intent": intent,
+            "router_layer": _router_layer,
+            "anaphora_blocked_reset": _anaphora_blocked_reset,
+            "msg_preview": clean_message[:80],
+        },
+    )
 
     # -----------------------------------------------------------------------
     # New-search intent: user sent a completely fresh product query unrelated
