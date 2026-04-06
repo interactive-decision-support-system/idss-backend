@@ -22,7 +22,7 @@ import logging
 import json
 import os
 import re
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Literal, Optional
 from enum import Enum
 from openai import OpenAI
 from pydantic import BaseModel, Field
@@ -340,9 +340,20 @@ class AgentState(Enum):
     COMPLETE = "complete"
 
 class SlotValue(BaseModel):
-    """A single extracted criteria value."""
-    slot_name: str = Field(description=" The name of the slot (e.g. 'budget', 'brand')")
-    value: str = Field(description="The extracted value as a string")
+    """A single extracted criteria value (set/add/remove/clear), inspired by idss-v2 query deltas."""
+    slot_name: str = Field(description="The name of the slot (e.g. 'budget', 'brand')")
+    value: Optional[str] = Field(
+        default=None,
+        description="The extracted value; omit or empty for action=clear when allowed",
+    )
+    action: Literal["set", "add", "remove", "clear"] = Field(
+        default="set",
+        description=(
+            "set: assign slot; add: extend list slots (e.g. excluded_brands); "
+            "remove: drop slot or remove listed values from excluded_brands; "
+            "clear: forget this slot entirely (user changed mind / pivot within domain)"
+        ),
+    )
 
 class ExtractedCriteria(BaseModel):
     """Structure for LLM extraction output with IDSS interview signals."""
@@ -351,6 +362,14 @@ class ExtractedCriteria(BaseModel):
     # IDSS interview signals
     is_impatient: bool = Field(default=False, description="User wants to skip questions (e.g., 'just show me results', 'I don't care')")
     wants_recommendations: bool = Field(default=False, description="User explicitly asks for recommendations (e.g., 'show me options', 'what do you recommend')")
+    natural_language_negations: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Free-form constraints to soft-rank against, not brand exclusions: "
+            "e.g. 'no glossy display', 'not too heavy', 'avoid plastic build'. "
+            "Use excluded_brands slot for manufacturer avoidance."
+        ),
+    )
 
 class DomainClassification(BaseModel):
     """Structure for domain classification output."""
@@ -439,6 +458,12 @@ class UniversalAgent:
         domain = self.domain or ""
 
         for slot_name, value in self.filters.items():
+            if slot_name == "_nl_negations":
+                if value:
+                    prefs = search_filters.setdefault("_soft_preferences", {})
+                    prefs["nl_negations"] = list(value) if isinstance(value, list) else [str(value)]
+                continue
+
             if not value or str(value).lower() in ("no preference", "any", "either", "any price"):
                 continue
 
@@ -745,6 +770,8 @@ class UniversalAgent:
             _hard_criteria = [
                 c for c in (extraction_result.criteria or [])
                 if c.slot_name in _HARD_CONSTRAINT_SLOTS
+                and c.action == "set"
+                and c.value
             ]
             if _msg_words_count <= 5 and not _has_spec_signal and not _hard_criteria:
                 extraction_result.wants_recommendations = False
@@ -983,7 +1010,280 @@ class UniversalAgent:
         logger.info("Domain recovered from history keywords: books")
         return "books"
 
+    def _apply_slot_values_to_state(self, items: List[SlotValue], schema: DomainSchema) -> None:
+        """
+        Merge structured slot updates into self.filters.
+        Honors set/add/remove/clear (idss-v2-style deltas) for flexible preference revision.
+        """
+        domain_aliases = _SLOT_NAME_ALIASES.get(schema.domain, {})
+        _schema_slot_names = {s.name for s in schema.slots}
+        _ALWAYS_ALLOW = {
+            "excluded_brands", "_soft_preferences",
+            "good_for_gaming", "good_for_creative",
+            "good_for_web_dev", "good_for_ml",
+            "use_case",
+        }
 
+        for item in items:
+            action = item.action or "set"
+            raw_name = item.slot_name
+            canonical = domain_aliases.get(raw_name, raw_name)
+
+            if action == "clear":
+                if canonical in _schema_slot_names or canonical in _ALWAYS_ALLOW or canonical.startswith("good_for_"):
+                    self.filters.pop(canonical, None)
+                continue
+
+            if action == "remove":
+                if not (canonical in _schema_slot_names or canonical in _ALWAYS_ALLOW or canonical.startswith("good_for_")):
+                    continue
+                val = item.value or ""
+                if canonical == "excluded_brands" and val:
+                    brands_rm = _to_brand_list(val)
+                    cur = _to_brand_list(self.filters.get("excluded_brands"))
+                    kept = [b for b in cur if b not in brands_rm]
+                    if kept:
+                        self.filters["excluded_brands"] = kept
+                    else:
+                        self.filters.pop("excluded_brands", None)
+                else:
+                    self.filters.pop(canonical, None)
+                continue
+
+            val = item.value
+            if val is None:
+                continue
+
+            if not (canonical in _schema_slot_names or canonical in _ALWAYS_ALLOW or canonical.startswith("good_for_")):
+                logger.info(
+                    f"Dropping unknown slot '{raw_name}' "
+                    f"(canonical='{canonical}') — not in schema for domain '{schema.domain}'"
+                )
+                continue
+
+            if canonical == "brand" and isinstance(val, str):
+                val = _BRAND_VALUE_ALIASES.get(val.strip().lower(), val.strip())
+
+            if action == "add" and canonical == "excluded_brands":
+                self.filters[canonical] = _merge_excluded_brands(self.filters.get(canonical), val)
+            elif action == "add":
+                cur = self.filters.get(canonical)
+                if isinstance(cur, list):
+                    vals = _to_brand_list(val) if canonical == "excluded_brands" else [str(val)]
+                    self.filters[canonical] = list(dict.fromkeys([*cur, *[v for v in vals if v not in cur]]))
+                else:
+                    self.filters[canonical] = val
+            elif action == "set":
+                if canonical == "excluded_brands":
+                    self.filters[canonical] = _merge_excluded_brands(self.filters.get(canonical), val)
+                else:
+                    self.filters[canonical] = val
+
+            if canonical == "brand" and val:
+                _newly_preferred = val if isinstance(val, str) else str(val)
+                _excl = self.filters.get("excluded_brands")
+                if _excl:
+                    if isinstance(_excl, list):
+                        self.filters["excluded_brands"] = [
+                            b for b in _excl if b.lower() != _newly_preferred.lower()
+                        ] or None
+                    elif isinstance(_excl, str):
+                        self.filters["excluded_brands"] = [
+                            b.strip() for b in _excl.split(",")
+                            if b.strip().lower() != _newly_preferred.lower()
+                        ] or None
+                    if not self.filters.get("excluded_brands"):
+                        self.filters.pop("excluded_brands", None)
+                    logger.info(
+                        f"Purged {_newly_preferred} from excluded_brands (user preference changed)"
+                    )
+
+    def _augment_llm_with_regex_gaps(self, message: str, schema: DomainSchema) -> None:
+        """
+        After a successful LLM extraction, fill high-signal slots the LLM missed using
+        the same regex patterns as the fallback path (budget, RAM, etc.).
+        skip_semantic_brand=True avoids a second brand LLM call on the same turn.
+        """
+        probe, _, _ = self._collect_regex_slot_values(message, schema, skip_semantic_brand=True)
+        domain_aliases = _SLOT_NAME_ALIASES.get(schema.domain, {})
+        to_apply: List[SlotValue] = []
+        for item in probe:
+            if item.action != "set":
+                continue
+            c = domain_aliases.get(item.slot_name, item.slot_name)
+            if c not in self.filters or self.filters.get(c) in (None, "", []):
+                to_apply.append(item)
+        if to_apply:
+            logger.info(
+                "Regex augment (LLM gaps): filling %s",
+                [i.slot_name for i in to_apply],
+            )
+            self._apply_slot_values_to_state(to_apply, schema)
+
+    def _collect_regex_slot_values(
+        self,
+        message: str,
+        schema: DomainSchema,
+        *,
+        skip_semantic_brand: bool = False,
+    ) -> tuple[List[SlotValue], bool, bool]:
+        """
+        Build SlotValue list from regex heuristics + optional semantic brand extraction.
+        Does not mutate self.filters.
+        """
+        text = message.lower()
+        criteria: List[SlotValue] = []
+        domain = schema.domain
+
+        budget_val: Optional[str] = None
+        _b_range = re.search(r'\$(\d[\d,]*)\s*[-–to]+\s*\$?(\d[\d,]*k?)', text, re.IGNORECASE)
+        _b_under = re.search(
+            r'(?:under|below|less than|at most|up to|max|budget[:\s]+)\s*\$\s*(\d[\d,]*)',
+            text, re.IGNORECASE
+        )
+        _b_over = re.search(
+            r'(?:over|above|more than|at least|minimum|starting(?:\s+from)?|from)\s*\$\s*(\d[\d,]*)',
+            text, re.IGNORECASE
+        )
+        _b_plain = re.search(r'\$\s*(\d[\d,]+)', text)
+        _b_bucks = re.search(
+            r'(?:^|[\s,])(\d{2,5})\s*(?:bucks?|dollars?|usd)\b',
+            text, re.IGNORECASE
+        )
+        if _b_range:
+            lo = _b_range.group(1).replace(",", "")
+            hi = _b_range.group(2).replace(",", "").rstrip("k")
+            if "k" in _b_range.group(2):
+                hi = str(int(hi) * 1000)
+            budget_val = f"${lo}-${hi}"
+        elif _b_under:
+            budget_val = f"under{_b_under.group(1).replace(',', '')}"
+        elif _b_over:
+            budget_val = f"over{_b_over.group(1).replace(',', '')}"
+        elif _b_plain:
+            budget_val = f"${_b_plain.group(1).replace(',', '')}"
+        elif _b_bucks:
+            budget_val = f"${_b_bucks.group(1)}"
+        if budget_val:
+            criteria.append(SlotValue(slot_name="budget", value=budget_val))
+
+        _ram = re.search(
+            r'(?:at\s+least\s+)?(\d{1,3})\s*(?:gb|g)\s*(?:of\s+)?(?:ram|memory)',
+            text, re.IGNORECASE
+        )
+        if not _ram:
+            _ram = re.search(r'(\d{1,3})\s*(?:gigs?)\s*(?:of\s+)?(?:ram|memory)?', text, re.IGNORECASE)
+        if _ram:
+            val_gb = int(_ram.group(1))
+            if 2 <= val_gb <= 256:
+                criteria.append(SlotValue(slot_name="min_ram_gb", value=str(val_gb)))
+
+        excl_brands = _detect_excluded_brands(message)
+        for _eb in excl_brands:
+            logger.info(f"Brand exclusion detected: {_eb}")
+        if excl_brands:
+            criteria.append(SlotValue(slot_name="excluded_brands", value=",".join(excl_brands)))
+
+        _os_map = [
+            (re.compile(r'\bwindows\s*10\b', re.I), "Windows 10"),
+            (re.compile(r'\bwindows\s*11\b', re.I), "Windows 11"),
+            (re.compile(r'\bwindows\b', re.I),      "Windows 11"),
+            (re.compile(r'\blinux\b|\bubuntu\b|\bdebian\b|\bfedora\b', re.I), "Linux"),
+            (re.compile(r'\bmacos\b|\bos\s*x\b|\bapple\s+os\b', re.I), "macOS"),
+            (re.compile(r'\bchrome\s*os\b|\bchromebook\b', re.I), "Chrome OS"),
+        ]
+        for _pat, _os_val in _os_map:
+            if _pat.search(message):
+                criteria.append(SlotValue(slot_name="os", value=_os_val))
+                break
+
+        _scr = re.search(
+            r'(\d{2}(?:\.\d)?)\s*(?:"|″|inch(?:es)?|-inch)(?:\s+(?:screen|display|laptop))?',
+            text, re.IGNORECASE
+        )
+        if _scr:
+            _pre_context = text[max(0, _scr.start() - 40):_scr.start()]
+            _scr_negated = re.search(
+                r'(?:no|not|don.t\s+want|don.t\s+like|avoid|hate)',
+                _pre_context, re.IGNORECASE
+            )
+            if not _scr_negated:
+                criteria.append(SlotValue(slot_name="screen_size", value=_scr.group(1)))
+
+        if re.search(r'\bssd\b', text):
+            criteria.append(SlotValue(slot_name="storage_type", value="SSD"))
+        elif re.search(r'\bhdd\b|\bhard\s+drive\b', text):
+            criteria.append(SlotValue(slot_name="storage_type", value="HDD"))
+
+        if domain == "laptops":
+            _use_map = [
+                (r'\bgaming\b', "gaming"),
+                (r'\bml\b|\bmachine\s+learning\b|\bai\b|\bdeep\s+learning\b|\bpytorch\b|\btensorflow\b', "machine_learning"),
+                (r'\bcreative\b|\bdesign\b|\bvideo\s+edit\b|\bphoto\s+edit\b|\bfigma\b', "creative"),
+                (r'\bweb\s*dev\b|\bprogramm\b|\bcod(e|ing)\b|\bsoftware\s+dev\b', "web_dev"),
+                (r'\bschool\b|\bstudent\b|\bcollege\b|\bstud(y|ying)\b', "school"),
+                (r'\bwork\b|\bbusiness\b|\boffice\b|\bprofessional\b', "business"),
+            ]
+            for _uc_pat, _uc_val in _use_map:
+                if re.search(_uc_pat, text, re.IGNORECASE):
+                    criteria.append(SlotValue(slot_name="use_case", value=_uc_val))
+                    break
+
+        _brand_found: Optional[str] = None
+        if not skip_semantic_brand:
+            _brand_found = _extract_brand_semantic(message)
+        if _brand_found is None:
+            _brand_phrases = [
+                (r'\b(?:apple|macbook|mac\s+air|mac\s+pro|mac\s+mini|mac\s+book|macs?)\b', "Apple"),
+                (r'\bdell\b|\bxps\b|\binspiron\b|\blatitude\b', "Dell"),
+                (r'\blenovo\b|\bthinkpad\b|\bideapad\b', "Lenovo"),
+                (r'\basus\b|\brog\b', "ASUS"),
+                (r'\bmsi\b', "MSI"),
+                (r'\brazer\b', "Razer"),
+                (r'\bmicrosoft\b|\bsurface\b', "Microsoft"),
+                (r'\bsamsung\b', "Samsung"),
+                (r'\bframework\b', "Framework"),
+                (r'\bsystem76\b', "System76"),
+                (r'\bhp\b|\bhewlett\b', "HP"),
+                (r'\bacer\b|\baspire\b|\bswift\b', "Acer"),
+                (r'\bgigabyte\b|\baorus\b', "Gigabyte"),
+                (r'\btoshiba\b|\bdynabook\b', "Toshiba"),
+            ]
+            for _bp, _bv in _brand_phrases:
+                if re.search(_bp, text, re.IGNORECASE):
+                    _brand_found = _bv
+                    break
+
+        if _brand_found and _brand_found not in excl_brands:
+            _brand_aliases_for_negation = [_brand_found.lower()] + [
+                k for k, v in _BRAND_VALUE_ALIASES.items() if v == _brand_found
+            ]
+            _negation = any(
+                re.search(
+                    r'(?:no|not|avoid|hate|don.t\s+(?:want|like))\s+' + re.escape(alias),
+                    text, re.IGNORECASE,
+                )
+                for alias in _brand_aliases_for_negation
+            )
+            if not _negation:
+                criteria.append(SlotValue(slot_name="brand", value=_brand_found))
+
+        _impatient_kws = (
+            "just show", "show me results", "skip", "don't care", "doesn't matter",
+            "whatever", "anything works", "surprise me",
+        )
+        _rec_kws = (
+            "show me options", "show me some", "what do you recommend",
+            "give me recommendations", "show me laptop", "show me the best",
+            "let's see", "let me see", "find me",
+        )
+        is_impatient = any(kw in text for kw in _impatient_kws)
+        wants_recs = any(kw in text for kw in _rec_kws)
+        substantive = [c for c in criteria if c.slot_name not in ("os",)]
+        if not wants_recs and len(substantive) >= 1 and "?" not in message and len(message.split()) >= 4:
+            wants_recs = True
+
+        return criteria, is_impatient, wants_recs
 
     def _extract_criteria(self, message: str, schema: DomainSchema) -> Optional[ExtractedCriteria]:
         """
@@ -1037,60 +1337,18 @@ class UniversalAgent:
                 logger.warning("Criteria extraction returned None")
                 return None
 
-            # Merge extracted filters into state — normalise slot names first.
-            # The LLM sometimes returns "ram" / "price" instead of the canonical
-            # schema slot names "min_ram_gb" / "budget".  Map them back so that
-            # _get_next_missing_slot() correctly sees them as already filled.
             if result.criteria:
-                domain_aliases = _SLOT_NAME_ALIASES.get(schema.domain, {})
-                # Build valid slot name set from schema — prevents spurious slots like
-                # min_year=2024 (from "best laptop 2024") from polluting the filters.
-                _schema_slot_names = {s.name for s in schema.slots}
-                # Extra slots that are valid but not in the schema definition.
-                _ALWAYS_ALLOW = {
-                    "excluded_brands", "_soft_preferences",
-                    "good_for_gaming", "good_for_creative",
-                    "good_for_web_dev", "good_for_ml",
-                    "use_case",
-                }
-                new_filters: Dict[str, Any] = {}
-                for item in result.criteria:
-                    canonical = domain_aliases.get(item.slot_name, item.slot_name)
-                    if (
-                        canonical in _schema_slot_names
-                        or canonical in _ALWAYS_ALLOW
-                        or canonical.startswith("good_for_")
-                    ):
-                        new_filters[canonical] = item.value
-                    else:
-                        logger.info(
-                            f"Dropping unknown slot '{item.slot_name}' "
-                            f"(canonical='{canonical}') — not in schema for domain '{schema.domain}'"
-                        )
-                # Normalise brand value (e.g., "Mac" → "Apple", "ThinkPad" → "Lenovo")
-                if "brand" in new_filters and isinstance(new_filters["brand"], str):
-                    raw_brand = new_filters["brand"].strip()
-                    new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
-                logger.info(f"Extracted filters (normalised): {new_filters}")
-                # Merge filters: excluded_brands EXTENDS across turns (don't lose prior exclusions).
-                # All other slots replace the old value (e.g. new budget overwrites old budget).
-                for _k, _v in new_filters.items():
-                    if _k == "excluded_brands":
-                        self.filters[_k] = _merge_excluded_brands(self.filters.get(_k), _v)
-                    else:
-                        self.filters[_k] = _v
-                # If user explicitly chose a brand, remove it from excluded_brands (mind change)
-                if "brand" in new_filters:
-                    _newly_preferred = new_filters["brand"]
-                    _excl = self.filters.get("excluded_brands")
-                    if _excl:
-                        if isinstance(_excl, list):
-                            self.filters["excluded_brands"] = [b for b in _excl if b.lower() != _newly_preferred.lower()] or None
-                        elif isinstance(_excl, str):
-                            self.filters["excluded_brands"] = [b.strip() for b in _excl.split(",") if b.strip().lower() != _newly_preferred.lower()] or None
-                        if not self.filters.get("excluded_brands"):
-                            self.filters.pop("excluded_brands", None)
-                        logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
+                self._apply_slot_values_to_state(result.criteria, schema)
+                logger.info(f"LLM criteria merged into filters: {dict(self.filters)}")
+
+            if result.natural_language_negations:
+                prev = self.filters.get("_nl_negations") or []
+                merged = list(dict.fromkeys([*prev, *result.natural_language_negations]))
+                self.filters["_nl_negations"] = merged
+
+            # Regex augment: keep LLM-first orchestration but recover deterministic
+            # patterns (e.g. "$800", "16GB RAM") the model sometimes drops.
+            self._augment_llm_with_regex_gaps(message, schema)
 
             # Mirror regex fallback heuristic: if user provides ≥2 substantive criteria
             # in a single statement-style message, they've stated their requirements →
@@ -1106,7 +1364,12 @@ class UniversalAgent:
             #     full spec list) — the agent should show alternatives, not ask another Q.
             #   - ≥4-word guard preserved to filter bare one-liners ("best laptop", "laptop").
             if result.criteria and not result.wants_recommendations:
-                substantive = [c for c in result.criteria if c.slot_name not in ("os",)]
+                substantive = [
+                    c for c in result.criteria
+                    if c.slot_name not in ("os",)
+                    and c.action == "set"
+                    and c.value
+                ]
                 msg_words = len(message.split())
                 has_question_mark = "?" in message
                 # Rhetorical: user listed ≥2 constraints + asked a question like
@@ -1145,211 +1408,14 @@ class UniversalAgent:
         """
         Rule-based extraction for the most common slot patterns.
         This is a resilience fallback — the LLM produces richer results.
+        Uses semantic brand extraction when the main criteria LLM is unavailable.
         """
-        text = message.lower()
-        criteria: List[SlotValue] = []
-        domain = schema.domain
-
-        # ── Budget ───────────────────────────────────────────────────────────
-        # Patterns: "$900", "under $900", "budget $900", "$800-$1,500", "500 bucks"
-        budget_val: Optional[str] = None
-        _b_range = re.search(r'\$(\d[\d,]*)\s*[-–to]+\s*\$?(\d[\d,]*k?)', text, re.IGNORECASE)
-        _b_under = re.search(
-            r'(?:under|below|less than|at most|up to|max|budget[:\s]+)\s*\$\s*(\d[\d,]*)',
-            text, re.IGNORECASE
+        criteria, is_impatient, wants_recs = self._collect_regex_slot_values(
+            message, schema, skip_semantic_brand=False
         )
-        _b_over = re.search(
-            r'(?:over|above|more than|at least|minimum|starting(?:\s+from)?|from)\s*\$\s*(\d[\d,]*)',
-            text, re.IGNORECASE
-        )
-        _b_plain = re.search(r'\$\s*(\d[\d,]+)', text)
-        # "500 bucks", "500 dollars", "500 usd" (without dollar sign)
-        _b_bucks = re.search(
-            r'(?:^|[\s,])(\d{2,5})\s*(?:bucks?|dollars?|usd)\b',
-            text, re.IGNORECASE
-        )
-        if _b_range:
-            lo = _b_range.group(1).replace(",", "")
-            hi = _b_range.group(2).replace(",", "").rstrip("k")
-            if "k" in _b_range.group(2):
-                hi = str(int(hi) * 1000)
-            budget_val = f"${lo}-${hi}"
-        elif _b_under:
-            budget_val = f"under{_b_under.group(1).replace(',', '')}"
-        elif _b_over:
-            budget_val = f"over{_b_over.group(1).replace(',', '')}"
-        elif _b_plain:
-            budget_val = f"${_b_plain.group(1).replace(',', '')}"
-        elif _b_bucks:
-            budget_val = f"${_b_bucks.group(1)}"
-        if budget_val:
-            criteria.append(SlotValue(slot_name="budget", value=budget_val))
-
-        # ── RAM (laptops / phones) ────────────────────────────────────────────
-        _ram = re.search(
-            r'(?:at\s+least\s+)?(\d{1,3})\s*(?:gb|g)\s*(?:of\s+)?(?:ram|memory)',
-            text, re.IGNORECASE
-        )
-        if not _ram:
-            _ram = re.search(r'(\d{1,3})\s*(?:gigs?)\s*(?:of\s+)?(?:ram|memory)?', text, re.IGNORECASE)
-        if _ram:
-            val_gb = int(_ram.group(1))
-            if 2 <= val_gb <= 256:
-                criteria.append(SlotValue(slot_name="min_ram_gb", value=str(val_gb)))
-
-        # ── Brand exclusions ─────────────────────────────────────────────────
-        # Delegate to _detect_excluded_brands which handles regex + LLM detection.
-        excl_brands = _detect_excluded_brands(message)
-        for _eb in excl_brands:
-            logger.info(f"Brand exclusion detected: {_eb}")
-        if excl_brands:
-            criteria.append(SlotValue(slot_name="excluded_brands", value=",".join(excl_brands)))
-
-        # ── OS ───────────────────────────────────────────────────────────────
-        _os_map = [
-            (re.compile(r'\bwindows\s*10\b', re.I), "Windows 10"),
-            (re.compile(r'\bwindows\s*11\b', re.I), "Windows 11"),
-            (re.compile(r'\bwindows\b', re.I),      "Windows 11"),
-            (re.compile(r'\blinux\b|\bubuntu\b|\bdebian\b|\bfedora\b', re.I), "Linux"),
-            (re.compile(r'\bmacos\b|\bos\s*x\b|\bapple\s+os\b', re.I), "macOS"),
-            (re.compile(r'\bchrome\s*os\b|\bchromebook\b', re.I), "Chrome OS"),
-        ]
-        for _pat, _os_val in _os_map:
-            if _pat.search(message):
-                criteria.append(SlotValue(slot_name="os", value=_os_val))
-                break
-
-        # ── Screen size ───────────────────────────────────────────────────────
-        _scr = re.search(
-            r'(\d{2}(?:\.\d)?)\s*(?:"|″|inch(?:es)?|-inch)(?:\s+(?:screen|display|laptop))?',
-            text, re.IGNORECASE
-        )
-        if _scr:
-            # Ignore if negated: "I don't want a 14 inch", "no 14 inch screen"
-            _pre_context = text[max(0, _scr.start() - 40):_scr.start()]
-            _scr_negated = re.search(
-                r'(?:no|not|don.t\s+want|don.t\s+like|avoid|hate)',
-                _pre_context, re.IGNORECASE
-            )
-            if not _scr_negated:
-                criteria.append(SlotValue(slot_name="screen_size", value=_scr.group(1)))
-
-        # ── Storage type ──────────────────────────────────────────────────────
-        if re.search(r'\bssd\b', text):
-            criteria.append(SlotValue(slot_name="storage_type", value="SSD"))
-        elif re.search(r'\bhdd\b|\bhard\s+drive\b', text):
-            criteria.append(SlotValue(slot_name="storage_type", value="HDD"))
-
-        # ── Use-case (laptops) ────────────────────────────────────────────────
-        if domain == "laptops":
-            _use_map = [
-                (r'\bgaming\b', "gaming"),
-                (r'\bml\b|\bmachine\s+learning\b|\bai\b|\bdeep\s+learning\b|\bpytorch\b|\btensorflow\b', "machine_learning"),
-                (r'\bcreative\b|\bdesign\b|\bvideo\s+edit\b|\bphoto\s+edit\b|\bfigma\b', "creative"),
-                (r'\bweb\s*dev\b|\bprogramm\b|\bcod(e|ing)\b|\bsoftware\s+dev\b', "web_dev"),
-                (r'\bschool\b|\bstudent\b|\bcollege\b|\bstud(y|ying)\b', "school"),
-                (r'\bwork\b|\bbusiness\b|\boffice\b|\bprofessional\b', "business"),
-            ]
-            for _uc_pat, _uc_val in _use_map:
-                if re.search(_uc_pat, text, re.IGNORECASE):
-                    criteria.append(SlotValue(slot_name="use_case", value=_uc_val))
-                    break
-
-        # ── Preferred brand ───────────────────────────────────────────────────
-        # Step 1: semantic LLM extraction (handles ALL natural-language variations —
-        #   "mac", "MACS", "M2 chip", "Apple Silicon", "thinkpad carbon", etc.)
-        #   This is the correct approach; regex below is a last-resort fallback only.
-        _brand_found: Optional[str] = _extract_brand_semantic(message)
-
-        # Step 2: regex fallback only if LLM unavailable (quota, network error)
-        if _brand_found is None:
-            _brand_phrases = [
-                (r'\b(?:apple|macbook|mac\s+air|mac\s+pro|mac\s+mini|mac\s+book|macs?)\b', "Apple"),
-                (r'\bdell\b|\bxps\b|\binspiron\b|\blatitude\b', "Dell"),
-                (r'\blenovo\b|\bthinkpad\b|\bideapad\b', "Lenovo"),
-                (r'\basus\b|\brog\b', "ASUS"),
-                (r'\bmsi\b', "MSI"),
-                (r'\brazer\b', "Razer"),
-                (r'\bmicrosoft\b|\bsurface\b', "Microsoft"),
-                (r'\bsamsung\b', "Samsung"),
-                (r'\bframework\b', "Framework"),
-                (r'\bsystem76\b', "System76"),
-                (r'\bhp\b|\bhewlett\b', "HP"),
-                (r'\bacer\b|\baspire\b|\bswift\b', "Acer"),
-                (r'\bgigabyte\b|\baorus\b', "Gigabyte"),
-                (r'\btoshiba\b|\bdynabook\b', "Toshiba"),
-            ]
-            for _bp, _bv in _brand_phrases:
-                if re.search(_bp, text, re.IGNORECASE):
-                    _brand_found = _bv
-                    break
-
-        # Step 3: apply — skip if brand is in the exclusion list or negated in context
-        if _brand_found and _brand_found not in excl_brands:
-            # Check negation using canonical name AND all known aliases
-            # e.g., for "Apple": also check "mac", "macbook", "imac", etc.
-            _brand_aliases_for_negation = [_brand_found.lower()] + [
-                k for k, v in _BRAND_VALUE_ALIASES.items() if v == _brand_found
-            ]
-            _negation = any(
-                re.search(
-                    r'(?:no|not|avoid|hate|don.t\s+(?:want|like))\s+' + re.escape(alias),
-                    text, re.IGNORECASE,
-                )
-                for alias in _brand_aliases_for_negation
-            )
-            if not _negation:
-                criteria.append(SlotValue(slot_name="brand", value=_brand_found))
-
-        # ── Intent signals ────────────────────────────────────────────────────
-        _impatient_kws = (
-            "just show", "show me results", "skip", "don't care", "doesn't matter",
-            "whatever", "anything works", "surprise me",
-        )
-        _rec_kws = (
-            "show me options", "show me some", "what do you recommend",
-            "give me recommendations", "show me laptop", "show me the best",
-            "let's see", "let me see", "find me",
-        )
-        is_impatient = any(kw in text for kw in _impatient_kws)
-        wants_recs = any(kw in text for kw in _rec_kws)
-        # Heuristic: if ≥1 substantive criteria extracted, no question mark, and message
-        # has ≥4 words — the user is stating requirements, not asking a question.
-        # Lowered from ≥2 to ≥1 to avoid penalising evaluation queries that provide
-        # a single clear constraint (e.g., "I need a gaming laptop under $1000").
-        substantive = [c for c in criteria if c.slot_name not in ("os",)]
-        if not wants_recs and len(substantive) >= 1 and "?" not in message and len(message.split()) >= 4:
-            wants_recs = True
-
         if criteria:
-            domain_aliases = _SLOT_NAME_ALIASES.get(domain, {})
-            new_filters: Dict[str, Any] = {}
-            for item in criteria:
-                canonical = domain_aliases.get(item.slot_name, item.slot_name)
-                new_filters[canonical] = item.value
-            # Normalise brand value (e.g., "mac" → "Apple", "ThinkPad" → "Lenovo")
-            if "brand" in new_filters and isinstance(new_filters["brand"], str):
-                raw_brand = new_filters["brand"].strip()
-                new_filters["brand"] = _BRAND_VALUE_ALIASES.get(raw_brand.lower(), raw_brand)
-            logger.info(f"Regex fallback extracted (normalised): {new_filters}")
-            # Merge filters: excluded_brands EXTENDS across turns; all other slots replace.
-            for _k, _v in new_filters.items():
-                if _k == "excluded_brands":
-                    self.filters[_k] = _merge_excluded_brands(self.filters.get(_k), _v)
-                else:
-                    self.filters[_k] = _v
-            # If user explicitly chose a brand, remove it from excluded_brands (mind change)
-            if "brand" in new_filters:
-                _newly_preferred = new_filters["brand"]
-                _excl = self.filters.get("excluded_brands")
-                if _excl:
-                    if isinstance(_excl, list):
-                        self.filters["excluded_brands"] = [b for b in _excl if b.lower() != _newly_preferred.lower()] or None
-                    elif isinstance(_excl, str):
-                        self.filters["excluded_brands"] = [b.strip() for b in _excl.split(",") if b.strip().lower() != _newly_preferred.lower()] or None
-                    if not self.filters.get("excluded_brands"):
-                        self.filters.pop("excluded_brands", None)
-                    logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
+            self._apply_slot_values_to_state(criteria, schema)
+            logger.info(f"Regex fallback extracted (normalised): {dict(self.filters)}")
         else:
             logger.info("Regex fallback: no criteria found")
 

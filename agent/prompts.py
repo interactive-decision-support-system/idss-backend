@@ -104,6 +104,23 @@ EXTRACTION RULES:
    - plain "$1000" (no direction word) → value="1000"
    Examples: "dell computer over $1000" → budget="over1000" | "laptop under $500" → budget="under500"
 
+8. SLOT ACTIONS (preference revision — user changes mind, negation, relaxation):
+   Each criteria item has an "action" field (default "set"):
+   - set: normal extraction — assign or overwrite the slot value.
+   - clear: forget this slot for this session (value may be empty). Examples: "forget the budget",
+     "any brand is fine", "drop the screen size requirement", "I don't care about RAM anymore".
+   - remove: for excluded_brands only — stop excluding the listed brands (comma-separated value),
+     e.g. user previously excluded HP but says "HP is OK now". For other slots, treat like clear.
+   - add: append to excluded_brands (another brand to avoid) or merge list-like constraints.
+   Use clear/remove liberally when the user contradicts or relaxes earlier constraints — do not
+   rely on the assistant having guessed a phrase list.
+
+9. NATURAL_LANGUAGE_NEGATIONS (top-level list, not slots):
+   Free-form soft constraints the user wants to minimize or avoid that are NOT brand exclusions
+   and do not map cleanly to a schema slot — e.g. "no glossy screen", "not too heavy",
+   "I hate loud fans", "nothing with soldered RAM". Keep each phrase short (3-8 words).
+   Put manufacturer avoidance in excluded_brands with action=set/add, not here.
+
 Also detect user intent signals:
 - is_impatient: true if user wants to skip questions ("just show me", "whatever", "skip", "I don't care")
 - wants_recommendations: true ONLY when the user EXPLICITLY asks for recommendations, OR provides ≥2 specific constraints (budget + one other, or brand + spec, etc.)
