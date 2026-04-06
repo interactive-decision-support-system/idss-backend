@@ -1,15 +1,13 @@
 # Q1 Reproduction Guide — Intent Recognition & Orchestration
 
 Branch: `baani/q1-intent-recognition`
-Exam: IDSS Take-Home 2026, Question 1
 
 ---
 
 ## Prerequisites
 
-- Python 3.12+ (tested on 3.12.9; the exam spec says 3.13 also works)
-- A virtual environment with dependencies installed
-- No database, Redis, or OpenAI key is required to run the unit tests
+- Python 3.12+ with a virtual environment (`python3 -m venv .venv`)
+- No database, Redis, or OpenAI key required to run the unit tests
 
 ---
 
@@ -31,8 +29,7 @@ pip install -r agent/requirements.txt
 
 ## 2. Run the Q1-specific tests
 
-These tests cover each of the four failing phrases from the exam, the anaphora
-helper, false-positive guards, session-reset safety, and brand-exclusion fixes:
+These tests cover the four failing phrases from the exam, the anaphora helper, false-positive guards, session-reset safety, and brand-exclusion fixes:
 
 ```bash
 python -m pytest \
@@ -51,6 +48,8 @@ python -m pytest \
   -v
 ```
 
+Expected: **12 passed**.
+
 ---
 
 ## 3. Run the full agent test suite
@@ -65,65 +64,34 @@ python -m pytest agent/tests/ -q
 ## 4. Run the full backend test suite (exam requirement)
 
 ```bash
-bash run_all_tests.sh
-# Expected: 89 agent + 527 mcp-server = 616 passed, 4 skipped
-```
-
-Or equivalently:
-
-```bash
 python -m pytest mcp-server/tests/ agent/tests/ -q
+# Expected: 616 passed, 4 skipped
 ```
+
+> **Note:** Always use `python -m pytest` (not bare `pytest`). The `pytest` binary
+> shebang may point to a different Python interpreter than your active venv.
 
 ---
 
-## 5. How the `pythonpath` fix works
-
-The repo has two importable packages at different directory levels:
-
-```
-idss-backend/
-├── agent/                  ← importable as `agent.*`
-└── mcp-server/
-    └── app/                ← importable as `app.*`
-```
-
-`agent/chat_endpoint.py` imports `from app.structured_logger import StructuredLogger`.
-Without `mcp-server/` on `sys.path`, pytest can't resolve `app` and every agent
-test fails at collection time with `ModuleNotFoundError`.
-
-The fix is `pytest.ini` at the repo root:
-
-```ini
-[pytest]
-pythonpath = . mcp-server
-```
-
-This is the idiomatic solution for pytest ≥ 7.0 — declarative, one line, no
-`sys.path` mutation in test code. No changes to `conftest.py` were needed.
-
----
-
-## 6. Files changed
+## 5. Files changed
 
 | File | What changed |
 |------|-------------|
-| `pytest.ini` | Created — `pythonpath = . mcp-server` |
-| `agent/chat_endpoint.py` | `_FAST_COMPARE_KWS` + purchase idiom constants + anaphora veto + observability log |
-| `agent/comparison_agent.py` | `import re` + word-boundary anaphora check in exception path |
-| `agent/universal_agent.py` | Extended `_excl_kw_pat` regex |
-| `agent/tests/test_chat_endpoint.py` | 9 new tests + import of `_message_references_shown_recommendation_set` |
-| `agent/tests/test_universal_agent.py` | 4 new tests + module-level imports |
+| `agent/chat_endpoint.py` | `_FAST_COMPARE_KWS` + `_PURCHASE_IDIOMS_RE` + `_CASUAL_TAKE_DEFAULT_RE` + `_message_references_shown_recommendation_set()` + anaphora veto + observability log |
+| `agent/comparison_agent.py` | Word-boundary anaphora check in exception path; circular import reverted; redundant `bool()` removed |
+| `agent/universal_agent.py` | Extended `_EXCL_KW_PAT` with bridging-phrase suffix; removed `awful`; added `poor`; hoisted `_KNOWN_BRANDS_LIST` to module level |
+| `agent/tests/test_chat_endpoint.py` | 8 new tests; fixed duplicate assertion; fixed mock return type |
+| `agent/tests/test_universal_agent.py` | 4 new brand-exclusion tests |
 
 ---
 
-## 7. Manual verification on the live site
+## 6. Manual verification
 
-Go to https://idss-web.vercel.app/, ask for laptop recommendations, then try:
+Start the backend with `python -m uvicorn app.main:app --app-dir mcp-server --port 8001`, ask for laptop recommendations, then try:
 
-| Phrase | What should happen |
+| Phrase | Expected behaviour |
 |--------|--------------------|
 | `Lay these out side by side` | Side-by-side comparison table |
 | `I'll take the second one` | Second product added to cart |
 | `I've had bad experiences with Dell` | Dell excluded from next search |
-| `Which of these has the best battery?` | Agent answers about shown products; session is not reset |
+| `Which of these has the best battery?` | Agent answers about shown products; session is **not** reset |
