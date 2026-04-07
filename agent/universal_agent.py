@@ -225,6 +225,51 @@ def _extract_brand_semantic(message: str) -> Optional[str]:
         return None
 
 
+def _canonical_brand(value: str) -> Optional[str]:
+    """Map a raw token/alias to a canonical brand if recognized."""
+    if not value:
+        return None
+    raw = value.strip().strip('"\'')
+    if not raw:
+        return None
+    # Strip leading/trailing punctuation (e.g. "HP," → "HP", "(Dell)" → "Dell")
+    raw = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", raw).strip()
+    if not raw:
+        return None
+    # Strip leading negation wrappers emitted by some LLM outputs ("not ASUS" → "ASUS")
+    raw = re.sub(r'^(?:no|not|exclude|excluded|avoid|without)\s+', '', raw, flags=re.IGNORECASE).strip()
+    mapped = _BRAND_VALUE_ALIASES.get(raw.lower(), raw)
+    return mapped if mapped in _KNOWN_BRANDS else None
+
+
+def _brands_mentioned_in_text(message: str) -> List[str]:
+    """Extract canonical brand names explicitly mentioned in the user message."""
+    text = (message or "").lower()
+    found: List[str] = []
+    for brand in sorted(_KNOWN_BRANDS):
+        if re.search(rf"(?<!\w){re.escape(brand.lower())}(?!\w)", text):
+            if brand not in found:
+                found.append(brand)
+    for alias, canon in _BRAND_VALUE_ALIASES.items():
+        if re.search(rf"(?<!\w){re.escape(alias.lower())}(?!\w)", text):
+            if canon in _KNOWN_BRANDS and canon not in found:
+                found.append(canon)
+    return found
+
+
+def _filter_exclusions_by_message_mentions(excluded: List[str], message: str) -> List[str]:
+    """
+    Keep only excluded brands actually mentioned in the user text.
+    Prevents LLM hallucinations from injecting brands the user never mentioned.
+    """
+    if not excluded:
+        return []
+    mentioned = set(_brands_mentioned_in_text(message))
+    if not mentioned:
+        return []
+    return [b for b in excluded if b in mentioned]
+
+
 def _detect_excluded_brands(message: str) -> List[str]:
     """
     Detect brands the user wants to EXCLUDE from both regex patterns and LLM semantic analysis.
@@ -233,26 +278,24 @@ def _detect_excluded_brands(message: str) -> List[str]:
 
     Returns a deduplicated list of canonical brand names to exclude.
     """
-    _known_brands_list = [
-        "HP", "Acer", "Dell", "Lenovo", "Apple", "ASUS", "Asus",
-        "MSI", "Razer", "Samsung", "Microsoft", "LG", "Gigabyte",
-        "Framework", "System76", "ROG", "Alienware",
-    ]
+    # Enhanced pattern: covers direct, indirect, and multi-word exclusion phrases.
+    # Additions over v1: steer clear of, bad/terrible experience with, exclude, without.
     _excl_kw_pat = re.compile(
-        r'(?:no|not|never|anything but|avoid|hate|refuse|bad|terrible|skip)\s+([A-Za-z][A-Za-z0-9\- ]{1,30})',
-        re.IGNORECASE
+        r'(?:no|not|never|anything\s+but|avoid|hate|refuse|skip|exclude|excluded|without|'
+        r'steer\s+clear\s+of|bad\s+experience\s+with|terrible\s+experience\s+with)\s+'
+        r'([A-Za-z][A-Za-z0-9\- ]{1,30})',
+        re.IGNORECASE,
     )
     excl_brands: List[str] = []
     for _m in _excl_kw_pat.finditer(message):
         raw_group = _m.group(1).strip()
-        parts = re.split(r'\s+(?:or|and)\s+|[,;]\s*', raw_group)
+        parts = re.split(r'\s+(?:or|and|nor)\s+|[,;]\s*', raw_group)
         for part in parts:
-            candidate = part.strip().split()[0]
-            candidate_normalized = _BRAND_VALUE_ALIASES.get(candidate.lower(), candidate)
-            for brand in _known_brands_list:
-                if brand.lower() == candidate_normalized.lower():
-                    if brand not in excl_brands:
-                        excl_brands.append(brand)
+            candidate = part.strip().split()[0] if part.strip() else ""
+            candidate = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", candidate)
+            canon = _canonical_brand(candidate)
+            if canon and canon not in excl_brands:
+                excl_brands.append(canon)
 
     # LLM semantic detection — handles indirect phrases, sarcasm, bad experiences
     _llm_excl = _extract_excluded_brands_semantic(message)
@@ -260,7 +303,52 @@ def _detect_excluded_brands(message: str) -> List[str]:
         if _eb not in excl_brands:
             excl_brands.append(_eb)
 
+    # Hallucination guard: keep only brands actually mentioned in the user text
+    excl_brands = _filter_exclusions_by_message_mentions(excl_brands, message)
+
     return excl_brands
+
+
+_BRAND_UNEXCLUDE_SYSTEM = (
+    "You detect when a user reverses a previous brand exclusion — i.e., they now WANT to see "
+    "a brand they previously excluded. Given the list of currently-excluded brands and the user "
+    "message, return a comma-separated list of brand names the user is now okay with, or 'none'. "
+    "Examples: 'HP is fine' → HP; 'actually show me Dell too' → Dell; "
+    "'I changed my mind about ASUS' → ASUS; 'forget what I said about Lenovo' → Lenovo. "
+    "Only return brands from the provided exclusion list. Return canonical names only."
+)
+
+
+def _detect_allowed_brands_semantic(
+    message: str, currently_excluded: List[str]
+) -> List[str]:
+    """
+    Use an LLM to detect which previously-excluded brands the user is now okay with.
+    Handles indirect/idiomatic un-exclusion phrasing that keyword matching misses.
+    Falls back to [] on quota/network error.
+    """
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        user_content = (
+            f"Currently excluded brands: {', '.join(currently_excluded)}\n"
+            f"User message: {message}"
+        )
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": _BRAND_UNEXCLUDE_SYSTEM},
+                {"role": "user", "content": user_content},
+            ],
+            max_tokens=20,
+            temperature=0,
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        if raw.lower() in ("none", "no brand", "no brands", ""):
+            return []
+        candidates = [b.strip().strip('"\'') for b in raw.split(",") if b.strip()]
+        return [b for b in candidates if b in _KNOWN_BRANDS]
+    except Exception:
+        return []
 
 
 def _detect_allowed_brands(message: str, currently_excluded: List[str]) -> List[str]:
@@ -269,28 +357,35 @@ def _detect_allowed_brands(message: str, currently_excluded: List[str]) -> List[
     Used to implement "mind-change" un-exclusions: "actually HP is fine", "I changed
     my mind about Dell", "HP is okay now".
 
-    Only checks brands that are currently excluded to avoid spurious un-exclusions.
+    Uses LLM semantic detection (primary) plus keyword fallback, only for brands
+    currently in the exclusion list.
     Returns list of brands to REMOVE from the exclusion list.
     """
     if not currently_excluded:
         return []
 
+    msg_lower = message.lower()
+
+    # Quick skip: if no excluded brand is even mentioned in the message, nothing to un-exclude.
+    mentioned_excl = [b for b in currently_excluded if b.lower() in msg_lower]
+    if not mentioned_excl:
+        return []
+
+    # LLM semantic detection — handles "actually open to HP", "forget what I said about Dell", etc.
+    llm_result = _detect_allowed_brands_semantic(message, mentioned_excl)
+    if llm_result:
+        return llm_result
+
+    # Keyword fallback if LLM unavailable
     _UN_EXCL_PHRASES = (
         "is fine", "is ok", "is okay", "is alright", "is good",
         "changed my mind", "don't mind", "don't care about",
         "never mind about", "actually fine with",
         "is acceptable", "is allowed", "want to see",
     )
-    msg_lower = message.lower()
-    # Quick gate: if no un-exclusion phrase present, skip
     if not any(p in msg_lower for p in _UN_EXCL_PHRASES):
         return []
-
-    to_allow = []
-    for brand in currently_excluded:
-        if brand.lower() in msg_lower:
-            to_allow.append(brand)
-    return to_allow
+    return [b for b in mentioned_excl if b.lower() in msg_lower]
 
 
 def _extract_excluded_brands_semantic(message: str) -> List[str]:
@@ -322,6 +417,26 @@ def _extract_excluded_brands_semantic(message: str) -> List[str]:
         return [b for b in candidates if b in _KNOWN_BRANDS]
     except Exception:
         return []
+
+
+def _extract_excluded_screen_sizes_from_text(message: str) -> List[float]:
+    """
+    Detect negated screen-size mentions (e.g., "don't want 14 inch screen")
+    and return excluded-size constraints as a list of inch floats.
+    """
+    text = message or ""
+    pat = re.compile(
+        r"(?:no|not|don[''`]?t\s+want|do\s+not\s+want|avoid|exclude|without|hate)"
+        r"\s+(?:a\s+|an\s+|the\s+)?(\d{2}(?:\.\d+)?)\s*(?:\"|″|inch(?:es)?|-inch)"
+        r"(?:\s*(?:screen|display|laptop))?",
+        re.IGNORECASE,
+    )
+    out: List[float] = []
+    for m in pat.finditer(text):
+        val = float(m.group(1))
+        if 10.0 <= val <= 21.0 and val not in out:
+            out.append(val)
+    return out
 
 
 # Model configuration — single model for all LLM calls, set via environment
@@ -583,6 +698,20 @@ class UniversalAgent:
                 val_str = str(value).strip().lower()
                 if val_str:
                     search_filters["product_subtype"] = val_str
+
+            elif slot_name == "excluded_screen_sizes":
+                # Comma/list of inch floats the user explicitly does NOT want
+                raw_parts = value if isinstance(value, list) else str(value).split(",")
+                sizes = []
+                for p in raw_parts:
+                    try:
+                        v = float(str(p).strip())
+                        if 10.0 <= v <= 21.0 and v not in sizes:
+                            sizes.append(v)
+                    except (ValueError, TypeError):
+                        pass
+                if sizes:
+                    search_filters["excluded_screen_sizes"] = sizes
 
             elif slot_name in ("fuel_type", "condition", "screen_size", "color", "material"):
                 search_filters[slot_name] = value
@@ -1220,6 +1349,16 @@ class UniversalAgent:
                 break
 
         # ── Screen size ───────────────────────────────────────────────────────
+        # Detect explicitly excluded screen sizes first (e.g. "don't want 14 inch")
+        _neg_screen_sizes = _extract_excluded_screen_sizes_from_text(message)
+        if _neg_screen_sizes:
+            criteria.append(
+                SlotValue(
+                    slot_name="excluded_screen_sizes",
+                    value=",".join(str(s) for s in _neg_screen_sizes),
+                )
+            )
+
         _scr = re.search(
             r'(\d{2}(?:\.\d)?)\s*(?:"|″|inch(?:es)?|-inch)(?:\s+(?:screen|display|laptop))?',
             text, re.IGNORECASE

@@ -2312,6 +2312,796 @@ QUERIES: List[Dict[str, Any]] = [
             "Honest disclosure required. Any product returned over $200 is a critical Trust & Safety failure."
         ),
     },
+
+    # -------------------------------------------------------------------------
+    # GROUP: orchestrator_routing (IDs 189–200)
+    # Intent routing accuracy — compare vs refine vs new_search
+    # -------------------------------------------------------------------------
+    {
+        "id": 189, "group": "orchestrator_routing",
+        "label": "Compare two specific laptops",
+        "message": "Can you compare the Dell XPS 15 and the MacBook Pro 14?",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User is explicitly requesting a comparison, not a new search. "
+            "System should route to comparison agent and provide a structured side-by-side comparison."
+        ),
+    },
+    {
+        "id": 190, "group": "orchestrator_routing",
+        "label": "Refine previous results by brand",
+        "message": "Only show me Dell laptops from those options",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": ["Apple", "HP", "Lenovo", "ASUS"],
+        "expect_filters": ["brand"],
+        "quality_note": (
+            "User is refining previous results to Dell only. "
+            "System must route as refinement (not new search) and filter to Dell exclusively."
+        ),
+    },
+    {
+        "id": 191, "group": "orchestrator_routing",
+        "label": "Start over with different domain",
+        "message": "Forget the laptops — show me gaming desktops instead",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User explicitly wants to start a new search in a different sub-category. "
+            "System should route as new_search and acknowledge the domain pivot."
+        ),
+    },
+    {
+        "id": 192, "group": "orchestrator_routing",
+        "label": "Add to cart intent",
+        "message": "I'll take the second one. Add it to my cart.",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User is giving a cart action intent with ordinal reference. "
+            "System should route to add-to-cart handler, not generate new recommendations."
+        ),
+    },
+    {
+        "id": 193, "group": "orchestrator_routing",
+        "label": "Pros and cons of shown products",
+        "message": "What are the pros and cons of these laptops?",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User wants structured pros/cons analysis of previously shown products. "
+            "System should route to targeted Q&A handler, not a new search."
+        ),
+    },
+    {
+        "id": 194, "group": "orchestrator_routing",
+        "label": "Ask about battery life of shown products",
+        "message": "Which of those has the best battery life?",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User is asking a targeted attribute question about previously shown products. "
+            "System should route as targeted_qa and answer from product data, not generate new recs."
+        ),
+    },
+    {
+        "id": 195, "group": "orchestrator_routing",
+        "label": "Ask for similar items to one shown",
+        "message": "Show me something similar to the first option but lighter",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User wants similar items with a soft preference (lighter). "
+            "System should route as refinement or see-similar, not a new search from scratch."
+        ),
+    },
+    {
+        "id": 196, "group": "orchestrator_routing",
+        "label": "Checkout intent",
+        "message": "Let's check out now",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User is explicitly starting checkout. "
+            "System must route to checkout handler, not generate recommendations."
+        ),
+    },
+    {
+        "id": 197, "group": "orchestrator_routing",
+        "label": "Ambiguous follow-up — could be compare or refine",
+        "message": "What about something with more storage?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Ambiguous follow-up that could be refinement (add storage constraint) or new search. "
+            "System should treat as refinement — return new products with higher storage added to existing filters."
+        ),
+    },
+    {
+        "id": 198, "group": "orchestrator_routing",
+        "label": "Research intent — explain a feature",
+        "message": "Can you explain what Thunderbolt 4 is and why it matters?",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User wants educational content about a feature, not product recommendations. "
+            "System should route as research/explain, provide clear explanation."
+        ),
+    },
+    {
+        "id": 199, "group": "orchestrator_routing",
+        "label": "Rate a product",
+        "message": "I'd give that recommendation a 4 out of 5",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User is providing a rating/feedback, not requesting new recommendations. "
+            "System should acknowledge gracefully and ask if they want to see more options."
+        ),
+    },
+    {
+        "id": 200, "group": "orchestrator_routing",
+        "label": "New search after seeing results",
+        "message": "Actually let me start fresh — I need a laptop for my mom who mostly uses email",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User explicitly starts a new search with different persona/use-case. "
+            "System should route as new_search, clear previous session context, recommend basic/simple laptops."
+        ),
+    },
+
+    # -------------------------------------------------------------------------
+    # GROUP: multi_constraint (IDs 201–210)
+    # ≥2 hard constraints simultaneously
+    # -------------------------------------------------------------------------
+    {
+        "id": 201, "group": "multi_constraint",
+        "label": "Brand + budget + RAM constraint",
+        "message": "I need a Dell laptop under $800 with at least 16GB RAM",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": ["Apple", "HP", "Lenovo", "ASUS"],
+        "expect_filters": ["brand", "budget", "min_ram_gb"],
+        "hard_budget_usd": 800,
+        "quality_note": (
+            "Three simultaneous hard constraints: brand=Dell, budget<=$800, RAM>=16GB. "
+            "All three must be enforced. Any non-Dell or over-budget product is a hard failure."
+        ),
+    },
+    {
+        "id": 202, "group": "multi_constraint",
+        "label": "No gaming + student budget",
+        "message": "I need a laptop for studying, nothing gaming-related, under $600",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": ["budget"],
+        "hard_budget_usd": 600,
+        "quality_note": (
+            "User wants a study laptop under $600, explicitly excluding gaming use-case. "
+            "System should recommend business/student laptops, not gaming-spec machines."
+        ),
+    },
+    {
+        "id": 203, "group": "multi_constraint",
+        "label": "Exclude multiple brands + screen size + budget",
+        "message": "Looking for a 15-inch laptop under $1000. Please no Lenovo or ASUS.",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": ["Lenovo", "ASUS"],
+        "expect_filters": ["budget"],
+        "hard_budget_usd": 1000,
+        "quality_note": (
+            "Two brand exclusions, screen size preference, and budget constraint. "
+            "No Lenovo and no ASUS must both be enforced. Budget hard limit $1000."
+        ),
+    },
+    {
+        "id": 204, "group": "multi_constraint",
+        "label": "OS + RAM + brand constraint",
+        "message": "I need a Windows laptop from Dell or HP with at least 32GB RAM",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": ["Apple"],
+        "expect_filters": ["min_ram_gb"],
+        "quality_note": (
+            "Three constraints: OS=Windows, brand=Dell or HP, RAM>=32GB. "
+            "No macOS/Apple products. Results should all have 32GB+ RAM."
+        ),
+    },
+    {
+        "id": 205, "group": "multi_constraint",
+        "label": "Max weight + battery + budget",
+        "message": "I travel constantly. Need something under $1200, light (under 3 lbs), and good battery",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": ["budget"],
+        "hard_budget_usd": 1200,
+        "quality_note": (
+            "Travel use-case with three constraints: budget<=$1200, weight<3lbs, battery life important. "
+            "System should recommend ultrabooks optimized for travel."
+        ),
+    },
+    {
+        "id": 206, "group": "multi_constraint",
+        "label": "GPU + RAM + budget for ML",
+        "message": "Machine learning workstation laptop: RTX 4060 or better, 32GB RAM minimum, budget $2000",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": ["budget", "min_ram_gb"],
+        "hard_budget_usd": 2000,
+        "quality_note": (
+            "High-spec ML workstation: GPU >= RTX 4060, RAM >= 32GB, budget <= $2000. "
+            "All three spec constraints should be reflected in recommendations."
+        ),
+    },
+    {
+        "id": 207, "group": "multi_constraint",
+        "label": "No HP + no refurbished + under $700",
+        "message": "I need a new (not refurbished) laptop under $700, nothing from HP",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": ["HP"],
+        "expect_filters": ["budget"],
+        "hard_budget_usd": 700,
+        "quality_note": (
+            "Two exclusions (HP brand, refurbished condition) plus budget constraint. "
+            "HP must be excluded. Only new/retail products. Budget hard limit $700."
+        ),
+    },
+    {
+        "id": 208, "group": "multi_constraint",
+        "label": "SSD + brand + budget combo",
+        "message": "Dell or Lenovo laptop with SSD storage under $900",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": ["Apple", "HP", "ASUS"],
+        "expect_filters": ["budget"],
+        "hard_budget_usd": 900,
+        "quality_note": (
+            "Brand restricted to Dell or Lenovo, storage type SSD required, budget <= $900. "
+            "Non-Dell/Lenovo brands should not appear."
+        ),
+    },
+    {
+        "id": 209, "group": "multi_constraint",
+        "label": "Screen size + use-case + budget",
+        "message": "Need a 17-inch laptop for video editing, my budget is $1500",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": ["budget"],
+        "hard_budget_usd": 1500,
+        "quality_note": (
+            "Large screen (17-inch), creative use-case (video editing), and budget constraint. "
+            "System should prioritize display quality and GPU for creative work."
+        ),
+    },
+    {
+        "id": 210, "group": "multi_constraint",
+        "label": "Four simultaneous constraints",
+        "message": "ASUS laptop under $800 with 16GB RAM and 512GB SSD or larger",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": ["Apple", "Dell", "HP", "Lenovo"],
+        "expect_filters": ["brand", "budget", "min_ram_gb"],
+        "hard_budget_usd": 800,
+        "quality_note": (
+            "Four constraints: brand=ASUS, budget<=$800, RAM>=16GB, storage>=512GB. "
+            "All must be enforced. Non-ASUS results are a hard failure."
+        ),
+    },
+
+    # -------------------------------------------------------------------------
+    # GROUP: preference_discovery (IDs 211–218)
+    # Vague queries requiring elicitation
+    # -------------------------------------------------------------------------
+    {
+        "id": 211, "group": "preference_discovery",
+        "label": "Generic laptop request with no constraints",
+        "message": "I need a laptop",
+        "expect_recs_on_first": False,
+        "expect_question": True,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Completely underspecified query. System should ask a targeted clarifying question "
+            "about use-case or budget rather than immediately recommending."
+        ),
+    },
+    {
+        "id": 212, "group": "preference_discovery",
+        "label": "Purpose-only query without budget",
+        "message": "I need something for school",
+        "expect_recs_on_first": False,
+        "expect_question": True,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Use-case is given (school) but budget and specs are missing. "
+            "System should ask about budget or key preferences before recommending."
+        ),
+    },
+    {
+        "id": 213, "group": "preference_discovery",
+        "label": "Just tell me what's good",
+        "message": "Just show me what's good",
+        "expect_recs_on_first": False,
+        "expect_question": True,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Maximally vague. System should ask at least one clarifying question "
+            "to understand use-case or budget before recommending."
+        ),
+    },
+    {
+        "id": 214, "group": "preference_discovery",
+        "label": "Implicit use-case from context",
+        "message": "My daughter is starting college and needs a computer",
+        "expect_recs_on_first": False,
+        "expect_question": True,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Context suggests student/college use-case but no budget, brand, or specs given. "
+            "System should infer student use-case and ask about budget."
+        ),
+    },
+    {
+        "id": 215, "group": "preference_discovery",
+        "label": "Non-technical user with vague need",
+        "message": "I just need something that doesn't freeze and can run Zoom",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Non-technical user with minimal implicit requirements: basic reliability + video calls. "
+            "System should recommend budget/mid-range laptops without spec jargon."
+        ),
+    },
+    {
+        "id": 216, "group": "preference_discovery",
+        "label": "Budget mentioned vaguely",
+        "message": "I don't want to spend too much — maybe something affordable",
+        "expect_recs_on_first": False,
+        "expect_question": True,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "'Affordable' is ambiguous. System should ask for a specific budget range "
+            "rather than guessing what 'affordable' means for this user."
+        ),
+    },
+    {
+        "id": 217, "group": "preference_discovery",
+        "label": "Gift purchase with no technical knowledge",
+        "message": "I want to buy a laptop as a gift for my husband who works from home",
+        "expect_recs_on_first": False,
+        "expect_question": True,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Gift purchase — buyer lacks technical knowledge about recipient's needs. "
+            "System should ask about the recipient's work (IT? Creative? General?) and budget."
+        ),
+    },
+    {
+        "id": 218, "group": "preference_discovery",
+        "label": "Replacement laptop with implicit needs",
+        "message": "My old laptop broke, I need a new one for everyday stuff",
+        "expect_recs_on_first": False,
+        "expect_question": True,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "'Everyday stuff' is vague. System should ask about budget or specific tasks "
+            "before recommending. Suggesting general-use laptops is acceptable if also asking."
+        ),
+    },
+
+    # -------------------------------------------------------------------------
+    # GROUP: catalog_exploration (IDs 219–226)
+    # Browsing / 'show me options' intent
+    # -------------------------------------------------------------------------
+    {
+        "id": 219, "group": "catalog_exploration",
+        "label": "Show me all options under $500",
+        "message": "What laptops do you have under $500?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": ["budget"],
+        "hard_budget_usd": 500,
+        "quality_note": (
+            "Browsing request with single hard constraint (budget <= $500). "
+            "System should show a variety of options. All returned items must be <= $500."
+        ),
+    },
+    {
+        "id": 220, "group": "catalog_exploration",
+        "label": "Browse by brand",
+        "message": "Show me all the MacBook options you have",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User wants to browse Apple/MacBook catalog. "
+            "All results should be MacBook/Apple products."
+        ),
+    },
+    {
+        "id": 221, "group": "catalog_exploration",
+        "label": "Show options for a specific use-case",
+        "message": "What do you have for video editing?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Use-case browsing without budget constraint. "
+            "System should show creative/video-editing laptops with relevant spec highlights."
+        ),
+    },
+    {
+        "id": 222, "group": "catalog_exploration",
+        "label": "Explore gaming laptops in a price band",
+        "message": "Show me gaming laptops between $800 and $1200",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": ["budget"],
+        "hard_budget_usd": 1200,
+        "quality_note": (
+            "Price range constraint (not just a ceiling): $800-$1200 gaming laptops. "
+            "Results should be gaming-spec and fall within the specified price band."
+        ),
+    },
+    {
+        "id": 223, "group": "catalog_exploration",
+        "label": "What's the cheapest laptop available",
+        "message": "What's the cheapest laptop you have?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User wants the lowest-priced option available. "
+            "System should return the entry-level laptop in catalog."
+        ),
+    },
+    {
+        "id": 224, "group": "catalog_exploration",
+        "label": "Top-rated laptops in catalog",
+        "message": "What are your top-rated laptops?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User wants high-rated options. System should prioritize rating as ranking signal "
+            "and present results by rating quality."
+        ),
+    },
+    {
+        "id": 225, "group": "catalog_exploration",
+        "label": "Browse ultrabooks category",
+        "message": "Do you have any ultrabooks or thin-and-light laptops?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Category browsing for ultrabooks/thin-light segment. "
+            "System should return lightweight, portable laptops."
+        ),
+    },
+    {
+        "id": 226, "group": "catalog_exploration",
+        "label": "Show laptops with specific GPU",
+        "message": "I want to see laptops with RTX 4070 or RTX 4080",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Specific GPU requirement browsing. "
+            "System should show laptops with RTX 4070 or 4080; highlight GPU in recommendations."
+        ),
+    },
+
+    # -------------------------------------------------------------------------
+    # GROUP: comparison_direct (IDs 227–232)
+    # Direct product-vs-product comparison requests
+    # -------------------------------------------------------------------------
+    {
+        "id": 227, "group": "comparison_direct",
+        "label": "MacBook vs Lenovo ThinkPad comparison",
+        "message": "How does the MacBook Air compare to the Lenovo ThinkPad X1 Carbon?",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Named product comparison request. System should provide attribute-grounded comparison "
+            "(performance, weight, battery, price) sourced from product database, not hallucinated."
+        ),
+    },
+    {
+        "id": 228, "group": "comparison_direct",
+        "label": "Compare by price vs performance",
+        "message": "Which one gives me the best performance for the price?",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Value/price-performance comparison of previously shown products. "
+            "System should compute or reason about performance-per-dollar using actual specs."
+        ),
+    },
+    {
+        "id": 229, "group": "comparison_direct",
+        "label": "Compare two products shown",
+        "message": "Compare options 1 and 3 for me",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Ordinal reference comparison — products 1 and 3 from last recommendation. "
+            "System must resolve ordinal references from session context, not ask the user to name them."
+        ),
+    },
+    {
+        "id": 230, "group": "comparison_direct",
+        "label": "Compare Dell vs HP for an office user",
+        "message": "For office work, is Dell or HP generally better?",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Brand-level comparison for a specific use-case. "
+            "System should provide a reasoned comparison, ideally with specific product examples."
+        ),
+    },
+    {
+        "id": 231, "group": "comparison_direct",
+        "label": "Differences between Windows and Mac for work",
+        "message": "What's the difference between getting a Windows laptop vs a Mac for remote work?",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Platform comparison for a specific use-case. "
+            "System should explain practical differences and recommend both options."
+        ),
+    },
+    {
+        "id": 232, "group": "comparison_direct",
+        "label": "Gaming laptop A vs B — frame-rate focus",
+        "message": "Between those gaming laptops, which one will give me higher FPS in games?",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Performance-specific comparison (FPS/gaming). "
+            "System should reference GPU specs from database to make the comparison, not guess."
+        ),
+    },
+
+    # -------------------------------------------------------------------------
+    # GROUP: post_rec_refine (IDs 233–239)
+    # Refinement after initial recommendations
+    # -------------------------------------------------------------------------
+    {
+        "id": 233, "group": "post_rec_refine",
+        "label": "Cheaper option after seeing results",
+        "message": "Those are too expensive. Show me something cheaper.",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": ["budget"],
+        "quality_note": (
+            "Post-recommendation budget refinement. System should lower the price threshold "
+            "and re-search while preserving other active constraints."
+        ),
+    },
+    {
+        "id": 234, "group": "post_rec_refine",
+        "label": "Change brand preference after seeing results",
+        "message": "Actually I'd prefer Apple. Can you show me Macs instead?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Brand pivot in post-recommendation refinement. System should switch brand filter to Apple "
+            "and return MacBook options, preserving other active constraints (budget, use-case)."
+        ),
+    },
+    {
+        "id": 235, "group": "post_rec_refine",
+        "label": "Add a spec requirement after seeing results",
+        "message": "I also need at least 1TB storage. Can you narrow those down?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Refinement adding new spec constraint (storage >= 1TB). "
+            "System should add storage filter and re-search with all existing constraints preserved."
+        ),
+    },
+    {
+        "id": 236, "group": "post_rec_refine",
+        "label": "More options in same budget",
+        "message": "Can you show me more options in the same price range?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User wants more variety without changing constraints. "
+            "System should return additional results with same filters, avoiding repeating already-shown products."
+        ),
+    },
+    {
+        "id": 237, "group": "post_rec_refine",
+        "label": "Exclude a brand from results shown",
+        "message": "None of the HP ones — I've had bad luck with them. Show me the others.",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": ["HP"],
+        "expect_filters": [],
+        "quality_note": (
+            "Post-recommendation brand exclusion. System must add HP to excluded_brands "
+            "and re-search. No HP products should appear in results or future turns."
+        ),
+    },
+    {
+        "id": 238, "group": "post_rec_refine",
+        "label": "Ask for lighter options after seeing heavy ones",
+        "message": "These all look pretty heavy. Do you have any lighter ones?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Weight refinement after seeing initial results. "
+            "System should prioritize lighter laptops while preserving other active constraints."
+        ),
+    },
+    {
+        "id": 239, "group": "post_rec_refine",
+        "label": "Revert to earlier preference",
+        "message": "Actually, forget the Mac preference — any brand is fine",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "User is removing a previously stated brand constraint. "
+            "System should remove brand filter and re-search across all brands."
+        ),
+    },
+
+    # -------------------------------------------------------------------------
+    # GROUP: trust_edge_cases (IDs 240–245)
+    # Impossible/contradictory constraints; edge cases
+    # -------------------------------------------------------------------------
+    {
+        "id": 240, "group": "trust_edge_cases",
+        "label": "Contradictory OS requirement",
+        "message": "I need a MacBook but with Windows 11 pre-installed",
+        "expect_recs_on_first": False,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Contradictory requirement: MacBook hardware only runs macOS natively. "
+            "System should flag the contradiction and ask for clarification "
+            "(is the brand preference or OS requirement the hard constraint?)."
+        ),
+    },
+    {
+        "id": 241, "group": "trust_edge_cases",
+        "label": "Impossible spec for price",
+        "message": "I need a laptop with RTX 4090 mobile under $300",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": ["budget"],
+        "expect_disclosure": True,
+        "hard_budget_usd": 300,
+        "quality_note": (
+            "No laptop with RTX 4090 mobile exists under $300 in any catalog. "
+            "System must disclose this impossibility and not hallucinate a compliant product."
+        ),
+    },
+    {
+        "id": 242, "group": "trust_edge_cases",
+        "label": "Request for out-of-stock specific model",
+        "message": "I specifically want the ASUS ROG Zephyrus G16 2024",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Named model request. If the exact model isn't in catalog, system must say so "
+            "and offer alternatives — not fabricate a matching product."
+        ),
+    },
+    {
+        "id": 243, "group": "trust_edge_cases",
+        "label": "Exclude all known brands",
+        "message": "I don't want Dell, HP, Lenovo, ASUS, Apple, or Acer. What else do you have?",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": ["Dell", "HP", "Lenovo", "ASUS", "Apple", "Acer"],
+        "expect_filters": [],
+        "quality_note": (
+            "User excludes all major brands. System should return whatever remains in catalog "
+            "(MSI, Razer, Samsung, etc.) or honestly disclose limited options."
+        ),
+    },
+    {
+        "id": 244, "group": "trust_edge_cases",
+        "label": "Price floor that eliminates catalog",
+        "message": "I only buy premium laptops. Nothing under $3000.",
+        "expect_recs_on_first": True,
+        "expect_question": False,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Unusual price floor constraint (minimum price $3000). "
+            "If catalog has no options >= $3000, system must disclose this limitation honestly."
+        ),
+    },
+    {
+        "id": 245, "group": "trust_edge_cases",
+        "label": "Contradictory brand + exclusion combo",
+        "message": "I need a MacBook but I absolutely hate Apple products",
+        "expect_recs_on_first": False,
+        "expect_question": True,
+        "must_not_contain_brands": [],
+        "expect_filters": [],
+        "quality_note": (
+            "Direct contradiction: MacBook is an Apple product; user says they hate Apple. "
+            "System should flag the contradiction and ask for clarification."
+        ),
+    },
 ]
 
 
