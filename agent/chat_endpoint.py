@@ -1777,15 +1777,55 @@ async def _handle_post_recommendation(
                     )
 
             # ------------------------------------------------------------------
-            # Narrative cache: keyed on sorted product IDs (TTL 10 min).
+            # Narrative cache: keyed on sorted product IDs + specs hash (TTL 10 min).
             # Same products → same narrative → instant on repeat clicks.
+            # Scenario 3 fix: Include specs hash in cache key for Cache Busting.
+            # Different domains extract different specs for accurate cache invalidation.
             # ------------------------------------------------------------------
-            import hashlib as _hashlib
-            _sorted_pid_str = ":".join(sorted(
-                str(p.get("id") or p.get("product_id", "")) for p in products
-            ))
-            # v3: bumped to invalidate old verbose 2-3 sentence Pros/Cons entries (now 1 sentence each)
-            _narr_cache_key = f"narrative:v3:{_hashlib.md5(_sorted_pid_str.encode()).hexdigest()}"
+            import hashlib as _hashlib, json as _json
+            
+            # Sort products first to ensure consistent order regardless of input order
+            _sorted_products = sorted(products, key=lambda p: str(p.get("id") or p.get("product_id", "")))
+            
+            _sorted_pid_str = ":".join(str(p.get("id") or p.get("product_id", "")) for p in _sorted_products)
+            
+            def _extract_specs_for_hash(product, domain):
+                attrs = product.get("attributes", {}) or {}
+                if isinstance(attrs, str):
+                    try:
+                        attrs = _json.loads(attrs)
+                    except:
+                        attrs = {}
+                
+                if domain == "laptops":
+                    return {
+                        "ram_gb": product.get("ram_gb") or attrs.get("ram_gb"),
+                        "storage_gb": product.get("storage_gb") or attrs.get("storage_gb"),
+                        "screen_size": product.get("screen_size") or attrs.get("screen_size"),
+                        "cpu": product.get("cpu") or product.get("processor") or attrs.get("cpu"),
+                        "gpu": product.get("gpu") or attrs.get("gpu"),
+                    }
+                elif domain == "vehicles":
+                    return {
+                        "year": product.get("year") or attrs.get("year"),
+                        "mileage": product.get("mileage") or attrs.get("mileage"),
+                    }
+                elif domain == "books":
+                    return {
+                        "author": product.get("author") or attrs.get("author"),
+                        "pages": product.get("pages") or attrs.get("pages"),
+                        "isbn": product.get("isbn") or attrs.get("isbn"),
+                    }
+                else:
+                    return {
+                        "brand": product.get("brand") or attrs.get("brand"),
+                    }
+            
+            _specs_list = [_extract_specs_for_hash(p, active_domain) for p in _sorted_products]
+            _specs_str = _json.dumps(_specs_list, sort_keys=True)
+            _specs_hash = _hashlib.md5(_specs_str.encode()).hexdigest()[:8]
+            # v4: includes specs hash to invalidate when product specs change (Scenario 3)
+            _narr_cache_key = f"narrative:v4:{_hashlib.md5(_sorted_pid_str.encode()).hexdigest()}:{_specs_hash}"
             narrative: str = ""
             try:
                 from app.cache import cache_client as _cc_narr
@@ -4134,11 +4174,12 @@ async def _search_ecommerce_products(
     # ── Agent-side search cache (Redis) ──────────────────────────────────────
     # The MCP HTTP cache only fires when accessed via HTTP; direct store calls
     # bypass it.  We cache here too so repeated identical searches skip Supabase.
+    # Layered Freshness Check is built into get_search_results() - returns None if stale.
     _excl_key = ",".join(sorted(exclude_ids)) if exclude_ids else ""
     _cache_key = _cc.make_search_key(
         {**search_filters, "_excl": _excl_key}, category, page=1, limit=limit
     )
-    _cached = _cc.get_search_results(_cache_key)
+    _cached = _cc.get_search_results(_cache_key, freshness_check=True)
     if _cached is not None:
         logger.info("search_ecommerce_cache_hit", f"Agent search cache HIT ({len(_cached)} items)", {})
         product_dicts = _cached

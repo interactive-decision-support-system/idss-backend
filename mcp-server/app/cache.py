@@ -253,14 +253,119 @@ class CacheClient:
         raw = json.dumps({"f": stable_filters, "c": category, "p": page, "l": limit}, sort_keys=True)
         return f"search:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
 
-    def get_search_results(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
-        """Get cached search results. Returns None on miss."""
+    def get_search_results(self, cache_key: str, freshness_check: bool = False) -> Optional[List[Dict[str, Any]]]:
+        """Get cached search results. Returns None on miss or stale.
+        
+        If freshness_check=True, performs Layered Freshness Check + Read-Repair:
+        
+        PRICE:
+        - Drift >10% → bypass cache (return None)
+        - Drift ≤10% → read-repair with live price
+        
+        INVENTORY (with safe buffer):
+        - inventory = 0 → bypass cache
+        - cached >10 but live ≤10 AND drift >10% → bypass cache
+        - All other cases → read-repair with live inventory
+        
+        Default is False for backward compatibility. Enable for production
+        use cases where data freshness is critical (Scenario 1 & 2).
+        """
         key = self._key(cache_key)
         try:
             cached = self.client.get(key)
-            if cached:
-                return json.loads(cached)
-            return None
+            if not cached:
+                return None
+            
+            results = json.loads(cached)
+            if not results or not freshness_check:
+                return results
+            
+            # Layered Freshness Check & Read-Repair
+            try:
+                product_ids = [p.get("product_id") or p.get("id", "") for p in results]
+                
+                # Only build keys for valid product IDs
+                valid_pids = [pid for pid in product_ids if pid]
+                if not valid_pids:
+                    return results
+                
+                # Optimization: Single MGET for both price and inventory (1 roundtrip)
+                price_keys = [self._key(f"price:{pid}") for pid in product_ids]
+                inventory_keys = [self._key(f"inventory:{pid}") for pid in product_ids]
+                
+                # Combine all keys into one list and fetch in a single call
+                all_keys = price_keys + inventory_keys
+                all_values = self.client.mget(all_keys)
+                
+                # Split results back into price and inventory
+                n = len(product_ids)
+                live_prices_raw = all_values[:n]
+                live_inventory_raw = all_values[n:]
+                
+                for i, product in enumerate(results):
+                    pid = product_ids[i]
+                    if not pid:
+                        continue
+                    
+                    cached_price = float(product.get("price", 0) or 0)
+                    cached_inventory = product.get("inventory")
+                    
+                    # Check price drift (Price Drift)
+                    live_price = None
+                    if live_prices_raw[i]:
+                        try:
+                            live_price_data = json.loads(live_prices_raw[i])
+                            live_price = float(live_price_data.get("price_cents", 0)) / 100
+                        except Exception:
+                            pass
+                    
+                    if live_price is not None and cached_price > 0:
+                        price_diff_pct = abs(live_price - cached_price) / cached_price
+                        
+                        if price_diff_pct > 0.10:
+                            # Fatal drift: bypass cache (synchronous)
+                            return None
+                        elif live_price != cached_price:
+                            # Minor drift: read-repair - update with live price
+                            product["price"] = live_price
+                            if "price_cents" in product:
+                                product["price_cents"] = int(live_price * 100)
+                    
+                    # Check inventory (Inventory Drift with Safe Buffer)
+                    # - Above safe water level (>10 units) → safe
+                    # - Below safe water level but within 10% drift → safe (read-repair)
+                    # - Below safe water level AND drift >10% → bypass
+                    # - inventory = 0 → bypass
+                    INVENTORY_SAFE_BUFFER = 10
+                    live_inventory = None
+                    if live_inventory_raw[i]:
+                        try:
+                            live_inv_data = json.loads(live_inventory_raw[i])
+                            live_inventory = int(live_inv_data.get("available_qty", 0))
+                        except Exception:
+                            pass
+                    
+                    if live_inventory is not None:
+                        cached_inv = cached_inventory if cached_inventory is not None else 0
+                        # Fatal: out of stock
+                        if live_inventory == 0 and cached_inv != 0:
+                            return None
+                        # Fatal: below safe buffer AND drift >10%
+                        if cached_inv > INVENTORY_SAFE_BUFFER and live_inventory <= INVENTORY_SAFE_BUFFER:
+                            drift_pct = abs(live_inventory - cached_inv) / cached_inv if cached_inv > 0 else 1.0
+                            if drift_pct > 0.10:
+                                return None
+                        # Minor drift: read-repair
+                        if live_inventory != cached_inv:
+                            product["inventory"] = live_inventory
+                            product["available_qty"] = live_inventory
+                            
+            except Exception as e:
+                # On freshness check error, return cached data (fail open)
+                print(f"Freshness check error: {e}")
+                pass
+            
+            return results
         except Exception as e:
             print(f"Search cache read error for {key}: {e}")
             return None
