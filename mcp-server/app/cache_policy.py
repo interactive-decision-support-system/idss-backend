@@ -87,12 +87,40 @@ is needed for normal operation. Invalidation methods exist for:
 #   a virtual-storage computer." IBM Systems Journal, 5(2), 78-101.
 #
 
+# ---------------------------------------------------------------------------
+# Cache Coherence Contract
+# ---------------------------------------------------------------------------
+# TTL values satisfy a strict hierarchy to prevent stale cross-data errors:
+#
+#   INVENTORY_TTL (30s) < PRICE_TTL (60s) < PRODUCT_SUMMARY_TTL (300s)
+#
+# Reasoning:
+#   - Inventory is most volatile (flash sales, stock-outs): shortest TTL.
+#   - Price changes less often but is correctness-critical for purchases: 60s.
+#   - Product metadata (specs, images) changes rarely: 300s acceptable.
+#
+# NARRATIVE_TTL (LLM-generated descriptions):
+#   Must NOT exceed PRICE_TTL. A cached narrative may quote a specific price
+#   ("priced at $999"). If price drops to $799 before the narrative expires,
+#   users see stale pricing in the recommendation text.
+#   Rule: NARRATIVE_TTL ≤ PRICE_TTL.
+#
+# CHECKOUT PATH:
+#   Checkout ALWAYS reads price and inventory directly from PostgreSQL.
+#   Cache is never consulted for transactional operations. This is the safety
+#   guarantee that allows TTL-based expiry rather than write-through invalidation.
+# ---------------------------------------------------------------------------
+
 # TTL constants (seconds) — used by cache.py via env vars
 DEFAULT_TTL_PRODUCT_SUMMARY = 300   # 5 minutes
 DEFAULT_TTL_PRICE = 60              # 1 minute
 DEFAULT_TTL_INVENTORY = 30          # 30 seconds
 DEFAULT_TTL_SEARCH = 300            # 5 minutes
 DEFAULT_TTL_SESSION = 3600          # 1 hour
+
+# Narrative TTL: LLM-generated text may quote prices, so it must expire with
+# the price data — not outlive it. Set equal to PRICE_TTL.
+DEFAULT_TTL_NARRATIVE = DEFAULT_TTL_PRICE  # 60 seconds (= PRICE_TTL)
 
 # Adaptive TTL tier thresholds
 POPULARITY_HOT_THRESHOLD = 10      # ≥10 accesses → hot tier

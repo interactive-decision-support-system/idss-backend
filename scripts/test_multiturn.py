@@ -424,6 +424,44 @@ TESTS: List[Dict[str, Any]] = [
         "excluded_must_be_gone": [],
         "expected_type_last": "recommendations",
     },
+
+    # ── 16. Q4 Scenario A — stale price filter overwrite ($800 → $600) ───────
+    # Nino issue #27: agent stated $800 budget, user corrects to $600.
+    # The new price MUST overwrite the old one — not accumulate alongside it.
+    # A stale $800 price_max_cents co-existing with a new $600 value fails this test.
+    {
+        "id": 16,
+        "name": "Q4-A: Stale price overwrite — $800 → $600 downgrade",
+        "description": (
+            "T1: gaming laptop, budget $800. "
+            "T2: 'make it $600 max'. "
+            "After T2, price_max_cents must be ≤ 60000 (not 80000). "
+            "Tests that process_refinement() clears the old budget key before setting the new one."
+        ),
+        "turns": [
+            "I need a gaming laptop, budget around $800",
+            "Actually, make it $600 max please",
+        ],
+        "check_after_turn": {
+            1: {
+                # After T1: budget must be captured (any value)
+                "expected_filters": {"budget": "present"},
+            },
+            2: {
+                # After T2: budget must still be present AND updated downward
+                "expected_filters": {"budget": "present"},
+                # Strict price ceiling check: must be ≤ 60000 cents ($600)
+                # This catches the stale-price bug where both $800 and $600 coexist
+                "check_price_max_cents_lte": 60000,
+            },
+        },
+        "expected_filters": {"budget": "present"},
+        "expected_exclusions": [],
+        "excluded_must_be_gone": [],
+        # Strict final-turn check: price_max_cents must be ≤ 60000
+        "expected_price_max_cents_lte": 60000,
+        "expected_type_last": "recommendations",
+    },
 ]
 
 
@@ -509,6 +547,40 @@ def _check_exclusions(
             missing.append(brand)
     ratio = len(found) / len(expected_excluded) if expected_excluded else 1.0
     return ratio, found, missing
+
+
+def _check_price_max_cents_lte(ceiling_cents: int, filters: Dict[str, Any]) -> Tuple[bool, str]:
+    """Verify that the current price_max_cents is at or below ceiling_cents.
+
+    Returns (passed, note_string).
+    Used for Q4-A stale price detection: if price_max_cents is ABOVE the new
+    stated ceiling it means the old value was not cleared on update.
+
+    Checks both 'price_max_cents' and 'price' (dollars) keys to handle
+    different response formats.
+    """
+    # Try cents key first
+    actual = filters.get("price_max_cents")
+    if actual is not None:
+        try:
+            val = int(actual)
+            if val <= ceiling_cents:
+                return True, f"✓ price_max_cents={val} ≤ {ceiling_cents}"
+            return False, f"✗ stale price: price_max_cents={val} > ceiling {ceiling_cents}"
+        except (ValueError, TypeError):
+            pass
+    # Fall back to dollar price key
+    actual_dollars = filters.get("price")
+    if actual_dollars is not None:
+        try:
+            val_cents = int(float(actual_dollars) * 100)
+            if val_cents <= ceiling_cents:
+                return True, f"✓ price={actual_dollars} → {val_cents} cents ≤ {ceiling_cents}"
+            return False, f"✗ stale price: price={actual_dollars} → {val_cents}c > ceiling {ceiling_cents}"
+        except (ValueError, TypeError):
+            pass
+    # Key absent — budget not yet set; treat as pass (absence ≠ stale)
+    return True, f"price_max_cents not in filters (not yet set)"
 
 
 def _check_brand_gone(
@@ -631,6 +703,15 @@ async def run_test(
                         f"T{turn_idx} brand correctly un-excluded: {check_spec['excluded_must_be_gone']}"
                     )
 
+            if "check_price_max_cents_lte" in check_spec:
+                # Q4-A stale-price check: price ceiling must not exceed the new stated value
+                price_ok, price_note = _check_price_max_cents_lte(
+                    check_spec["check_price_max_cents_lte"], filters
+                )
+                if not price_ok:
+                    icheck["passed"] = False
+                icheck["notes"].append(f"T{turn_idx} price ceiling: {price_note}")
+
             intermediate_results.append(icheck)
 
     # ── Final-turn scoring (deterministic) ─────────────────────────────────
@@ -665,10 +746,21 @@ async def run_test(
         type_score = 0.0
         type_note  = f"✗ expected type={exp_type!r}, got {got_type!r}"
 
+    # Q4-A stale-price final check: if test specifies expected_price_max_cents_lte,
+    # verify the final price ceiling is at or below that value.
+    price_max_ok = True
+    price_max_note = ""
+    if "expected_price_max_cents_lte" in test:
+        price_max_ok, price_max_note = _check_price_max_cents_lte(
+            test["expected_price_max_cents_lte"], final_filters
+        )
+
     # Compute final score — equal weight on applicable dimensions
     scores: List[float] = [filt_ratio, excl_ratio]
     if not brand_gone_ok:
         scores.append(0.0)   # mind-change failure
+    if not price_max_ok:
+        scores.append(0.0)   # stale price bug
     if type_score is not None:
         scores.append(type_score)
     final_score = round(sum(scores) / len(scores), 4) if scores else 1.0
@@ -692,6 +784,9 @@ async def run_test(
         notes.append(f"✗ brand should be removed but still excluded: {brand_still_present}")
     elif test.get("excluded_must_be_gone"):
         notes.append(f"✓ brand correctly removed from exclusions: {test['excluded_must_be_gone']}")
+
+    if price_max_note:
+        notes.append(price_max_note)
 
     notes.append(type_note)
 

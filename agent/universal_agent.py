@@ -280,10 +280,12 @@ def _detect_excluded_brands(message: str) -> List[str]:
     """
     # Enhanced pattern: covers direct, indirect, and multi-word exclusion phrases.
     # Additions over v1: steer clear of, bad/terrible experience with, exclude, without.
+    # Character class includes comma/semicolon so comma-separated lists like
+    # "no HP, Acer, or Dell" are captured as one group and split below.
     _excl_kw_pat = re.compile(
         r'(?:no|not|never|anything\s+but|avoid|hate|refuse|skip|exclude|excluded|without|'
         r'steer\s+clear\s+of|bad\s+experience\s+with|terrible\s+experience\s+with)\s+'
-        r'([A-Za-z][A-Za-z0-9\- ]{1,30})',
+        r'([A-Za-z][A-Za-z0-9\-,; ]{1,60})',
         re.IGNORECASE,
     )
     excl_brands: List[str] = []
@@ -291,7 +293,11 @@ def _detect_excluded_brands(message: str) -> List[str]:
         raw_group = _m.group(1).strip()
         parts = re.split(r'\s+(?:or|and|nor)\s+|[,;]\s*', raw_group)
         for part in parts:
-            candidate = part.strip().split()[0] if part.strip() else ""
+            part = part.strip()
+            # Strip leading conjunction artifact — e.g. "or Dell" left after
+            # splitting "Acer, or Dell" on the comma before the "or".
+            part = re.sub(r'^(?:or|and|nor)\s+', '', part, flags=re.IGNORECASE)
+            candidate = part.split()[0] if part else ""
             candidate = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", candidate)
             canon = _canonical_brand(candidate)
             if canon and canon not in excl_brands:
