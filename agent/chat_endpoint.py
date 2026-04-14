@@ -406,6 +406,10 @@ _FAQ_WARRANTY_PATTERNS = (
     "accidental damage", "coffee spill", "spill on it", "spill coffee",
     "water damage", "extended protection", "damage cover",
     "warranty protect",
+    # "Is it worth getting the extended warranty" and similar phrasings
+    "extended warranty", "worth getting the warranty", "worth the warranty",
+    "worth getting a warranty", "is warranty worth", "buy the warranty",
+    "purchase a warranty", "add a warranty", "get a warranty",
 )
 _FAQ_UPGRADE_PATTERNS = (
     # Plain string matches checked first (fast)

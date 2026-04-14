@@ -140,7 +140,7 @@ async def detect_post_rec_intent(message: str) -> str:
         "does the", "is the", "is there", "what's the",
         "what are the", "tell me more", "show me more",
         "show me the", "what model", "which model",
-        "latest model", "newest model", "refurbished",
+        "latest model", "newest model",
     )
     if any(lower.startswith(p) or lower == p for p in _FOLLOWUP_STARTERS):
         return "targeted_qa"
