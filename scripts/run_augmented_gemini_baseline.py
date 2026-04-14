@@ -376,13 +376,19 @@ async def call_augmented_gemini_async(
         text = "[ERROR: not attempted]"
         for attempt in range(5):   # up to 5 attempts on rate-limit errors
             try:
-                response = await gemini_client.aio.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=contents,
-                    config=gen_config,
+                response = await asyncio.wait_for(
+                    gemini_client.aio.models.generate_content(
+                        model=GEMINI_MODEL,
+                        contents=contents,
+                        config=gen_config,
+                    ),
+                    timeout=60,  # 60s per call — prevents indefinite hangs
                 )
                 # response.text is None when the safety filter blocks output
                 text = (response.text or "").strip()
+                break
+            except asyncio.TimeoutError:
+                text = "[ERROR: TIMEOUT — Gemini call exceeded 60s]"
                 break
             except Exception as e:
                 err_str = str(e)
@@ -449,31 +455,39 @@ async def score_gemini_quality_async(
     )
 
     _zero: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
-    try:
-        completion = await oai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": AUGMENTED_JUDGE_SYSTEM},
-                {"role": "user",   "content": prompt},
-            ],
-            temperature=0.1,
-            max_tokens=200,
-        )
-        usage: Dict[str, int] = {
-            "prompt_tokens":     getattr(completion.usage, "prompt_tokens",     0) or 0,
-            "completion_tokens": getattr(completion.usage, "completion_tokens", 0) or 0,
-        }
-        raw = (completion.choices[0].message.content or "").strip()
-        # The judge outputs reasoning followed by a JSON line — take the last JSON line
-        for line in reversed(raw.splitlines()):
-            line = line.strip()
-            if line.startswith("{"):
-                data = json.loads(line)
-                score_10 = float(data.get("score", 5))
-                return max(0.0, min(10.0, score_10)) / 10.0, data.get("reason", ""), usage
-        return 0.5, f"parse error: {raw[-60:]}", _zero
-    except Exception as e:
-        return 0.5, f"judge error: {e}", _zero
+    for _attempt in range(4):
+        try:
+            completion = await oai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": AUGMENTED_JUDGE_SYSTEM},
+                    {"role": "user",   "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=200,
+            )
+            usage: Dict[str, int] = {
+                "prompt_tokens":     getattr(completion.usage, "prompt_tokens",     0) or 0,
+                "completion_tokens": getattr(completion.usage, "completion_tokens", 0) or 0,
+            }
+            raw = (completion.choices[0].message.content or "").strip()
+            # The judge outputs reasoning followed by a JSON line — take the last JSON line
+            for line in reversed(raw.splitlines()):
+                line = line.strip()
+                if line.startswith("{"):
+                    data = json.loads(line)
+                    score_10 = float(data.get("score", 5))
+                    return max(0.0, min(10.0, score_10)) / 10.0, data.get("reason", ""), usage
+            return 0.5, f"parse error: {raw[-60:]}", _zero
+        except Exception as e:
+            err_str = str(e)
+            is_rate_limit = "429" in err_str or "rate_limit" in err_str.lower() or "RateLimitError" in type(e).__name__
+            if is_rate_limit and _attempt < 3:
+                wait = (2 ** _attempt) * 15  # 15s, 30s, 60s
+                await asyncio.sleep(wait)
+                continue
+            return 0.5, f"judge error: {e}", _zero
+    return 0.5, "max retries exceeded", _zero
 
 
 # ── Type score ─────────────────────────────────────────────────────────────
@@ -646,7 +660,12 @@ async def run_augmented_gemini(
             "gemini_text_preview": gemini_text[:300],
         }
 
-    scored = await asyncio.gather(*[score_one(i) for i in range(total)])
+    # Limit concurrent judge calls to 8 to avoid 429 rate-limit bursts
+    _judge_sem = asyncio.Semaphore(8)
+    async def score_one_limited(idx: int) -> Dict:
+        async with _judge_sem:
+            return await score_one(idx)
+    scored = await asyncio.gather(*[score_one_limited(i) for i in range(total)])
     scored = sorted(scored, key=lambda r: r["id"])
     print(f"  Done in {time.perf_counter()-t3:.1f}s\n")
 

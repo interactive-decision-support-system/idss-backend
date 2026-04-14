@@ -3642,36 +3642,45 @@ async def score_quality_async(
     )
 
     _zero_usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
-    try:
-        completion = await oai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": GEVAL_SYSTEM},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.1,
-            max_tokens=400,  # 200 was too low; reasoning alone ~150 tok left <50 for JSON
-        )
-        # Track token usage for cost reporting (gpt-4o-mini: $0.150/1M in, $0.600/1M out)
-        usage: Dict[str, int] = {
-            "prompt_tokens": getattr(completion.usage, "prompt_tokens", 0) or 0,
-            "completion_tokens": getattr(completion.usage, "completion_tokens", 0) or 0,
-        }
-        raw = completion.choices[0].message.content.strip()
-        # JSON now appears first in output; scan forward, skip malformed lines
-        for line in raw.splitlines():
-            line = line.strip()
-            if line.startswith("{"):
-                try:
-                    data = json.loads(line)
-                    if "score" in data:
-                        score_10 = float(data["score"])
-                        return max(0.0, min(10.0, score_10)) / 10.0, data.get("reason", ""), usage
-                except json.JSONDecodeError:
-                    continue
-        return 0.5, f"parse error: {raw[-80:]}", usage
-    except Exception as e:
-        return 0.5, f"scoring error: {e}", _zero_usage
+    # Retry up to 4 times on rate-limit (429) errors; exponential backoff
+    for _attempt in range(4):
+        try:
+            completion = await oai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": GEVAL_SYSTEM},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=400,  # 200 was too low; reasoning alone ~150 tok left <50 for JSON
+            )
+            # Track token usage for cost reporting (gpt-4o-mini: $0.150/1M in, $0.600/1M out)
+            usage: Dict[str, int] = {
+                "prompt_tokens": getattr(completion.usage, "prompt_tokens", 0) or 0,
+                "completion_tokens": getattr(completion.usage, "completion_tokens", 0) or 0,
+            }
+            raw = completion.choices[0].message.content.strip()
+            # JSON now appears first in output; scan forward, skip malformed lines
+            for line in raw.splitlines():
+                line = line.strip()
+                if line.startswith("{"):
+                    try:
+                        data = json.loads(line)
+                        if "score" in data:
+                            score_10 = float(data["score"])
+                            return max(0.0, min(10.0, score_10)) / 10.0, data.get("reason", ""), usage
+                    except json.JSONDecodeError:
+                        continue
+            return 0.5, f"parse error: {raw[-80:]}", usage
+        except Exception as e:
+            err_str = str(e)
+            is_rate_limit = "429" in err_str or "rate_limit" in err_str.lower() or "RateLimitError" in type(e).__name__
+            if is_rate_limit and _attempt < 3:
+                wait = (2 ** _attempt) * 15  # 15s, 30s, 60s
+                await asyncio.sleep(wait)
+                continue
+            return 0.5, f"scoring error: {e}", _zero_usage
+    return 0.5, "max retries exceeded", _zero_usage
 
 
 # ============================================================================
@@ -3956,6 +3965,13 @@ async def run_geval_async(
     all_runs: List[List[Dict]] = []
     phase1_elapsed = 0.0
     phase2_elapsed = 0.0
+    # Limit concurrent judge calls to 8 to avoid 429 rate-limit bursts
+    # (Pay-as-you-go Tier 1: 500 RPM for gpt-4o-mini; 8 concurrent is safe)
+    _judge_sem = asyncio.Semaphore(8)
+
+    async def score_one_limited(item: Dict) -> Dict:
+        async with _judge_sem:
+            return await score_one(item)
 
     for _run_i in range(runs):
         if runs > 1:
@@ -3967,10 +3983,10 @@ async def run_geval_async(
         phase1_elapsed += _elapsed1
         print(f"  Done in {_elapsed1:.1f}s\n")
 
-        # ── Phase 2: Score all responses in parallel ───────────────────────
-        print(f"{CYN}Phase 2/2: Scoring with LLM judge ({len(agent_results)} calls)...{RST}")
+        # ── Phase 2: Score all responses in parallel (rate-limited to 8) ──
+        print(f"{CYN}Phase 2/2: Scoring with LLM judge ({len(agent_results)} calls, ≤8 concurrent)...{RST}")
         _t2 = time.perf_counter()
-        _scored_run = await asyncio.gather(*[score_one(item) for item in agent_results])
+        _scored_run = await asyncio.gather(*[score_one_limited(item) for item in agent_results])
         _elapsed2 = time.perf_counter() - _t2
         phase2_elapsed += _elapsed2
         _scored_run = sorted(_scored_run, key=lambda r: r["id"])
