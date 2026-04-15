@@ -207,6 +207,7 @@ class ProductSummary(BaseModel):
     available_qty: int
     source: Optional[str] = Field(None, description="Platform: WooCommerce, Shopify, Temu, Seed, etc.")
     color: Optional[str] = Field(None, description="Product color (e.g. Silver, Space Gray)")
+    image_url: Optional[str] = Field(None, description="Product image URL — needed for client card rendering")
     scraped_from_url: Optional[str] = Field(None, description="URL or domain scraped from (e.g. mc-demo.mybigcommerce.com). Null for Seed.")
 
     # Product type metadata

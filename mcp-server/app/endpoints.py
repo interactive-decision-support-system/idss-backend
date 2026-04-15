@@ -519,6 +519,12 @@ async def search_products(
                 except (TypeError, ValueError):
                     price_dollars = 0.0
                 price_cents = int(round(price_dollars * 100))
+                _spec_keys = (
+                    "processor", "ram", "storage", "storage_type",
+                    "screen_size", "refresh_rate_hz", "resolution",
+                    "battery_life", "gpu_vendor", "gpu_model",
+                )
+                _meta = {k: p.get(k) for k in _spec_keys if p.get(k) is not None}
                 product_summaries.append(ProductSummary(
                     product_id=str(p.get("product_id") or p.get("id", "")),
                     name=p.get("name") or p.get("title") or "Unknown",
@@ -529,8 +535,10 @@ async def search_products(
                     available_qty=int(p.get("inventory") or p.get("available_qty") or 0),
                     source=p.get("source"),
                     color=p.get("color"),
+                    image_url=p.get("image_url"),
                     scraped_from_url=None,
                     product_type=p.get("product_type"),
+                    metadata=_meta or None,
                     shipping=_SI(shipping_method="standard", estimated_delivery_days=5, shipping_cost_cents=None, shipping_region=None),
                     return_policy="Standard return policy applies.",
                     warranty="Standard manufacturer warranty applies.",
@@ -1978,6 +1986,7 @@ async def search_products(
             available_qty=int(product.inventory or 0),
             source=getattr(product, 'source', None),
             color=getattr(product, 'color', None),
+            image_url=getattr(product, 'image_url', None),
             scraped_from_url=None,
             shipping=shipping_val,
             return_policy=return_policy_val,
