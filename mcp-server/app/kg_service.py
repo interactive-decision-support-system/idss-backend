@@ -108,6 +108,10 @@ class KnowledgeGraphService:
                 params = {"limit": limit, **self._extract_filters(filters or {})}
                 if query and len(query) >= 2:
                     params["q"] = query.lower()[:50]
+                    tokens = self._tokenize_query(query)
+                    if len(tokens) >= 2:
+                        for i, tok in enumerate(tokens):
+                            params[f"q_tok_{i}"] = tok
                 result = session.run(cypher_query, params)
                 
                 product_ids = []
@@ -134,6 +138,25 @@ class KnowledgeGraphService:
             logger.error(f"KG search failed: {e}", exc_info=True)
             return [], {"error": str(e)}
     
+    @staticmethod
+    def _tokenize_query(query: str, max_tokens: int = 12) -> List[str]:
+        """Lowercase, whitespace-split, strip light punctuation, dedupe.
+
+        Only tokens ≥ 2 chars are kept; order is preserved for deterministic
+        Cypher parameter naming ($q_tok_0, $q_tok_1, …). Capped so a pathological
+        input doesn't generate a Cypher query with hundreds of CASE WHENs.
+        """
+        if not query:
+            return []
+        seen: List[str] = []
+        for raw in query.split():
+            t = raw.strip(".,;:!?\"'()[]{}").lower()
+            if len(t) >= 2 and t not in seen:
+                seen.append(t)
+                if len(seen) >= max_tokens:
+                    break
+        return seen
+
     def _build_cypher_query(
         self,
         query: str,
@@ -195,13 +218,27 @@ class KnowledgeGraphService:
                         f"CASE WHEN p.{flag} = true THEN {boost} ELSE 0 END"
                     )
 
-        # Text match is also soft: preferred but not required
+        # Text match is also soft: preferred but not required.
+        # +3 for an exact-phrase substring hit on name/description/subcategory.
+        # For multi-word queries, also give +1 per matched token so a novel
+        # whose description mentions both "fantasy" and "novel" outscores one
+        # that happens to contain just "novel". Single-token queries skip the
+        # per-token layer (it would just duplicate the phrase match).
         if query and len(query) >= 2:
             soft_score_cases.append(
                 "CASE WHEN (toLower(coalesce(p.subcategory, '')) CONTAINS $q OR "
                 "toLower(coalesce(p.name, '')) CONTAINS $q OR "
                 "toLower(coalesce(p.description, '')) CONTAINS $q) THEN 3 ELSE 0 END"
             )
+            tokens = self._tokenize_query(query)
+            if len(tokens) >= 2:
+                for i, _tok in enumerate(tokens):
+                    pname = f"q_tok_{i}"
+                    soft_score_cases.append(
+                        f"CASE WHEN (toLower(coalesce(p.subcategory, '')) CONTAINS ${pname} OR "
+                        f"toLower(coalesce(p.name, '')) CONTAINS ${pname} OR "
+                        f"toLower(coalesce(p.description, '')) CONTAINS ${pname}) THEN 1 ELSE 0 END"
+                    )
 
         if soft_score_cases:
             score_expr = " + ".join(soft_score_cases)

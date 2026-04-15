@@ -103,6 +103,50 @@ def test_build_cypher_query_no_soft_constraints_uses_connectivity():
     svc.close()
 
 
+def test_tokenize_query_basic():
+    """Whitespace-split, lowercased, deduped, ≥2 chars, trailing punctuation stripped."""
+    assert KnowledgeGraphService._tokenize_query("Fantasy Novel") == ["fantasy", "novel"]
+    assert KnowledgeGraphService._tokenize_query("") == []
+    assert KnowledgeGraphService._tokenize_query("a bb a cc") == ["bb", "cc"]
+    assert KnowledgeGraphService._tokenize_query("book, hard-cover!") == ["book", "hard-cover"]
+
+
+def test_tokenize_query_caps_and_dedupes():
+    """Dedup preserves first occurrence; cap prevents pathological expansion."""
+    assert KnowledgeGraphService._tokenize_query("ml ML Ml") == ["ml"]
+    many = " ".join(f"tok{i}" for i in range(30))
+    assert len(KnowledgeGraphService._tokenize_query(many, max_tokens=5)) == 5
+
+
+def test_build_cypher_query_multiword_adds_per_token_cases():
+    """Multi-word query emits one +1 CASE WHEN per token plus the phrase +3."""
+    svc = KnowledgeGraphService(password=None)
+    cypher = svc._build_cypher_query(
+        query="fantasy novel",
+        filters={"category": "Books"},
+        limit=10,
+    )
+    # Phrase-level match still present
+    assert "CONTAINS $q" in cypher
+    # Per-token matches present with deterministic naming
+    assert "CONTAINS $q_tok_0" in cypher
+    assert "CONTAINS $q_tok_1" in cypher
+    svc.close()
+
+
+def test_build_cypher_query_single_token_skips_per_token_layer():
+    """Single-token query → phrase match only; no redundant $q_tok_0 clauses."""
+    svc = KnowledgeGraphService(password=None)
+    cypher = svc._build_cypher_query(
+        query="laptop",
+        filters={"category": "Electronics"},
+        limit=10,
+    )
+    assert "CONTAINS $q" in cypher
+    assert "$q_tok_" not in cypher
+    svc.close()
+
+
 # ---------------------------------------------------------------------------
 # Diversity score helper (no Neo4j required)
 # ---------------------------------------------------------------------------
