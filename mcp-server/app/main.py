@@ -1284,6 +1284,25 @@ async def merchant_search(
     if "category" not in merged_filters and query.domain:
         merged_filters["category"] = query.domain
 
+    # Translate agent slot vocabulary → KG scoring-flag vocabulary. The agent
+    # emits use_cases=["ml"]; the KG boosts good_for_ml=True on Product nodes.
+    # This mapping is merchant scoring policy, not a contract concern, so it
+    # lives here rather than in the StructuredQuery schema.
+    _USE_CASE_FLAG_MAP = {
+        "ml": "good_for_ml",
+        "gaming": "good_for_gaming",
+        "web_dev": "good_for_web_dev",
+        "creative": "good_for_creative",
+        "linux": "good_for_linux",
+    }
+    _use_cases = merged_filters.get("use_cases") or []
+    if isinstance(_use_cases, str):
+        _use_cases = [_use_cases]
+    for _uc in _use_cases:
+        _flag = _USE_CASE_FLAG_MAP.get(str(_uc).lower().strip())
+        if _flag:
+            merged_filters[_flag] = True
+
     # Agent hints via user_context:
     #  - "query": free-text for KG substring matching
     #  - "exclude_ids": products to omit (pagination / "show more" flows)
