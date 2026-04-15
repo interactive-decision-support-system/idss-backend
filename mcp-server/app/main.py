@@ -1244,13 +1244,74 @@ async def api_search_products(
 ):
     """
     Search for products in the catalog.
-    
+
     Tool-call endpoint for product discovery.
     Supports free-text search, structured filters, and pagination.
-    
+
     Returns: List of product summaries with standard response envelope
     """
     return await search_products(request, db)
+
+
+# ---------------------------------------------------------------------------
+# Merchant-agent contract surface (ARCHITECTURE.md step 4)
+# ---------------------------------------------------------------------------
+# /merchant/search speaks StructuredQuery → list[Offer] per ARCHITECTURE.md.
+# For now this is a thin wrapper over the existing search_products handler;
+# the merchant team can refactor internals behind this endpoint freely
+# without touching the shopping agent.
+
+from typing import List as _List
+from app.contract import StructuredQuery, Offer
+
+
+@app.post("/merchant/search", response_model=_List[Offer])
+async def merchant_search(
+    query: StructuredQuery,
+    db: Session = Depends(get_db),
+) -> _List[Offer]:
+    """
+    Merchant-agent entry point. Accepts a StructuredQuery, returns ranked
+    Offers. The shopping agent MUST NOT import anything from mcp-server/app/
+    except `app.contract` — everything else is merchant-internal.
+    """
+    # Map the contract into the legacy SearchProductsRequest. For now both
+    # hard_filters and soft_preferences are merged into the flat `filters`
+    # dict because the internal retrieval stack doesn't yet distinguish
+    # them; the split exists in the contract so merchant scoring can
+    # evolve without agent changes.
+    merged_filters: Dict[str, Any] = {**query.hard_filters, **query.soft_preferences}
+    if "category" not in merged_filters and query.domain:
+        merged_filters["category"] = query.domain
+
+    # Preserve a free-text query hint if the agent passed one via
+    # user_context["query"] — merchants use it for KG text-match scoring.
+    text_query = query.user_context.get("query") if isinstance(query.user_context, dict) else None
+
+    legacy_req = SearchProductsRequest(
+        query=text_query,
+        filters=merged_filters,
+        limit=query.top_k,
+    )
+    resp = await search_products(legacy_req, db)
+
+    merchant_id = os.environ.get("MERCHANT_ID", "default")
+    products = (resp.data.products if resp.data and resp.data.products else [])
+    n = max(len(products), 1)
+    offers: _List[Offer] = []
+    for i, p in enumerate(products):
+        offers.append(Offer(
+            merchant_id=merchant_id,
+            product_id=p.product_id,
+            # Placeholder score: monotone decreasing by server-side rank.
+            # Replace with a real per-signal score when the retrieval stack
+            # exposes one.
+            score=round(1.0 - (i / n), 4),
+            score_breakdown={},
+            product=p,
+            rationale=p.reason or "",
+        ))
+    return offers
 
 
 @app.post("/api/get-product", response_model=GetProductResponse, response_model_exclude_none=True)

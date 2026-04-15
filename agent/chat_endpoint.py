@@ -4230,36 +4230,48 @@ async def _search_ecommerce_products(
         logger.info("search_ecommerce_cache_hit", f"Agent search cache HIT ({len(_cached)} items)", {})
         product_dicts = _cached
     elif os.environ.get("USE_MCP_SEARCH", "1") != "0":
-        # mcp-search path (default): delegate retrieval + KG + hydration to
-        # /api/search-products. The endpoint already runs KG → (vector fallback)
-        # → SQL hydration, so we skip the Python-side KG re-rank below.
+        # Merchant-agent path (default): POST a StructuredQuery to the
+        # merchant's /merchant/search endpoint and unpack the returned
+        # list[Offer]. Per ARCHITECTURE.md this is the ONLY surface the
+        # shopping agent uses — no imports from merchant internals.
         # Set USE_MCP_SEARCH=0 to fall back to the direct-to-Supabase path.
         import httpx
         _mcp_base = os.environ.get("MCP_BASE_URL", "http://localhost:8001").rstrip("/")
         _mcp_query = _build_kg_search_query(filters, category)
-        logger.info("search_ecommerce_start", "Searching products via /api/search-products (mcp-search default)", {
+        # Split today's flat filter dict into hard vs soft per the contract.
+        # Hard = constraints that must be satisfied; soft = preferences the
+        # merchant may score against. Intentionally conservative — if in
+        # doubt, treat as hard. The merchant can re-interpret internally.
+        _soft_keys = {"brand", "color", "subcategory", "style"}
+        _hard_filters = {k: v for k, v in search_filters.items() if k not in _soft_keys}
+        _soft_prefs = {k: search_filters[k] for k in _soft_keys if k in search_filters}
+        _structured_query = {
+            "domain": category,
+            "hard_filters": _hard_filters,
+            "soft_preferences": _soft_prefs,
+            "user_context": {"query": _mcp_query} if _mcp_query else {},
+            "top_k": limit,
+        }
+        logger.info("search_ecommerce_start", "Searching via /merchant/search (StructuredQuery)", {
             "category": category, "filters": search_filters, "query": _mcp_query,
             "n_rows": n_rows, "n_per_row": n_per_row,
         })
         try:
             async with httpx.AsyncClient(timeout=30.0) as _hx:
-                _resp = await _hx.post(
-                    f"{_mcp_base}/api/search-products",
-                    json={"query": _mcp_query, "filters": search_filters, "limit": limit},
-                )
+                _resp = await _hx.post(f"{_mcp_base}/merchant/search", json=_structured_query)
                 _resp.raise_for_status()
-                _mcp_products = (_resp.json().get("data") or {}).get("products") or []
+                _offers = _resp.json() or []
         except Exception as _e:
-            logger.error("mcp_search_failed", f"mcp-search call failed: {_e}", {"error": str(_e)})
-            _mcp_products = []
-        # Adapt MCP ProductSummary → chat-UI product_dict shape expected by
-        # _diversify_by_brand, bucketing, format_product, etc. Keys mirror the
-        # dict produced by SupabaseProductStore._row_to_dict (see
-        # mcp-server/app/tools/supabase_product_store.py:362).
+            logger.error("merchant_search_failed", f"/merchant/search call failed: {_e}", {"error": str(_e)})
+            _offers = []
+        # Adapt Offer.product (ProductSummary) → chat-UI product_dict shape.
+        # Keys mirror SupabaseProductStore._row_to_dict so downstream code
+        # (_diversify_by_brand, bucketing, format_product) works unchanged.
         _exclude_set = set(exclude_ids or [])
         product_dicts = []
-        for _mp in _mcp_products:
-            _pid = str(_mp.get("product_id") or "")
+        for _offer in _offers:
+            _mp = _offer.get("product") or {}
+            _pid = str(_offer.get("product_id") or _mp.get("product_id") or "")
             if not _pid or _pid in _exclude_set:
                 continue
             _meta = _mp.get("metadata") or {}
@@ -4282,7 +4294,9 @@ async def _search_ecommerce_products(
                 "refresh_rate_hz": _meta.get("refresh_rate_hz"),
                 "resolution": _meta.get("resolution"),
                 "battery_life": _meta.get("battery_life"),
-                "reason": _mp.get("reason"),
+                "reason": _offer.get("rationale") or _mp.get("reason"),
+                "_merchant_score": _offer.get("score"),
+                "_merchant_id": _offer.get("merchant_id"),
             })
         _used_mcp_search = True
         if product_dicts:
