@@ -1284,19 +1284,28 @@ async def merchant_search(
     if "category" not in merged_filters and query.domain:
         merged_filters["category"] = query.domain
 
-    # Preserve a free-text query hint if the agent passed one via
-    # user_context["query"] — merchants use it for KG text-match scoring.
-    text_query = query.user_context.get("query") if isinstance(query.user_context, dict) else None
+    # Agent hints via user_context:
+    #  - "query": free-text for KG substring matching
+    #  - "exclude_ids": products to omit (pagination / "show more" flows)
+    _ctx = query.user_context if isinstance(query.user_context, dict) else {}
+    text_query = _ctx.get("query")
+    exclude_ids = list(_ctx.get("exclude_ids") or [])
+    exclude_set = set(exclude_ids)
 
+    # Over-fetch so that after server-side exclusion we can still return
+    # top_k. Cap at the SearchProductsRequest upper bound (100).
+    over_fetch = min(query.top_k + len(exclude_ids), 100)
     legacy_req = SearchProductsRequest(
         query=text_query,
         filters=merged_filters,
-        limit=query.top_k,
+        limit=over_fetch,
     )
     resp = await search_products(legacy_req, db)
 
     merchant_id = os.environ.get("MERCHANT_ID", "default")
-    products = (resp.data.products if resp.data and resp.data.products else [])
+    raw = (resp.data.products if resp.data and resp.data.products else [])
+    # Drop excluded IDs server-side for parity with the direct-Supabase path.
+    products = [p for p in raw if p.product_id not in exclude_set][: query.top_k]
     n = max(len(products), 1)
     offers: _List[Offer] = []
     for i, p in enumerate(products):
@@ -1305,7 +1314,7 @@ async def merchant_search(
             product_id=p.product_id,
             # Placeholder score: monotone decreasing by server-side rank.
             # Replace with a real per-signal score when the retrieval stack
-            # exposes one.
+            # exposes one (tracked in #34).
             score=round(1.0 - (i / n), 4),
             score_breakdown={},
             product=p,

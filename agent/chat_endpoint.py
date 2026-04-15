@@ -4239,17 +4239,29 @@ async def _search_ecommerce_products(
         _mcp_base = os.environ.get("MCP_BASE_URL", "http://localhost:8001").rstrip("/")
         _mcp_query = _build_kg_search_query(filters, category)
         # Split today's flat filter dict into hard vs soft per the contract.
-        # Hard = constraints that must be satisfied; soft = preferences the
-        # merchant may score against. Intentionally conservative — if in
-        # doubt, treat as hard. The merchant can re-interpret internally.
-        _soft_keys = {"brand", "color", "subcategory", "style"}
-        _hard_filters = {k: v for k, v in search_filters.items() if k not in _soft_keys}
-        _soft_prefs = {k: search_filters[k] for k in _soft_keys if k in search_filters}
+        # HARD = explicit constraints (price bounds, category, product_type,
+        # availability). SOFT = everything else (brand, color, subcategory,
+        # material, specs, …) — the merchant decides scoring policy. Making
+        # soft the default keeps unknown slot keys from over-constraining.
+        _HARD_KEYS = {
+            "category", "product_type", "in_stock",
+            "price_min", "price_max", "price_min_cents", "price_max_cents", "budget",
+        }
+        _hard_filters = {k: v for k, v in search_filters.items() if k in _HARD_KEYS}
+        _soft_prefs = {k: v for k, v in search_filters.items() if k not in _HARD_KEYS}
+        _user_ctx: Dict[str, Any] = {}
+        if _mcp_query:
+            _user_ctx["query"] = _mcp_query
+        if exclude_ids:
+            # Server-side exclusion so the merchant returns top_k *after*
+            # exclusion (parity with the direct-Supabase path). Without this,
+            # paginated follow-ups ("show more") return fewer than top_k rows.
+            _user_ctx["exclude_ids"] = list(exclude_ids)
         _structured_query = {
-            "domain": category,
+            "domain": category.lower(),
             "hard_filters": _hard_filters,
             "soft_preferences": _soft_prefs,
-            "user_context": {"query": _mcp_query} if _mcp_query else {},
+            "user_context": _user_ctx,
             "top_k": limit,
         }
         logger.info("search_ecommerce_start", "Searching via /merchant/search (StructuredQuery)", {
