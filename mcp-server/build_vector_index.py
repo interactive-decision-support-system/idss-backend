@@ -12,8 +12,11 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+
 from app.database import SessionLocal
-from app.models import Product, Price, Inventory
+from app.models import Product
 from app.vector_search import UniversalEmbeddingStore
 from pathlib import Path
 
@@ -30,7 +33,7 @@ def build_index():
     try:
         # Get all products
         print("\nLoading products from database...")
-        products = db.query(Product).join(Price).join(Inventory).all()
+        products = db.query(Product).all()
         print(f"   Found {len(products)} products")
         
         if not products:
