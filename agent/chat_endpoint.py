@@ -4225,9 +4225,67 @@ async def _search_ecommerce_products(
         {**search_filters, "_excl": _excl_key}, category, page=1, limit=limit
     )
     _cached = _cc.get_search_results(_cache_key)
+    _used_mcp_search = False
     if _cached is not None:
         logger.info("search_ecommerce_cache_hit", f"Agent search cache HIT ({len(_cached)} items)", {})
         product_dicts = _cached
+    elif os.environ.get("USE_MCP_SEARCH") == "1":
+        # mcp-search path: delegate retrieval + KG + hydration to /api/search-products.
+        # The endpoint already runs KG → (vector fallback) → SQL hydration, so we skip
+        # the Python-side KG re-rank below.
+        import httpx
+        _mcp_base = os.environ.get("MCP_BASE_URL", "http://localhost:8001").rstrip("/")
+        _mcp_query = _build_kg_search_query(filters, category)
+        logger.info("search_ecommerce_start", "Searching products via /api/search-products (USE_MCP_SEARCH=1)", {
+            "category": category, "filters": search_filters, "query": _mcp_query,
+            "n_rows": n_rows, "n_per_row": n_per_row,
+        })
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as _hx:
+                _resp = await _hx.post(
+                    f"{_mcp_base}/api/search-products",
+                    json={"query": _mcp_query, "filters": search_filters, "limit": limit},
+                )
+                _resp.raise_for_status()
+                _mcp_products = (_resp.json().get("data") or {}).get("products") or []
+        except Exception as _e:
+            logger.error("mcp_search_failed", f"mcp-search call failed: {_e}", {"error": str(_e)})
+            _mcp_products = []
+        # Adapt MCP ProductSummary → chat-UI product_dict shape expected by
+        # _diversify_by_brand, bucketing, format_product, etc. Keys mirror the
+        # dict produced by SupabaseProductStore._row_to_dict (see
+        # mcp-server/app/tools/supabase_product_store.py:362).
+        _exclude_set = set(exclude_ids or [])
+        product_dicts = []
+        for _mp in _mcp_products:
+            _pid = str(_mp.get("product_id") or "")
+            if not _pid or _pid in _exclude_set:
+                continue
+            _meta = _mp.get("metadata") or {}
+            product_dicts.append({
+                "id": _pid,
+                "product_id": _pid,
+                "name": _mp.get("name") or "Unknown Product",
+                "title": _mp.get("name") or "Unknown Product",
+                "price": int((_mp.get("price_cents") or 0) / 100),
+                "image_url": _mp.get("image_url"),
+                "category": _mp.get("category"),
+                "product_type": _mp.get("product_type"),
+                "brand": _mp.get("brand"),
+                "color": _mp.get("color"),
+                "processor": _meta.get("processor"),
+                "ram": _meta.get("ram"),
+                "storage": _meta.get("storage"),
+                "storage_type": _meta.get("storage_type"),
+                "screen_size": _meta.get("screen_size"),
+                "refresh_rate_hz": _meta.get("refresh_rate_hz"),
+                "resolution": _meta.get("resolution"),
+                "battery_life": _meta.get("battery_life"),
+                "reason": _mp.get("reason"),
+            })
+        _used_mcp_search = True
+        if product_dicts:
+            _cc.set_search_results(_cache_key, product_dicts, adaptive=True)
     else:
         logger.info("search_ecommerce_start", "Searching products via Supabase (cache miss)", {
             "category": category, "filters": search_filters,
@@ -4250,31 +4308,36 @@ async def _search_ecommerce_products(
             })
             return [], []
 
-        # KG re-ranking (best-effort, non-blocking)
+        # KG re-ranking (best-effort, non-blocking). Skipped when mcp-search
+        # already ran KG inside /api/search-products — in that case results
+        # arrive pre-ranked and re-running KG here is redundant.
         kg_candidate_ids: List[str] = []
-        try:
-            from app.kg_service import get_kg_service
-            kg = get_kg_service()
-            if kg.is_available():
-                kg_filters = {**search_filters}
-                search_query = _build_kg_search_query(filters, category)
-                kg_candidate_ids, _ = kg.search_candidates(
-                    query=search_query, filters=kg_filters, limit=limit,
-                )
-                if kg_candidate_ids and exclude_ids:
-                    exclude_set = set(exclude_ids)
-                    kg_candidate_ids = [p for p in kg_candidate_ids if p not in exclude_set]
-        except Exception as e:
-            logger.warning("kg_search_skipped", f"KG search skipped: {e}", {"error": str(e)})
+        if not _used_mcp_search:
+            try:
+                from app.kg_service import get_kg_service
+                kg = get_kg_service()
+                if kg.is_available():
+                    kg_filters = {**search_filters}
+                    search_query = _build_kg_search_query(filters, category)
+                    kg_candidate_ids, _ = kg.search_candidates(
+                        query=search_query, filters=kg_filters, limit=limit,
+                    )
+                    if kg_candidate_ids and exclude_ids:
+                        exclude_set = set(exclude_ids)
+                        kg_candidate_ids = [p for p in kg_candidate_ids if p not in exclude_set]
+            except Exception as e:
+                logger.warning("kg_search_skipped", f"KG search skipped: {e}", {"error": str(e)})
 
-        # Sort: KG-ranked first, then by price
+        # Sort: KG-ranked first, then by price.
+        # When mcp-search already ranked server-side, preserve that order
+        # and skip the price-based fallback sort.
         if kg_candidate_ids:
             kg_id_to_idx = {pid: i for i, pid in enumerate(kg_candidate_ids)}
             product_dicts.sort(key=lambda p: (
                 (0, kg_id_to_idx[p["id"]]) if p["id"] in kg_id_to_idx
                 else (1, float(p.get("price", 0) or 0))
             ))
-        else:
+        elif not _used_mcp_search:
             product_dicts.sort(key=lambda x: float(x.get("price", 0) or 0))
 
         product_dicts = _diversify_by_brand(product_dicts)
