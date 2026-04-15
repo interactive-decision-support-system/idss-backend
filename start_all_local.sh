@@ -19,6 +19,13 @@ lsof -ti:3000,8001 | xargs kill -9 2>/dev/null
 # Activate Python venv
 source .venv/bin/activate 2>/dev/null || source venv/bin/activate 2>/dev/null
 
+# macOS Python.org builds ship with an empty cert dir; point SSL at certifi's
+# bundle so TLS to Upstash/Supabase/OpenAI validates.
+if [ -z "$SSL_CERT_FILE" ]; then
+  _CERTIFI_BUNDLE="$(python -c 'import certifi; print(certifi.where())' 2>/dev/null)"
+  [ -n "$_CERTIFI_BUNDLE" ] && export SSL_CERT_FILE="$_CERTIFI_BUNDLE"
+fi
+
 # Start MCP server (single process: serves both agent /api/action/* and MCP /ucp/*)
 # Agent sends UCP to MCP over HTTP; default MCP_BASE_URL=http://localhost:8001 points to this server.
 echo "Starting MCP server on :8001 (agent + MCP)..."

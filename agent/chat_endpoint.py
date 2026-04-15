@@ -4229,14 +4229,15 @@ async def _search_ecommerce_products(
     if _cached is not None:
         logger.info("search_ecommerce_cache_hit", f"Agent search cache HIT ({len(_cached)} items)", {})
         product_dicts = _cached
-    elif os.environ.get("USE_MCP_SEARCH") == "1":
-        # mcp-search path: delegate retrieval + KG + hydration to /api/search-products.
-        # The endpoint already runs KG → (vector fallback) → SQL hydration, so we skip
-        # the Python-side KG re-rank below.
+    elif os.environ.get("USE_MCP_SEARCH", "1") != "0":
+        # mcp-search path (default): delegate retrieval + KG + hydration to
+        # /api/search-products. The endpoint already runs KG → (vector fallback)
+        # → SQL hydration, so we skip the Python-side KG re-rank below.
+        # Set USE_MCP_SEARCH=0 to fall back to the direct-to-Supabase path.
         import httpx
         _mcp_base = os.environ.get("MCP_BASE_URL", "http://localhost:8001").rstrip("/")
         _mcp_query = _build_kg_search_query(filters, category)
-        logger.info("search_ecommerce_start", "Searching products via /api/search-products (USE_MCP_SEARCH=1)", {
+        logger.info("search_ecommerce_start", "Searching products via /api/search-products (mcp-search default)", {
             "category": category, "filters": search_filters, "query": _mcp_query,
             "n_rows": n_rows, "n_per_row": n_per_row,
         })
