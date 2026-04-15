@@ -490,71 +490,6 @@ async def search_products(
             version=create_version_info(),
         )
 
-    # Electronics/Books: use Supabase products table (same workflow as chat → agent → UCP → MCP)
-    is_electronics_or_books = (
-        (detected_domain in (Domain.LAPTOPS, Domain.BOOKS))
-        or (filters.get("category") in ("Electronics", "Books"))
-    )
-    if is_electronics_or_books and os.environ.get("SUPABASE_URL"):
-        logger.info("routing_electronics_supabase", "Routing electronics/books search to Supabase products", {"query": request.query})
-        try:
-            from app.tools.supabase_product_store import get_product_store
-            store = get_product_store()
-            search_filters = dict(filters)
-            if "category" not in search_filters:
-                search_filters["category"] = "Electronics" if detected_domain == Domain.LAPTOPS else "Books"
-            if search_filters.get("category") == "Electronics" and "product_type" not in search_filters:
-                search_filters["product_type"] = filters.get("product_type") or "laptop"
-            elif search_filters.get("category") == "Books" and "product_type" not in search_filters:
-                search_filters["product_type"] = "book"
-            db_start = time.time()
-            product_dicts = store.search_products(search_filters, limit=request.limit or 20)
-            db_elapsed = (time.time() - db_start) * 1000
-            from app.schemas import ShippingInfo as _SI
-            product_summaries = []
-            for p in product_dicts:
-                price_raw = p.get("price") or 0
-                try:
-                    price_dollars = float(price_raw)
-                except (TypeError, ValueError):
-                    price_dollars = 0.0
-                price_cents = int(round(price_dollars * 100))
-                _spec_keys = (
-                    "processor", "ram", "storage", "storage_type",
-                    "screen_size", "refresh_rate_hz", "resolution",
-                    "battery_life", "gpu_vendor", "gpu_model",
-                )
-                _meta = {k: p.get(k) for k in _spec_keys if p.get(k) is not None}
-                product_summaries.append(ProductSummary(
-                    product_id=str(p.get("product_id") or p.get("id", "")),
-                    name=p.get("name") or p.get("title") or "Unknown",
-                    price_cents=price_cents,
-                    currency="USD",
-                    category=p.get("category"),
-                    brand=p.get("brand"),
-                    available_qty=int(p.get("inventory") or p.get("available_qty") or 0),
-                    source=p.get("source"),
-                    color=p.get("color"),
-                    image_url=p.get("image_url"),
-                    scraped_from_url=None,
-                    product_type=p.get("product_type"),
-                    metadata=_meta or None,
-                    shipping=_SI(shipping_method="standard", estimated_delivery_days=5, shipping_cost_cents=None, shipping_region=None),
-                    return_policy="Standard return policy applies.",
-                    warranty="Standard manufacturer warranty applies.",
-                    promotion_info=None,
-                ))
-            timings_e = {"db": db_elapsed, "total": (time.time() - start_time) * 1000}
-            return SearchProductsResponse(
-                status=ResponseStatus.OK,
-                data=SearchResultsData(products=product_summaries, total_count=len(product_summaries), next_cursor=None),
-                constraints=[],
-                trace=create_trace(request_id, False, timings_e, ["supabase"]),
-                version=create_version_info(),
-            )
-        except Exception as e:
-            logger.warning("electronics_supabase_search_failed", f"Supabase electronics search failed, falling through: {e}", {"error": str(e)})
-
     # ALWAYS check query specificity, even with category filter
     # Generic queries like "computer" or "novel" should still ask follow-up questions
     # Category filter helps narrow results, but doesn't make generic queries specific
@@ -1145,13 +1080,16 @@ async def search_products(
     kg_explanation = {}
     kg_service = get_kg_service()
     
-    if kg_service.is_available() and effective_search_query and len(effective_search_query) >= 3:
+    # KG uses the raw search_query (not effective_search_query). The latter is
+    # blanked when category+structured filters are present to skip the expensive
+    # ILIKE/vector path — but KG's text match is a cheap Cypher CASE WHEN and
+    # should still run so products matching the text get the relevance boost.
+    _kg_query_text = (normalized_query or search_query or "").strip()
+    if kg_service.is_available() and _kg_query_text and len(_kg_query_text) >= 3:
         try:
             kg_start = time.time()
-            # Use normalized query for KG search (includes typo correction)
-            kg_query = normalized_query if normalized_query else effective_search_query
             kg_candidate_ids, kg_explanation = kg_service.search_candidates(
-                query=kg_query,
+                query=_kg_query_text,
                 filters=filters,
                 limit=request.limit * 2  # Get more candidates for filtering
             )
