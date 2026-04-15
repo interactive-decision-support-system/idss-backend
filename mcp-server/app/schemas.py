@@ -369,6 +369,7 @@ class ProductType(str, Enum):
     VEHICLE = "vehicle"
     LAPTOP = "laptop"
     BOOK = "book"
+    TV = "tv"
     JEWELRY = "jewelry"
     ACCESSORY = "accessory"
     GENERIC = "generic"
@@ -433,6 +434,20 @@ class BookDetails(BaseModel):
     language: str = "English"
     publishedDate: Optional[str] = None
 
+class TVSpecs(BaseModel):
+    screen_size: Optional[str] = None
+    resolution: Optional[str] = None
+    panel_type: Optional[str] = None
+    smart_platform: Optional[str] = None
+
+class TVDetails(BaseModel):
+    productType: str = "tv"
+    specs: TVSpecs = Field(default_factory=TVSpecs)
+    color: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    """Full attributes blob from DB (e.g. Supabase attributes JSONB) for frontend to display all fields."""
+    attributes: Optional[Dict[str, Any]] = None
+
 class RetailListing(BaseModel):
     """Legacy compatibility layer mirroring vehicle listing structure."""
     price: int
@@ -478,6 +493,7 @@ class UnifiedProduct(BaseModel):
     vehicle: Optional[VehicleDetails] = None
     laptop: Optional[LaptopDetails] = None
     book: Optional[BookDetails] = None
+    tv: Optional[TVDetails] = None
     
     # Legacy compatibility
     retailListing: Optional[RetailListing] = None

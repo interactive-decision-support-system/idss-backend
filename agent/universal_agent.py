@@ -112,6 +112,27 @@ _SLOT_NAME_ALIASES: Dict[str, Dict[str, str]] = {
         "type": "genre",
         "book_type": "format",
     },
+    "tvs": {
+        "price": "budget",
+        "price_range": "budget",
+        "max_price": "budget",
+        "cost": "budget",
+        "display_type": "panel_type",
+        "panel": "panel_type",
+        "technology": "panel_type",
+        "display_technology": "panel_type",
+        "size": "screen_size",
+        "display_size": "screen_size",
+        "inches": "screen_size",
+        "tv_size": "screen_size",
+        "platform": "smart_platform",
+        "smart": "smart_platform",
+        "smart_tv_platform": "smart_platform",
+        "excluded_brand": "excluded_brands",
+        "excluded_brand_list": "excluded_brands",
+        "brands_to_exclude": "excluded_brands",
+        "avoid_brands": "excluded_brands",
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -614,6 +635,9 @@ class UniversalAgent:
                     search_filters["use_case"] = value
                 elif domain == "books":
                     search_filters["subcategory"] = value
+                elif domain == "tvs":
+                    # TVs have no good_for_* boolean attributes — use soft preference only
+                    search_filters.setdefault("_soft_preferences", {})["use_case"] = value
                 else:
                     # For electronics/laptops: map to good_for_* boolean attribute
                     use_lower = str(value).lower()
@@ -697,6 +721,12 @@ class UniversalAgent:
 
             elif slot_name == "os":
                 search_filters["os"] = value
+
+            elif slot_name == "panel_type":
+                search_filters["panel_type"] = value
+
+            elif slot_name == "smart_platform":
+                search_filters["smart_platform"] = value
 
             elif slot_name == "product_subtype":
                 # Override product_type with the more-specific user-stated subtype.
@@ -964,6 +994,13 @@ class UniversalAgent:
         "phones": "laptops", "phone": "laptops", "smartphone": "laptops", "smartphones": "laptops",
         "mobile": "laptops", "mobiles": "laptops",
         "iphone": "laptops", "android": "laptops", "pixel": "laptops",
+        # ── TVs / Televisions ─────────────────────────────────────────────────
+        "tv": "tvs", "tvs": "tvs", "television": "tvs", "televisions": "tvs",
+        "oled": "tvs", "qled": "tvs",
+        "roku": "tvs", "firestick": "tvs", "chromecast": "tvs",
+        "webos": "tvs", "tizen": "tvs",
+        # TV-only brands (Samsung/LG/Sony are ambiguous → handled by LLM fallback)
+        "hisense": "tvs", "vizio": "tvs", "tcl": "tvs",
         # ── Books ──────────────────────────────────────────────────────────────
         "books": "books", "book": "books", "reading": "books", "novel": "books",
         "author": "books", "fiction": "books", "nonfiction": "books", "paperback": "books",
@@ -1257,6 +1294,7 @@ class UniversalAgent:
                 # the has_question_mark gate was incorrectly blocking results.
                 _BROWSE_PATTERNS = (
                     "what do you have", "what laptops do you have",
+                    "what tvs do you have", "what televisions do you have",
                     "what books do you have", "what vehicles do you have",
                     "show me all", "show me your", "show me gaming",
                     "show me everything",

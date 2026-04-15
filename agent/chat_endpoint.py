@@ -893,9 +893,9 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
                 question_count=agent_response.get("question_count", 0),
                 agent=agent,
             )
-        elif domain in ("laptops", "books", "phones"):
+        elif domain in ("laptops", "tvs", "books", "phones"):
             category = "Books" if domain == "books" else "electronics"
-            product_type = "book" if domain == "books" else ("phone" if domain == "phones" else "laptop")
+            product_type = {"books": "book", "phones": "phone", "tvs": "tv"}.get(domain, "laptop")
             search_filters["category"] = category
             search_filters["product_type"] = product_type
             # Extract hardware specs (RAM, storage, battery, screen) from user query
@@ -2400,7 +2400,7 @@ async def _handle_post_recommendation(
     # no-results.  Drop ALL restrictive filters (brand, OS, price, specs) and
     # return a broad sample from the category so the user gets SOMETHING.
     # -----------------------------------------------------------------------
-    if msg_lower in ("show me all laptops", "show me all books"):
+    if msg_lower in ("show me all laptops", "show me all tvs", "show me all books"):
         session_manager.add_message(session_id, "user", request.message)
         category = _domain_to_category(active_domain)
         bare_filters = {
@@ -3311,6 +3311,7 @@ async def _search_and_respond_ecommerce(
         message = f"I couldn't find any {domain}{filter_text}. Try adjusting your filters or budget."
         no_results_replies = (
             ["Show me all laptops", "Increase my budget", "Try a different brand"] if domain == "laptops"
+            else ["Show me all TVs", "Increase my budget", "Try a different brand"] if domain == "tvs"
             else ["Show me all books", "Increase my budget", "Try a different genre"] if domain == "books"
             else ["Broaden search", "Different category"]
         )
@@ -3831,6 +3832,7 @@ def _domain_to_category(active_domain: Optional[str]) -> str:
         return "electronics"
     m = {
         "laptops": "electronics",
+        "tvs": "electronics",
         "books": "Books",
     }
     return m.get(active_domain, "electronics")
@@ -4126,6 +4128,9 @@ async def _search_ecommerce_products(
     elif category.lower() == "books" and not filters.get("product_type"):
         filters = {**filters, "product_type": "book"}
 
+    # Ensure domain-specific product_type is set for TV searches
+    # (domain is not directly available here, but product_type should be set by the caller)
+
     # Always set category on the filters so the store can filter correctly
     search_filters = {**filters, "category": category}
 
@@ -4217,7 +4222,13 @@ async def _search_ecommerce_products(
         # bucket-0[0:3] and bucket-1[1:2] when total=2, n_rows=2, n_per_row=3).
         buckets = []
         bucket_labels = []
-        fmt_domain = "books" if category.lower() == "books" else "laptops"
+        # Determine format domain from category and actual product_type in results
+        if category.lower() == "books":
+            fmt_domain = "books"
+        elif filters.get("product_type") == "tv":
+            fmt_domain = "tvs"
+        else:
+            fmt_domain = "laptops"
 
         # Determine whether the result set has a meaningful price spread.
         # "Budget-Friendly / Mid-Range / Premium" labels are only truthful when the

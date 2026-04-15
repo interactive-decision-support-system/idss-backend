@@ -363,7 +363,100 @@ CAMERA_SCHEMA = DomainSchema(
 )
 
 
-# 5. Books Schema
+# 5. TVs Schema
+# DB attribute keys: screen_size (inches int), resolution (str e.g. '3840x2160'),
+# panel_type ('OLED'/'QLED'/'LED'/'Mini LED'), smart_platform ('Google TV'/'Roku'/'webOS'/'Tizen')
+TV_SCHEMA = DomainSchema(
+    domain="tvs",
+    description="Televisions and smart TVs for home entertainment.",
+    slots=[
+        PreferenceSlot(
+            name="budget",
+            display_name="Budget",
+            priority=SlotPriority.HIGH,
+            description="Price range for the TV. Extract as a max price (e.g. '$1000') or a range ('$500-$1500').",
+            example_question="What is your budget?",
+            example_replies=["Under $500", "$500-$1000", "$1000-$2000", "Over $2000"],
+            filter_key="price_max_cents",
+        ),
+        PreferenceSlot(
+            name="use_case",
+            display_name="Primary Use",
+            priority=SlotPriority.HIGH,
+            description=(
+                "What the user will primarily use the TV for. "
+                "Map to one of: 'movies', 'gaming', 'sports', 'general'. "
+                "Used as a soft ranking preference (no boolean flags in DB)."
+            ),
+            example_question="What will you mainly use the TV for?",
+            example_replies=["Movies & shows", "Gaming (PS5/Xbox)", "Sports", "General / a bit of everything"],
+        ),
+        PreferenceSlot(
+            name="screen_size",
+            display_name="Screen Size",
+            priority=SlotPriority.HIGH,
+            description=(
+                "Desired TV screen size in inches. Common sizes: 43, 50, 55, 65, 75, 83. "
+                "Extract the FULL user intent as a string, e.g. 'at least 65', '55 inches', '65-75'. "
+                "DB column: attributes->screen_size (integer inches)."
+            ),
+            example_question="What screen size are you looking for?",
+            example_replies=["43\" (small room)", "55\"", "65\" (most popular)", "75\"+ (large room)"],
+            filter_key="screen_size",
+        ),
+        PreferenceSlot(
+            name="panel_type",
+            display_name="Panel Type",
+            priority=SlotPriority.MEDIUM,
+            description="Display technology preference. OLED = best contrast/blacks, QLED = bright/vibrant, LED = budget-friendly, Mini LED = bright with local dimming.",
+            example_question="Do you have a panel type preference?",
+            example_replies=["OLED", "QLED", "LED (budget)", "No preference"],
+            filter_key="panel_type",
+            allowed_values=["OLED", "QLED", "LED", "Mini LED"],
+        ),
+        PreferenceSlot(
+            name="brand",
+            display_name="Brand",
+            priority=SlotPriority.MEDIUM,
+            description="Preferred TV manufacturer.",
+            example_question="Do you have a preferred brand?",
+            example_replies=["No preference", "Samsung", "LG", "Sony", "TCL"],
+            filter_key="brand",
+            allowed_values=[
+                "Samsung", "LG", "Sony", "TCL", "Hisense",
+                "Roku", "Google", "Vizio", "Philips", "Toshiba",
+            ],
+        ),
+        PreferenceSlot(
+            name="smart_platform",
+            display_name="Smart Platform",
+            priority=SlotPriority.LOW,
+            description=(
+                "Preferred smart TV platform. Extract when user explicitly mentions a platform: "
+                "'Roku TV', 'Google TV', 'webOS', 'Tizen'. "
+                "NEVER ask — only extract when explicitly stated."
+            ),
+            example_question="Do you prefer a specific smart TV platform?",
+            example_replies=["Google TV", "Roku", "No preference"],
+            filter_key="smart_platform",
+            allowed_values=["Google TV", "Roku", "webOS", "Tizen"],
+        ),
+        PreferenceSlot(
+            name="excluded_brands",
+            display_name="Excluded Brands",
+            priority=SlotPriority.LOW,
+            description=(
+                "Brands the user explicitly does NOT want. Extract when user says 'no Samsung', 'not LG', etc. "
+                "Store as comma-separated string. NEVER ask — only extract when explicitly stated."
+            ),
+            example_question="Are there any brands you want to avoid?",
+            example_replies=["No preference"],
+        ),
+    ],
+)
+
+
+# 6. Books Schema
 BOOK_SCHEMA = DomainSchema(
     domain="books",
     description="Fiction and non-fiction books, novels, and literature.",
@@ -407,6 +500,7 @@ BOOK_SCHEMA = DomainSchema(
 DOMAIN_REGISTRY = {
     VEHICLE_SCHEMA.domain: VEHICLE_SCHEMA,
     LAPTOP_SCHEMA.domain: LAPTOP_SCHEMA,
+    TV_SCHEMA.domain: TV_SCHEMA,
     CAMERA_SCHEMA.domain: CAMERA_SCHEMA,
     BOOK_SCHEMA.domain: BOOK_SCHEMA,
     PHONES_SCHEMA.domain: PHONES_SCHEMA,

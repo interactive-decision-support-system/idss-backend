@@ -89,7 +89,7 @@ def rewrite(
     # 1. Accessory / subtype ambiguity check
     accessory_hit = msg_words & _ACCESSORY_KEYWORDS
     spec_hit = msg_words & _SPEC_SIGNALS
-    domain_label = {"laptops": "laptop", "vehicles": "vehicle", "books": "book"}.get(domain, domain)
+    domain_label = {"laptops": "laptop", "vehicles": "vehicle", "books": "book", "tvs": "TV"}.get(domain, domain)
 
     # 1b. Bare vague query check — "best laptop 2024", "good laptop cheap", "laptop"
     # These have no real constraints (no budget, brand, use case, spec).
@@ -104,7 +104,7 @@ def rewrite(
     ]
     # "laptop", "notebook", "chromebook" are domain nouns, not real spec signals —
     # allow them in vague queries (e.g. "best laptop 2024" should be caught as vague).
-    _DOMAIN_NOUNS = frozenset({"laptop", "notebook", "chromebook", "computer", "vehicle", "car", "book"})
+    _DOMAIN_NOUNS = frozenset({"laptop", "notebook", "chromebook", "computer", "vehicle", "car", "book", "tv", "television"})
     _real_spec_hit = spec_hit - _DOMAIN_NOUNS
     _is_bare_vague = (
         len(msg_words) <= 5
@@ -481,6 +481,26 @@ def _commonsense_enrich(message: str, msg_lower: str) -> str:
             " ('fast', 'reliable', 'great battery', 'won\\'t slow down or freeze')."
             " Skip spec lists and abbreviations entirely. Lead with what the user cares about.]"
         )
+
+    # -----------------------------------------------------------------------
+    # TV-specific enrichments
+    # -----------------------------------------------------------------------
+
+    # Gaming (generic or console-specific) → TV gaming use case
+    if re.search(r"\b(gaming|ps5|playstation|xbox|series\s*x|series\s*s|nintendo\s+switch|gaming\s+console)\b", msg_lower):
+        if "use_case" not in enriched:
+            enriched += " [use_case: gaming] [note: look for 120Hz input and VRR/ALLM support for console gaming]"
+
+    # Sports / Super Bowl / watch party
+    if re.search(r"\b(super\s*bowl|world\s*cup|sports\s*bar|watch\s+party|football|basketball|soccer|nfl|nba)\b", msg_lower):
+        if "use_case" not in enriched:
+            enriched += " [use_case: sports] [note: prioritize motion handling and screen size for sports viewing]"
+
+    # Room size → screen size guidance
+    if re.search(r"\b(living\s+room|family\s+room|large\s+room|big\s+room)\b", msg_lower):
+        enriched += " [note: for a living room or large room, 55\" to 75\" is ideal viewing size]"
+    elif re.search(r"\b(bedroom|small\s+room|dorm|office|kitchen)\b", msg_lower):
+        enriched += " [note: for a bedroom or small room, 32\" to 50\" is ideal viewing size]"
 
     # Uncertain brand mentions with "?" or "or something" — still extract the brand
     # e.g. "thinkpad? or something" should still be treated as brand=ThinkPad

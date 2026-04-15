@@ -10,7 +10,7 @@ independently of agent control-flow logic.
 # ============================================================================
 
 DOMAIN_DETECTION_PROMPT = (
-    "You are a routing agent. Classify the user's intent into EXACTLY one of: 'vehicles', 'laptops', 'books', 'unknown'.\n\n"
+    "You are a routing agent. Classify the user's intent into EXACTLY one of: 'vehicles', 'laptops', 'tvs', 'books', 'unknown'.\n\n"
     "Rules — apply the FIRST matching rule:\n"
     "1. VEHICLES: any mention of car, truck, SUV, sedan, van, minivan, pickup, vehicle, auto, driving, "
     "towing, MPG, dealership, electric vehicle (EV used as a car), horsepower → 'vehicles'\n"
@@ -20,14 +20,17 @@ DOMAIN_DETECTION_PROMPT = (
     "machine learning (for a device), Figma, Webflow, Xcode, gaming PC, RTX, monitor, "
     "storage (SSD/HDD/cloud storage context), internship, battery life, "
     "portable device, APO shipping for a device → 'laptops'\n"
-    "3. BOOKS: any mention of book, novel, read, author, fiction, genre, paperback, hardcover, "
+    "3. TVS: any mention of TV, television, OLED TV, QLED, smart TV, 4K TV, 8K TV, "
+    "Roku, Google TV, webOS, Tizen, Hisense, Vizio, TCL, screen size for a TV, "
+    "living room display, home theater → 'tvs'\n"
+    "4. BOOKS: any mention of book, novel, read, author, fiction, genre, paperback, hardcover, "
     "audiobook, kindle, literature → 'books'\n"
-    "4. If the message mentions a brand known for electronics (Dell, Apple, Lenovo, HP, ASUS, MSI, "
-    "Samsung, Sony, Razer, Microsoft Surface) WITHOUT a vehicle context → 'laptops'\n"
-    "5. Context rule: if the message is clearly about buying a device for work/school/internship "
+    "5. If the message mentions a brand known for electronics (Dell, Apple, Lenovo, HP, ASUS, MSI, "
+    "Samsung, Sony, Razer, Microsoft Surface) WITHOUT a vehicle or TV context → 'laptops'\n"
+    "6. Context rule: if the message is clearly about buying a device for work/school/internship "
     "(even without naming 'laptop'), classify as 'laptops'. "
     "If it mentions cloud computing, storage capacity, or device reliability for work → 'laptops'.\n"
-    "6. UNKNOWN only if none of the above match and there is truly no product category.\n\n"
+    "7. UNKNOWN only if none of the above match and there is truly no product category.\n\n"
     "Examples: 'dell laptop over 2000' → laptops | 'want mac under 1500' → laptops | "
     "'I need a truck for towing' → vehicles | 'mystery thriller novels' → books | "
     "'32GB RAM good for ML' → laptops | 'looking for a programming computer' → laptops | "
@@ -52,6 +55,12 @@ CRITICAL: For slots with ALLOWED VALUES, you MUST use one of the listed values e
 - "1000-2000" means "$1,000-$2,000"
 Always include the dollar sign in budget values.
 CRITICAL: For slots with ALLOWED VALUES, you MUST use one of the listed values exactly as written. Map user input to the closest allowed value (e.g., "screen" → "monitor", "graphics card" → "gpu", "PC" → "desktop", "Mac" → product_type "laptop" + brand "Apple", "earbuds" → "headphones").""",
+
+    "tvs": """IMPORTANT: For TVs, prices are typically in HUNDREDS of dollars.
+- "under 500" means "$500"
+- "1000-2000" means "$1,000-$2,000"
+Always include the dollar sign in budget values.
+CRITICAL: For slots with ALLOWED VALUES, you MUST use one of the listed values exactly as written. Map user input to the closest allowed value (e.g., "OLED" → "OLED", "mini led" → "Mini LED", "55 inch" → "55").""",
 
     "books": """IMPORTANT: For books, prices are typically under $50.
 - "under 20" means "$20"
@@ -103,14 +112,17 @@ EXTRACTION RULES:
    - "$1000-$2000", "between $1000 and $2000" → value="1000-2000"
    - plain "$1000" (no direction word) → value="1000"
    Examples: "dell computer over $1000" → budget="over1000" | "laptop under $500" → budget="under500"
+   "65 inch OLED TV under $1500" → budget="under1500" | "TV under 1000" → budget="under1000"
+   Note: "under 1000" WITHOUT a dollar sign still means a budget constraint — extract it as budget="under1000".
 
 Also detect user intent signals:
 - is_impatient: true if user wants to skip questions ("just show me", "whatever", "skip", "I don't care")
 - wants_recommendations: true ONLY when the user EXPLICITLY asks for recommendations, OR provides ≥2 specific constraints (budget + one other, or brand + spec, etc.)
-  SET TRUE: "show me options", "what do you recommend", "find me a laptop under $1000", "I need a Dell with 16GB RAM"
-  SET FALSE (needs clarification): "best laptop", "best laptop 2024", "good laptop", "any suggestions?", "what's good for gaming?" (just one topic, no specs/budget)
+  SET TRUE: "show me options", "what do you recommend", "find me a laptop under $1000", "I need a Dell with 16GB RAM", "good TV for gaming under 1000", "65 inch OLED under $1500"
+  SET FALSE (needs clarification): "best laptop", "best laptop 2024", "good laptop", "any suggestions?", "what's good for gaming?" (just one topic, no specs/budget), "I want a TV" (no specs/budget)
   NEGATIVE EXAMPLE: "best laptop 2024" → wants_recommendations=false (year alone is not a constraint; needs budget or use case)
   POSITIVE EXAMPLE: "gaming laptop under $1000" → wants_recommendations=true (budget + use case = 2 constraints)
+  POSITIVE EXAMPLE: "good TV for gaming under 1000" → wants_recommendations=true (use_case=gaming + budget=under1000 = 2 constraints)
 
 Return ALL matching slots from a single message. A message with 4 criteria → return 4 SlotValues.
 """
@@ -214,6 +226,8 @@ Rules:
 - Domain pivot rule: If the message contains "[note: user is pivoting from laptop to tablet", open with: "We only carry laptops — but these lightweight, compact options come closest to what you're looking for:" before bullets.
 - Brand-bias rule: If the message contains "[note: CPU comparison question" and the user stated a preference (e.g., "i7 is better than Ryzen"), answer the comparison directly in 1 sentence first, then show results that match the better option for their workload. Do not just ignore the stated preference.
 - Brand contradiction rule: If the message contains "[note: contradictory requirements — the user asked for a non-Apple brand AND macOS/Mac", clarify in 1 sentence that macOS is Apple-only, then show 1 MacBook option and 1 Windows option from the named brand.
+- TV gaming rule: If the domain is TVs and the user wants gaming, note whether each TV supports 120Hz refresh rate and/or VRR (Variable Refresh Rate). TVs without 120Hz input are suboptimal for PS5/Xbox Series X gaming.
+- TV OLED burn-in rule: If recommending OLED TVs and the user mentioned static content (news ticker, sports scoreboard, desktop use), add one brief sentence: "OLED screens can show burn-in from static images over time — not an issue for varied content like movies and gaming."
 - Chromebook gaming rule: If the message contains "[note: contradictory requirements — Chromebooks run ChromeOS and cannot run Windows games", open with exactly 1 sentence noting this, then show Windows gaming laptops.
 - Windows-on-Mac rule: If the message contains "[note: contradictory requirements — user wants Apple hardware but requires Windows-only software", explain the Boot Camp limitation in 1 sentence then show Windows alternatives with similar premium build quality.
 - Overwhelmed/confused rule: If the message contains "[note: user is confused or overwhelmed by choices", open with 1 short reassuring sentence, then give just 1-2 top picks with plain-language reasons. Do not list 5+ options.
@@ -253,5 +267,6 @@ Respond with the classification and, for "refine_filters" or "new_search", extra
 DOMAIN_ASSISTANT_NAMES = {
     "vehicles": "car shopping",
     "laptops": "electronics shopping",
+    "tvs": "TV shopping",
     "books": "book recommendation",
 }

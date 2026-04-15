@@ -1,6 +1,6 @@
 import re
 from typing import Dict, Any, List, Optional
-from .schemas import UnifiedProduct, ProductType, ImageInfo, VehicleDetails, LaptopDetails, BookDetails, LaptopSpecs, RetailListing
+from .schemas import UnifiedProduct, ProductType, ImageInfo, VehicleDetails, LaptopDetails, BookDetails, LaptopSpecs, TVDetails, TVSpecs, RetailListing
 
 
 def _parse_description_bullets(description: Optional[str]) -> Optional[List[str]]:
@@ -71,6 +71,8 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
     
     if domain == "vehicles" or "vin" in product:
         product_type = ProductType.VEHICLE
+    elif domain == "tvs" or product.get("product_type") == "tv":
+        product_type = ProductType.TV
     elif domain == "laptops" or category == "Electronics":
         product_type = ProductType.LAPTOP
     elif domain == "books" or category == "Books":
@@ -117,6 +119,8 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
     if not image_url:
         if product_type == ProductType.LAPTOP:
             image_url = "https://placehold.co/600x400?text=Laptop"
+        elif product_type == ProductType.TV:
+            image_url = "https://placehold.co/600x400?text=TV"
         elif product_type == ProductType.BOOK:
             image_url = "https://placehold.co/400x600?text=Book+Cover"
         elif product_type == ProductType.VEHICLE:
@@ -159,10 +163,14 @@ def format_product(product: Dict[str, Any], domain: str) -> UnifiedProduct:
         unified.vehicle = _extract_vehicle_details(product)
         unified.retailListing = _create_legacy_listing(product, price, image_url)
         
+    elif product_type == ProductType.TV:
+        unified.tv = _extract_tv_details(product)
+        unified.retailListing = _create_legacy_listing_for_non_vehicle(product, price, image_url, "Electronics")
+
     elif product_type == ProductType.LAPTOP:
         unified.laptop = _extract_laptop_details(product)
         unified.retailListing = _create_legacy_listing_for_non_vehicle(product, price, image_url, "Electronics")
-        
+
     elif product_type == ProductType.BOOK:
         unified.book = _extract_book_details(product)
         unified.retailListing = _create_legacy_listing_for_non_vehicle(product, price, image_url, "Books")
@@ -258,6 +266,25 @@ def _extract_book_details(p: Dict[str, Any]) -> BookDetails:
         isbn=p.get("isbn"),
         publisher=p.get("publisher"),
         publishedDate=p.get("published_date")
+    )
+
+def _extract_tv_details(p: Dict[str, Any]) -> TVDetails:
+    attrs = p.get("attributes") or {}
+    screen = attrs.get("screen_size")
+    screen_str = f'{int(screen)}"' if screen is not None else None
+    resolution = attrs.get("resolution")
+    panel_type = attrs.get("panel_type")
+    smart_platform = attrs.get("smart_platform")
+    return TVDetails(
+        specs=TVSpecs(
+            screen_size=screen_str,
+            resolution=resolution,
+            panel_type=panel_type,
+            smart_platform=smart_platform,
+        ),
+        color=p.get("color") or attrs.get("color"),
+        tags=p.get("tags") or [],
+        attributes=attrs if attrs else None,
     )
 
 def _create_legacy_listing(p: Dict, price: int, img: Optional[str]) -> RetailListing:

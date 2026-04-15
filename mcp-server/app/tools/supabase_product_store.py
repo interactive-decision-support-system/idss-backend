@@ -387,6 +387,9 @@ class SupabaseProductStore:
             "os": attrs.get("os") or attrs.get("operating_system"),
             "weight": attrs.get("weight"),
             "color": attrs.get("color"),
+            # ---- TV specs (confirmed DB attribute keys) ----
+            "panel_type": attrs.get("panel_type"),
+            "smart_platform": attrs.get("smart_platform"),
             # Social proof
             "rating": float(row["rating"]) if row.get("rating") else None,
             "rating_count": row.get("rating_count"),
@@ -760,6 +763,17 @@ class _SQLAlchemyProductStore:
         if os_filter and not drop_os and str(os_filter).lower() not in ("no preference", "any", ""):
             conditions.append("(attributes->>'os' ILIKE :os_filter OR attributes->>'operating_system' ILIKE :os_filter)")
             params["os_filter"] = f"%{os_filter}%"
+
+        # TV-specific filters: panel_type, smart_platform (attributes JSONB)
+        panel_type = filters.get("panel_type")
+        if panel_type and str(panel_type).lower() not in ("no preference", "any", ""):
+            conditions.append("attributes->>'panel_type' ILIKE :panel_type")
+            params["panel_type"] = f"%{panel_type}%"
+
+        smart_platform = filters.get("smart_platform")
+        if smart_platform and str(smart_platform).lower() not in ("no preference", "any", ""):
+            conditions.append("attributes->>'smart_platform' ILIKE :smart_platform")
+            params["smart_platform"] = f"%{smart_platform}%"
 
         if price_min is not None:
             conditions.append("price >= :price_min")
