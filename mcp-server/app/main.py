@@ -1307,9 +1307,25 @@ async def merchant_search(
     #  - "query": free-text for KG substring matching
     #  - "exclude_ids": products to omit (pagination / "show more" flows)
     _ctx = query.user_context if isinstance(query.user_context, dict) else {}
-    text_query = _ctx.get("query")
     exclude_ids = list(_ctx.get("exclude_ids") or [])
     exclude_set = set(exclude_ids)
+
+    # Harvest text-ish values from soft_preferences so the KG's substring match
+    # sees richer signal than the agent's single-word hint ("book"/"laptop").
+    # The raw user utterance never crosses the contract boundary — if the
+    # agent didn't extract a slot, we don't invent one. This is the quality
+    # ceiling: better slot extraction (agent-side) → better merchant ranking.
+    _TEXT_HARVEST_SLOTS = ("subcategory", "brand", "genre", "style", "material", "color")
+    _parts: _List[str] = []
+    if _ctx.get("query"):
+        _parts.append(str(_ctx["query"]))
+    for _slot in _TEXT_HARVEST_SLOTS:
+        _val = query.soft_preferences.get(_slot)
+        if isinstance(_val, list):
+            _parts.extend(str(v) for v in _val if v)
+        elif isinstance(_val, str) and _val.strip().lower() not in ("", "no preference", "specific brand"):
+            _parts.append(_val)
+    text_query = " ".join(dict.fromkeys(p.strip() for p in _parts if p.strip())) or None
 
     # Over-fetch so that after server-side exclusion we can still return
     # top_k. Cap at the SearchProductsRequest upper bound (100).
