@@ -61,6 +61,9 @@ class Product(Base):
     merchant_product_url = Column(Text, nullable=True)
     attributes = Column(PG_JSONB, nullable=True)  # JSONB with product specs
 
+    # Per-merchant catalog scope (NULL = default/shared catalog)
+    merchant_id = Column(String, nullable=True, index=True)
+
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

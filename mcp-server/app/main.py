@@ -112,6 +112,9 @@ except ImportError:
     _slack_router = None
     _slack_router_loaded = False
 
+# Merchant registry — populated in lifespan, read by dispatcher routes.
+merchants: Dict[str, Any] = {}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -147,6 +150,15 @@ async def lifespan(app: FastAPI):
         logger.info("shared_chats table ready")
     except Exception as _e:
         logger.warning("Could not create shared_chats table: %s", _e)
+
+    # --- Merchant registry -------------------------------------------
+    from app.merchant_agent import MerchantAgent
+
+    merchants["default"] = MerchantAgent(
+        merchant_id="default",
+        domain="electronics",
+    )
+    logger.info("Merchant registry initialised: %s", list(merchants.keys()))
 
     skip_preload = os.getenv("MCP_SKIP_PRELOAD", "0") == "1"
     if skip_preload:
@@ -1257,9 +1269,7 @@ async def api_search_products(
 # Merchant-agent contract surface (ARCHITECTURE.md step 4)
 # ---------------------------------------------------------------------------
 # /merchant/search speaks StructuredQuery → list[Offer] per ARCHITECTURE.md.
-# For now this is a thin wrapper over the existing search_products handler;
-# the merchant team can refactor internals behind this endpoint freely
-# without touching the shopping agent.
+# Dispatches to the per-merchant MerchantAgent from the registry.
 
 from typing import List as _List
 from app.contract import StructuredQuery, Offer
@@ -1270,98 +1280,30 @@ async def merchant_search(
     query: StructuredQuery,
     db: Session = Depends(get_db),
 ) -> _List[Offer]:
-    """
-    Merchant-agent entry point. Accepts a StructuredQuery, returns ranked
-    Offers. The shopping agent MUST NOT import anything from mcp-server/app/
-    except `app.contract` — everything else is merchant-internal.
-    """
-    # Map the contract into the legacy SearchProductsRequest. For now both
-    # hard_filters and soft_preferences are merged into the flat `filters`
-    # dict because the internal retrieval stack doesn't yet distinguish
-    # them; the split exists in the contract so merchant scoring can
-    # evolve without agent changes.
-    merged_filters: Dict[str, Any] = {**query.hard_filters, **query.soft_preferences}
-    if "category" not in merged_filters and query.domain:
-        merged_filters["category"] = query.domain
+    """Default merchant search — backward-compatible entry point."""
+    return await merchants["default"].search(query, db)
 
-    # Translate agent slot vocabulary → KG scoring-flag vocabulary.
-    # Two naming conventions arrive depending on the upstream path:
-    #   - "use_case"  (singular, string)  — from agent chat interview
-    #   - "use_cases" (plural,   list)    — from MCP query parser
-    # The agent schema says "machine_learning"; the MCP parser says "ml".
-    # Normalize both into the KG's good_for_* boolean flags.
-    _USE_CASE_FLAG_MAP = {
-        "ml": "good_for_ml",
-        "machine_learning": "good_for_ml",
-        "gaming": "good_for_gaming",
-        "web_dev": "good_for_web_dev",
-        "creative": "good_for_creative",
-        "linux": "good_for_linux",
-    }
-    _raw_uc = merged_filters.get("use_cases") or []
-    if isinstance(_raw_uc, str):
-        _raw_uc = [_raw_uc]
-    _single_uc = merged_filters.get("use_case")
-    if _single_uc and isinstance(_single_uc, str):
-        _raw_uc.append(_single_uc)
-    for _uc in _raw_uc:
-        _flag = _USE_CASE_FLAG_MAP.get(str(_uc).lower().strip())
-        if _flag:
-            merged_filters[_flag] = True
 
-    # Agent hints via user_context:
-    #  - "query": free-text for KG substring matching
-    #  - "exclude_ids": products to omit (pagination / "show more" flows)
-    _ctx = query.user_context if isinstance(query.user_context, dict) else {}
-    exclude_ids = list(_ctx.get("exclude_ids") or [])
-    exclude_set = set(exclude_ids)
+@app.post("/merchant/{merchant_id}/search", response_model=_List[Offer])
+async def merchant_search_by_id(
+    merchant_id: str,
+    query: StructuredQuery,
+    db: Session = Depends(get_db),
+) -> _List[Offer]:
+    """Per-merchant search endpoint."""
+    agent = merchants.get(merchant_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Merchant '{merchant_id}' not found")
+    return await agent.search(query, db)
 
-    # Harvest text-ish values from soft_preferences so the KG's substring match
-    # sees richer signal than the agent's single-word hint ("book"/"laptop").
-    # The raw user utterance never crosses the contract boundary — if the
-    # agent didn't extract a slot, we don't invent one. This is the quality
-    # ceiling: better slot extraction (agent-side) → better merchant ranking.
-    _TEXT_HARVEST_SLOTS = ("subcategory", "brand", "genre", "style", "material", "color")
-    _parts: _List[str] = []
-    if _ctx.get("query"):
-        _parts.append(str(_ctx["query"]))
-    for _slot in _TEXT_HARVEST_SLOTS:
-        _val = query.soft_preferences.get(_slot)
-        if isinstance(_val, list):
-            _parts.extend(str(v) for v in _val if v)
-        elif isinstance(_val, str) and _val.strip().lower() not in ("", "no preference", "specific brand"):
-            _parts.append(_val)
-    text_query = " ".join(dict.fromkeys(p.strip() for p in _parts if p.strip())) or None
 
-    # Over-fetch so that after server-side exclusion we can still return
-    # top_k. Cap at the SearchProductsRequest upper bound (100).
-    over_fetch = min(query.top_k + len(exclude_ids), 100)
-    legacy_req = SearchProductsRequest(
-        query=text_query,
-        filters=merged_filters,
-        limit=over_fetch,
-    )
-    resp = await search_products(legacy_req, db)
-
-    merchant_id = os.environ.get("MERCHANT_ID", "default")
-    raw = (resp.data.products if resp.data and resp.data.products else [])
-    # Drop excluded IDs server-side for parity with the direct-Supabase path.
-    products = [p for p in raw if p.product_id not in exclude_set][: query.top_k]
-    n = max(len(products), 1)
-    offers: _List[Offer] = []
-    for i, p in enumerate(products):
-        offers.append(Offer(
-            merchant_id=merchant_id,
-            product_id=p.product_id,
-            # Placeholder score: monotone decreasing by server-side rank.
-            # Replace with a real per-signal score when the retrieval stack
-            # exposes one (tracked in #34).
-            score=round(1.0 - (i / n), 4),
-            score_breakdown={},
-            product=p,
-            rationale=p.reason or "",
-        ))
-    return offers
+@app.get("/merchant/{merchant_id}/health")
+def merchant_health(merchant_id: str, db: Session = Depends(get_db)):
+    """Per-merchant health check."""
+    agent = merchants.get(merchant_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Merchant '{merchant_id}' not found")
+    return agent.health(db)
 
 
 @app.post("/api/get-product", response_model=GetProductResponse, response_model_exclude_none=True)
