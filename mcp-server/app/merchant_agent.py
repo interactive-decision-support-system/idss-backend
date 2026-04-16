@@ -9,16 +9,41 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
 from app.contract import Offer, StructuredQuery
 from app.endpoints import search_products
-from app.models import Product
+from app.models import Product, make_enriched_model, make_product_model
 from app.schemas import SearchProductsRequest
 
 logger = logging.getLogger(__name__)
+
+# Merchant id slug grammar. Narrow so it is always safe to splice into an
+# identifier position in SQL once it has matched. Client-supplied slug only —
+# callers never pass raw user input through these helpers; ingress validates
+# at the endpoint before routing into the registry.
+MERCHANT_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
+
+
+def validate_merchant_id(merchant_id: str) -> str:
+    if not isinstance(merchant_id, str) or not MERCHANT_ID_RE.fullmatch(merchant_id):
+        raise ValueError(
+            f"invalid merchant_id {merchant_id!r}: must match {MERCHANT_ID_RE.pattern}"
+        )
+    return merchant_id
+
+
+def merchant_catalog_table(merchant_id: str) -> str:
+    """Fully-qualified raw catalog table for this merchant."""
+    return f"merchants.products_{validate_merchant_id(merchant_id)}"
+
+
+def merchant_enriched_table(merchant_id: str) -> str:
+    """Fully-qualified enriched catalog table for this merchant."""
+    return f"merchants.products_enriched_{validate_merchant_id(merchant_id)}"
 
 # Translate agent slot vocabulary → KG scoring-flag vocabulary.
 # Two naming conventions arrive depending on the upstream path:
@@ -47,8 +72,124 @@ class MerchantAgent:
         merchant_id: str,
         domain: str,
     ) -> None:
-        self.merchant_id = merchant_id
+        self.merchant_id = validate_merchant_id(merchant_id)
         self.domain = domain
+        self._catalog_table = merchant_catalog_table(self.merchant_id)
+        self._enriched_table = merchant_enriched_table(self.merchant_id)
+        # Per-merchant ORM models. Cached on the instance so downstream
+        # retrieval paths that take a model argument don't need to re-enter
+        # the factory.
+        self._product_model = make_product_model(self.merchant_id)
+        self._enriched_model = make_enriched_model(self.merchant_id)
+
+    def catalog_table(self) -> str:
+        """Return fully-qualified raw catalog table name for this merchant."""
+        return self._catalog_table
+
+    def enriched_table(self) -> str:
+        """Return fully-qualified enriched catalog table name for this merchant."""
+        return self._enriched_table
+
+    @property
+    def product_model(self):
+        return self._product_model
+
+    @property
+    def enriched_model(self):
+        return self._enriched_model
+
+    # ------------------------------------------------------------------
+    # Bootstrap
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_csv(
+        cls,
+        path: str,
+        *,
+        merchant_id: str,
+        domain: str,
+        product_type: str,
+        strategy: str = "normalizer_v1",
+        source: Optional[str] = None,
+        col_map: Optional[Dict[str, str]] = None,
+        normalize_limit: int = 1000,
+        skip_enrichment: bool = False,
+    ) -> "MerchantAgent":
+        """Bootstrap a new merchant from a CSV file.
+
+        Pipeline (synchronous for this PR — issue #42 tracks UI progress):
+          1. Validate ``merchant_id`` against the slug grammar.
+          2. Create per-merchant tables via ``create_merchant_catalog``.
+          3. Load CSV rows into the merchant's raw table.
+          4. Run ``CatalogNormalizer`` scoped to this merchant's tables.
+          5. Register the agent in the in-memory merchant registry so
+             ``/merchant/<id>/search`` routes here.
+
+        Large catalogs will block; callers should budget accordingly. Async
+        ingest with progress reporting is intentionally deferred — that work
+        belongs with the #42 UI counterpart, not this PR.
+        """
+        merchant_id = validate_merchant_id(merchant_id)
+
+        # Local imports to avoid load-time cycles. ``app.main`` imports
+        # merchant_agent; ingestion.* imports from merchant_agent too.
+        from app.database import SessionLocal
+        from app.ingestion.schema import create_merchant_catalog
+        from app.ingestion.csv_loader import load_csv_into_merchant
+        from app.catalog_ingestion import CatalogNormalizer
+
+        session = SessionLocal()
+        engine = session.get_bind()
+        session.close()
+
+        raw_conn = engine.raw_connection()
+        try:
+            create_merchant_catalog(merchant_id, raw_conn)
+        finally:
+            raw_conn.close()
+
+        agent = cls(merchant_id=merchant_id, domain=domain)
+
+        db = SessionLocal()
+        try:
+            load_summary = load_csv_into_merchant(
+                path,
+                db=db,
+                product_model=agent.product_model,
+                merchant_id=merchant_id,
+                product_type=product_type,
+                source=source or f"csv:{merchant_id}",
+                col_map=col_map,
+            )
+        finally:
+            db.close()
+        logger.info("from_csv_loaded merchant=%s summary=%s", merchant_id, load_summary)
+
+        if not skip_enrichment:
+            db = SessionLocal()
+            try:
+                normalizer = CatalogNormalizer()
+                enrich_summary = normalizer.batch_normalize(
+                    db,
+                    limit=normalize_limit,
+                    product_model=agent.product_model,
+                    enriched_model=agent.enriched_model,
+                    strategy=strategy,
+                )
+                logger.info(
+                    "from_csv_enriched merchant=%s summary=%s",
+                    merchant_id, enrich_summary,
+                )
+            finally:
+                db.close()
+
+        # In-memory registry only — on restart, the operator re-runs bootstrap
+        # to re-register. Tables persist in Postgres so data is not lost.
+        from app import main as app_main
+        app_main.merchants[merchant_id] = agent
+        logger.info("merchant_registered id=%s domain=%s", merchant_id, domain)
+        return agent
 
     # ------------------------------------------------------------------
     # Search
@@ -122,18 +263,19 @@ class MerchantAgent:
     # ------------------------------------------------------------------
 
     def health(self, db: Session) -> dict:
+        _Product = self._product_model
         if self.merchant_id == "default":
             from sqlalchemy import or_
-            catalog_q = db.query(Product).filter(
-                or_(Product.merchant_id.is_(None), Product.merchant_id == "default")
+            catalog_q = db.query(_Product).filter(
+                or_(_Product.merchant_id.is_(None), _Product.merchant_id == "default")
             )
         else:
-            catalog_q = db.query(Product).filter(Product.merchant_id == self.merchant_id)
+            catalog_q = db.query(_Product).filter(_Product.merchant_id == self.merchant_id)
 
         catalog_size = catalog_q.count()
 
         from sqlalchemy import func
-        max_created = catalog_q.with_entities(func.max(Product.created_at)).scalar()
+        max_created = catalog_q.with_entities(func.max(_Product.created_at)).scalar()
 
         # Vector index mtime (best-effort)
         vector_index_mtime = None

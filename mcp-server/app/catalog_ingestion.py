@@ -152,33 +152,45 @@ class CatalogNormalizer:
         limit: int = 100,
         dry_run: bool = False,
         force: bool = False,
+        product_model=None,
+        enriched_model=None,
+        strategy: str = STRATEGY,
     ) -> Dict[str, int]:
         """
-        Process up to `limit` products and write normalized output to
-        products_enriched under strategy='normalizer_v1'.
+        Process up to `limit` products and write normalized output to the
+        per-merchant enriched table under ``strategy``.
 
-        The raw `products` table is NEVER mutated by this method.
+        The raw products table is NEVER mutated by this method.
 
         Args:
-            db:       SQLAlchemy session.
-            limit:    Maximum number of products to process.
-            dry_run:  If True, print results but do not write to DB.
-            force:    If True, re-normalize products that already have a row
-                      under this strategy (UPSERT overwrites).
+            db:              SQLAlchemy session.
+            limit:           Maximum number of products to process.
+            dry_run:         If True, print results but do not write to DB.
+            force:           If True, re-normalize products that already have
+                             a row under this strategy (UPSERT overwrites).
+            product_model:   Optional per-merchant Product ORM class from
+                             ``make_product_model(merchant_id)``. Defaults to
+                             the module-level ``Product`` (default merchant).
+            enriched_model:  Same idea for ``ProductEnriched``.
+            strategy:        Strategy label written to the enriched row.
+                             Normalizer output is versioned by this label so
+                             A/B comparisons are just different labels.
 
         Returns:
             {"normalized": N, "skipped": N, "failed": N}
         """
         from app.models import Product, ProductEnriched  # local import to avoid circular deps
+        product_model = product_model or Product
+        enriched_model = enriched_model or ProductEnriched
 
-        # Find products that don't yet have a normalizer_v1 row (unless forcing).
-        q = db.query(Product)
+        # Find products that don't yet have a row under this strategy (unless forcing).
+        q = db.query(product_model)
         if not force:
             already_done = (
-                db.query(ProductEnriched.product_id)
-                .filter(ProductEnriched.strategy == STRATEGY)
+                db.query(enriched_model.product_id)
+                .filter(enriched_model.strategy == strategy)
             )
-            q = q.filter(~Product.product_id.in_(already_done))
+            q = q.filter(~product_model.product_id.in_(already_done))
 
         products = q.limit(limit).all()
 
@@ -207,9 +219,9 @@ class CatalogNormalizer:
                     "normalized_description": normalized,
                     "normalized_at": datetime.now(timezone.utc).isoformat(),
                 }
-                stmt = pg_insert(ProductEnriched).values(
+                stmt = pg_insert(enriched_model).values(
                     product_id=product.product_id,
-                    strategy=STRATEGY,
+                    strategy=strategy,
                     attributes=payload,
                     model=MODEL,
                 )
@@ -230,7 +242,7 @@ class CatalogNormalizer:
             logger.info(
                 "batch_normalize_done",
                 extra={
-                    "strategy": STRATEGY,
+                    "strategy": strategy,
                     "normalized": normalized_count,
                     "skipped": skipped_count,
                     "failed": failed_count,

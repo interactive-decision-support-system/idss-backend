@@ -6,10 +6,11 @@ Runs description normalization and writes to products_enriched under
 strategy='normalizer_v1'. Raw products table is never mutated.
 
 Usage:
-  python scripts/run_normalizer.py                 # up to 200 products
-  python scripts/run_normalizer.py --dry-run       # print, no DB writes
+  python scripts/run_normalizer.py                           # default merchant, up to 200
+  python scripts/run_normalizer.py --dry-run
   python scripts/run_normalizer.py --limit 50
-  python scripts/run_normalizer.py --force         # re-normalize existing rows (UPSERT)
+  python scripts/run_normalizer.py --force                   # UPSERT existing rows
+  python scripts/run_normalizer.py --merchant-id acme        # scope to one merchant
 """
 
 import argparse
@@ -27,14 +28,32 @@ except ImportError:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Normalize product catalog via LLM (writes to products_enriched).")
+    parser = argparse.ArgumentParser(
+        description="Normalize product catalog via LLM (writes to products_enriched).",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print results without writing.")
     parser.add_argument("--limit", type=int, default=200, help="Max products to process (default 200).")
-    parser.add_argument("--force", action="store_true", help="Re-normalize products that already have a normalizer_v1 row.")
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Re-normalize products that already have a row under this strategy.",
+    )
+    parser.add_argument(
+        "--merchant-id", default="default",
+        help="Merchant to normalize. Defaults to 'default'.",
+    )
+    parser.add_argument(
+        "--strategy", default=None,
+        help="Strategy label to write. Defaults to normalizer_v1.",
+    )
     args = parser.parse_args()
 
     from app.catalog_ingestion import CatalogNormalizer, STRATEGY
     from app.database import SessionLocal
+    from app.models import make_enriched_model, make_product_model
+
+    strategy = args.strategy or STRATEGY
+    product_model = make_product_model(args.merchant_id)
+    enriched_model = make_enriched_model(args.merchant_id)
 
     db = SessionLocal()
     try:
@@ -44,12 +63,15 @@ def main() -> int:
             limit=args.limit,
             dry_run=args.dry_run,
             force=args.force,
+            product_model=product_model,
+            enriched_model=enriched_model,
+            strategy=strategy,
         )
     finally:
         db.close()
 
     print(
-        f"\nstrategy={STRATEGY}  "
+        f"\nmerchant={args.merchant_id}  strategy={strategy}  "
         f"normalized={result['normalized']}  "
         f"skipped={result['skipped']}  "
         f"failed={result['failed']}"
