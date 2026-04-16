@@ -177,7 +177,6 @@ class CatalogNormalizer:
             already_done = (
                 db.query(ProductEnriched.product_id)
                 .filter(ProductEnriched.strategy == STRATEGY)
-                .subquery()
             )
             q = q.filter(~Product.product_id.in_(already_done))
 

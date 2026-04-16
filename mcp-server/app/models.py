@@ -143,12 +143,12 @@ class ProductEnriched(Base):
     'llm_extract_gpt4o_mini'). Multiple strategies can coexist for the same product
     so A/B comparisons and merchant simulations are just different strategy labels.
     """
-    __tablename__ = "products_enriched"
-    __table_args__ = {"extend_existing": True}
+    __tablename__ = "products_enriched_default"
+    __table_args__ = {"extend_existing": True, "schema": "merchants"}
 
     product_id = Column(
         PG_UUID(as_uuid=True),
-        ForeignKey("products.id", ondelete="CASCADE"),
+        ForeignKey("merchants.products_default.id", ondelete="CASCADE"),
         primary_key=True,
     )
     strategy = Column(Text, primary_key=True)

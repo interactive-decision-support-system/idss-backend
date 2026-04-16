@@ -9,7 +9,11 @@ Typical usage:
 
     raw = db.query(Product).filter_by(product_id=pid).one()
     enriched = fetch_enriched(db, pid, strategy="normalizer_v1")
-    merged = merge_with_raw(raw.attributes or {}, enriched)
+    combined = combine_raw_and_enriched(raw.attributes or {}, enriched)
+
+Each table owns its fields: enriched_attributes must not carry keys that
+also exist in raw_attributes. `combine_raw_and_enriched` asserts this so a
+silent overwrite cannot happen.
 """
 
 from __future__ import annotations
@@ -65,9 +69,15 @@ def hydrate_batch(
     return {r.product_id: (dict(r.attributes) if r.attributes else {}) for r in rows}
 
 
-def merge_with_raw(
+def combine_raw_and_enriched(
     raw_attributes: Dict[str, Any],
     enriched_attributes: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Shallow-merge raw + enriched. Enriched keys win where present."""
-    return {**(raw_attributes or {}), **(enriched_attributes or {})}
+    """Union raw + enriched attributes. Each table owns its fields — the two
+    dicts must not share any keys. Raises AssertionError if they overlap so a
+    writer violating the rule fails loudly instead of silently overwriting."""
+    raw = raw_attributes or {}
+    enriched = enriched_attributes or {}
+    overlap = set(raw) & set(enriched)
+    assert not overlap, f"enriched must not duplicate raw keys: {overlap}"
+    return {**raw, **enriched}
