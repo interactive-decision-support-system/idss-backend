@@ -205,7 +205,18 @@ async def search_products(
     """
     request_id = str(uuid.uuid4())
     start_time = time.time()
-    
+
+    # Per-merchant ORM routing.
+    #
+    # Rebind the module-level ``Product`` name inside this function so every
+    # ``db.query(Product)`` / ``Product.<col>`` call below targets the merchant's
+    # own ``merchants.products_<id>`` table. Non-default merchants never carry
+    # rows in the default table, and search would silently return [] without
+    # this hop. KG/vector retrieval for non-default merchants is Phase 4.
+    from app.models import make_product_model as _make_product_model
+    _mid_from_req = (request.filters or {}).get("merchant_id") if request.filters else None
+    Product = _make_product_model(_mid_from_req) if _mid_from_req else _make_product_model("default")  # noqa: F811
+
     # PROTOCOL MAPPING LOG
     logger.info("protocol_mapping", "SearchProducts request received", {
         "request_id": request_id,
