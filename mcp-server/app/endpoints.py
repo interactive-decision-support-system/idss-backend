@@ -1233,6 +1233,19 @@ async def search_products(
     if candidate_ids:
         # Filter by candidate IDs (already filtered by category if specified)
         db_query = db_query.filter(Product.product_id.in_(candidate_ids))
+        # Preserve candidate order through the SQL hop. KG (and vector)
+        # return product_ids sorted by relevance score; ``IN (...)`` discards
+        # that order and Postgres returns rows in plan order, so the KG's
+        # good_for_ml / use-case / text-match boosts become invisible in the
+        # final result. Re-impose the candidate order via a CASE expression
+        # so offer[0] is the highest-scored candidate. Short-term fix;
+        # issue #34 tracks plumbing real per-product scores through the
+        # Offer contract, after which this ORDER BY can go.
+        from sqlalchemy import case
+        _rank_map = {pid: i for i, pid in enumerate(candidate_ids)}
+        db_query = db_query.order_by(
+            case(_rank_map, value=Product.product_id, else_=len(candidate_ids))
+        )
     elif effective_search_query and len(effective_search_query) >= 3:
         # Fallback to keyword search (already filtered by category if specified)
         # Use normalized query and expanded terms for better matching
