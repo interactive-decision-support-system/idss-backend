@@ -134,6 +134,29 @@ class Product(Base):
         return None
 
 
+class ProductEnriched(Base):
+    """
+    Derived attributes per (product, strategy). The raw `products` table is the
+    golden source and is never mutated by enrichment — enrichers write here.
+
+    A `strategy` is a named recipe (e.g. 'normalizer_v1', 'soft_tags_heuristic_v1',
+    'llm_extract_gpt4o_mini'). Multiple strategies can coexist for the same product
+    so A/B comparisons and merchant simulations are just different strategy labels.
+    """
+    __tablename__ = "products_enriched"
+    __table_args__ = {"extend_existing": True}
+
+    product_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    strategy = Column(Text, primary_key=True)
+    attributes = Column(PG_JSONB, nullable=False, default=dict)
+    model = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 # Stub classes for code that imports Price/Inventory/Cart/CartItem/Order
 # These tables don't exist in Supabase — stubs prevent import errors
 
