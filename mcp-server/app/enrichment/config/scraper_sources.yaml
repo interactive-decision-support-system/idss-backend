@@ -1,0 +1,9 @@
+# Per-category allowlist of domains the v1 scraper will visit.
+# Format: top-level key is a category (product type within electronics);
+# values are bare domain names. Subdomain matches are accepted.
+#
+# v1 ships intentionally narrow. The follow-up PR expands this list and
+# adds a reviews/Q&A scraper that consumes per-category source rankings.
+
+laptop:
+  - example-manufacturer.com
