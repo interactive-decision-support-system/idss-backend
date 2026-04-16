@@ -14,6 +14,8 @@ import os
 import re
 import uuid
 from typing import Optional, Dict, Any, List
+
+import httpx
 from pydantic import BaseModel, Field
 
 from agent.interview.session_manager import (
@@ -4203,7 +4205,6 @@ async def _search_ecommerce_products(
     TTL: 5 min (CACHE_TTL_SEARCH env var or default 300 s).
     """
     from app.formatters import format_product
-    from app.tools.supabase_product_store import get_product_store
     from app.cache import cache_client as _cc
 
     # Normalise category / product_type defaults
@@ -4225,17 +4226,14 @@ async def _search_ecommerce_products(
         {**search_filters, "_excl": _excl_key}, category, page=1, limit=limit
     )
     _cached = _cc.get_search_results(_cache_key)
-    _used_mcp_search = False
     if _cached is not None:
         logger.info("search_ecommerce_cache_hit", f"Agent search cache HIT ({len(_cached)} items)", {})
         product_dicts = _cached
-    elif os.environ.get("USE_MCP_SEARCH", "1") != "0":
-        # Merchant-agent path (default): POST a StructuredQuery to the
-        # merchant's /merchant/search endpoint and unpack the returned
-        # list[Offer]. Per ARCHITECTURE.md this is the ONLY surface the
-        # shopping agent uses — no imports from merchant internals.
-        # Set USE_MCP_SEARCH=0 to fall back to the direct-to-Supabase path.
-        import httpx
+    else:
+        # Merchant-agent path: POST a StructuredQuery to the merchant's
+        # /merchant/search endpoint and unpack the returned list[Offer].
+        # Per ARCHITECTURE.md this is the ONLY surface the shopping agent
+        # uses — no imports from merchant internals.
         _mcp_base = os.environ.get("MCP_BASE_URL", "http://localhost:8001").rstrip("/")
         _mcp_query = _build_kg_search_query(filters, category)
         # Split today's flat filter dict into hard vs soft per the contract.
@@ -4310,80 +4308,35 @@ async def _search_ecommerce_products(
                 "_merchant_score": _offer.get("score"),
                 "_merchant_id": _offer.get("merchant_id"),
             })
-        _used_mcp_search = True
-        if product_dicts:
-            _cc.set_search_results(_cache_key, product_dicts, adaptive=True)
-    else:
-        logger.info("search_ecommerce_start", "Searching products via Supabase (cache miss)", {
-            "category": category, "filters": search_filters,
-            "n_rows": n_rows, "n_per_row": n_per_row,
-        })
-        store = get_product_store()
-        product_dicts = store.search_products(
-            search_filters,
-            limit=limit,
-            exclude_ids=exclude_ids,
-        )
         if product_dicts:
             _cc.set_search_results(_cache_key, product_dicts, adaptive=True)
 
     try:
 
         if not product_dicts:
-            logger.warning("search_ecommerce_empty", "No products returned from Supabase", {
+            logger.warning("search_ecommerce_empty", "No products returned from merchant", {
                 "category": category, "filters": search_filters,
             })
             return [], []
 
-        # KG re-ranking (best-effort, non-blocking). Skipped when mcp-search
-        # already ran KG inside /api/search-products — in that case results
-        # arrive pre-ranked and re-running KG here is redundant.
-        kg_candidate_ids: List[str] = []
-        if not _used_mcp_search:
-            try:
-                from app.kg_service import get_kg_service
-                kg = get_kg_service()
-                if kg.is_available():
-                    kg_filters = {**search_filters}
-                    search_query = _build_kg_search_query(filters, category)
-                    kg_candidate_ids, _ = kg.search_candidates(
-                        query=search_query, filters=kg_filters, limit=limit,
-                    )
-                    if kg_candidate_ids and exclude_ids:
-                        exclude_set = set(exclude_ids)
-                        kg_candidate_ids = [p for p in kg_candidate_ids if p not in exclude_set]
-            except Exception as e:
-                logger.warning("kg_search_skipped", f"KG search skipped: {e}", {"error": str(e)})
-
-        # Sort: KG-ranked first, then by price.
-        # When mcp-search already ranked server-side, preserve that order
-        # and skip the price-based fallback sort.
-        if kg_candidate_ids:
-            kg_id_to_idx = {pid: i for i, pid in enumerate(kg_candidate_ids)}
-            product_dicts.sort(key=lambda p: (
-                (0, kg_id_to_idx[p["id"]]) if p["id"] in kg_id_to_idx
-                else (1, float(p.get("price", 0) or 0))
-            ))
-        elif not _used_mcp_search:
-            product_dicts.sort(key=lambda x: float(x.get("price", 0) or 0))
+        # Offers arrive pre-ranked by the merchant's /merchant/search.
+        # Preserve that order — no re-ranking or re-sorting here.
 
         product_dicts = _diversify_by_brand(product_dicts)
 
-        # Log diversity metrics so we can assess whether KG adds value over SQL alone.
-        # brand_diversity=1.0 means every recommendation is a different brand.
-        # price_spread=1.0 means huge price range (budget → premium).
+        # Log diversity metrics (brand spread + price spread). KG-usage signal
+        # is no longer available here since ranking happens merchant-side.
         _div = _compute_diversity_score(product_dicts)
         logger.info(
             "recommendation_diversity",
             f"Diversity: overall={_div['overall']:.3f} "
-            f"brands={_div['brand_diversity']:.3f} price_spread={_div['price_spread']:.3f} "
-            f"kg_used={bool(kg_candidate_ids)}",
+            f"brands={_div['brand_diversity']:.3f} price_spread={_div['price_spread']:.3f}",
             _div,
         )
 
         try:
             from app.research_compare import generate_recommendation_reasons
-            generate_recommendation_reasons(product_dicts, filters=filters, kg_candidate_ids=kg_candidate_ids)
+            generate_recommendation_reasons(product_dicts, filters=filters)
         except Exception:
             pass
 
