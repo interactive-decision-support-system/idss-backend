@@ -26,9 +26,13 @@ Any unrecognised column lands in ``attributes`` via
 Reserved keys — CSV must NOT carry these (produced by enrichment):
     normalized_description, normalized_at
 
-We strip reserved keys with a warning so a typo in one row doesn't torpedo
-an entire load. The disjoint-keys invariant asserted by
-``enriched_reader.combine_raw_and_enriched`` depends on this.
+These are the keys written by ``app.catalog_ingestion`` (strategy
+``normalizer_v1``) — the source of truth lives there. We strip with a
+warning so a typo in one row doesn't torpedo an entire load. The
+disjoint-keys invariant asserted by
+``enriched_reader.combine_raw_and_enriched`` depends on this. When a
+new enrichment strategy lands that writes additional keys, extend
+``RESERVED_ENRICHMENT_KEYS``.
 
 Failure mode
 ------------
@@ -39,10 +43,12 @@ fails the partial batch rolls back.
 
 Re-ingest
 ---------
-This loader does not upsert. Calling it twice on the same merchant_id is a
-user error — the operator must drop the catalog first
-(``ingestion.schema.drop_merchant_catalog``, gated on ALLOW_MERCHANT_DROP=1)
-and re-bootstrap.
+This loader does not upsert. We probe the target table up front and raise
+``MerchantAlreadyBootstrapped`` if rows already exist, pointing the operator
+at ``ingestion.schema.drop_merchant_catalog`` (gated on
+``ALLOW_MERCHANT_DROP=1``) as the escape hatch. Failing fast before the
+parse runs beats letting the insert hit a Postgres ``UniqueViolation`` at
+commit time with a stack-trace message that doesn't name the fix.
 """
 from __future__ import annotations
 
@@ -57,9 +63,19 @@ from app.product_schema import ProductSchema
 
 logger = logging.getLogger(__name__)
 
+
+class MerchantAlreadyBootstrapped(RuntimeError):
+    """Raised when the target merchant table is non-empty at load time."""
+
+
 # Keys produced by enrichment strategies. If the raw CSV carries any of
 # these, ``combine_raw_and_enriched`` would raise at read time because raw
-# and enriched must own disjoint key sets.
+# and enriched must own disjoint key sets. Keep this list in sync with the
+# output shape of each strategy in ``app.catalog_ingestion`` (today only
+# ``normalizer_v1`` — writes ``normalized_description`` and
+# ``normalized_at``). When a new strategy lands, extend this set before
+# merging so the disjoint-keys invariant can't be silently violated by a
+# CSV row.
 RESERVED_ENRICHMENT_KEYS: Set[str] = {
     "normalized_description",
     "normalized_at",
@@ -117,7 +133,23 @@ def load_csv_into_merchant(
     """Parse ``filepath`` and insert rows into ``product_model``'s table.
 
     Returns a summary ``{"parsed", "inserted", "rejected", "reserved_stripped"}``.
+
+    Raises ``MerchantAlreadyBootstrapped`` if the target table already has
+    rows — calling the loader twice on the same merchant is a user error.
+    The operator should
+    ``ALLOW_MERCHANT_DROP=1 drop_merchant_catalog(merchant_id, conn)``
+    and re-bootstrap.
     """
+    existing = db.query(product_model).limit(1).count()
+    if existing:
+        raise MerchantAlreadyBootstrapped(
+            f"merchant {merchant_id!r} already has rows in "
+            f"{product_model.__table__.schema}.{product_model.__tablename__}; "
+            "drop the catalog first via "
+            "`ALLOW_MERCHANT_DROP=1 python -c \"from app.ingestion.schema "
+            "import drop_merchant_catalog\"` and re-run bootstrap."
+        )
+
     raw_rows = parse_csv(
         filepath,
         product_type=product_type,
@@ -166,7 +198,8 @@ def load_csv_into_merchant(
         # (e.g. "Electronics") from its product_type→category map. The search
         # path filters with a case-sensitive equality check, so we lowercase
         # here to match the agent's default-domain filter (e.g. "electronics").
-        # Callers passing a CSV `category` column should already be lowercase.
+        # Temporary workaround — follow-up issue #45 moves the normalisation
+        # into ProductSchema / the search filter so every caller benefits.
         category_norm = (row["category"] or "").strip().lower() or None
         instance = product_model(
             product_id=pid,

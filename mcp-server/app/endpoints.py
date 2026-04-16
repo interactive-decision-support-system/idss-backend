@@ -213,9 +213,26 @@ async def search_products(
     # own ``merchants.products_<id>`` table. Non-default merchants never carry
     # rows in the default table, and search would silently return [] without
     # this hop. KG/vector retrieval for non-default merchants is Phase 4.
+    #
+    # The F811 noqa is intentional: the rebind *replaces* the module-level
+    # ``Product`` import for this function's scope only.
     from app.models import make_product_model as _make_product_model
     _mid_from_req = (request.filters or {}).get("merchant_id") if request.filters else None
-    Product = _make_product_model(_mid_from_req) if _mid_from_req else _make_product_model("default")  # noqa: F811
+    try:
+        Product = _make_product_model(_mid_from_req or "default")  # noqa: F811
+    except ValueError as _slug_err:
+        # A client posted filters.merchant_id that doesn't match the slug
+        # grammar. Fall back to default with a WARN rather than surfacing
+        # the internal ValueError as a 500. The happy path (agent-initiated
+        # search) already validates the slug at MerchantAgent.__init__; this
+        # only fires on direct POSTs to /api/search-products with malformed
+        # payload.
+        logger.warning(
+            "invalid_merchant_id_fallback_to_default",
+            "Bad merchant_id in filters, falling back to default",
+            {"merchant_id": _mid_from_req, "error": str(_slug_err)},
+        )
+        Product = _make_product_model("default")  # noqa: F811
 
     # PROTOCOL MAPPING LOG
     logger.info("protocol_mapping", "SearchProducts request received", {

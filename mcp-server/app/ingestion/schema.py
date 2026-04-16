@@ -9,6 +9,11 @@ Both are cloned from the default merchant's tables via ``LIKE ... INCLUDING
 ALL``. The FK from enriched → raw is re-added explicitly because LIKE does
 not copy foreign keys.
 
+Prerequisite: migrations 002 and 003 must have run — the clone reads from
+``merchants.products_default`` / ``merchants.products_enriched_default``
+as the template, and ``create_merchant_catalog`` raises a bare Postgres
+"relation does not exist" if those tables aren't there yet.
+
 All identifiers that interpolate the merchant_id are built via
 ``psycopg2.sql.Identifier`` after ``validate_merchant_id`` has matched the
 merchant id against the slug regex in ``app.merchant_agent``. Merchant ids

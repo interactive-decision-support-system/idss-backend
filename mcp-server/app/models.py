@@ -115,6 +115,7 @@ class _ProductProperties:
 
     @property
     def subcategory(self):
+        """Supabase has no subcategory column; return None."""
         return None
 
     @property

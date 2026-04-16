@@ -15,11 +15,20 @@ Usage:
       --product-type laptop
 
 Re-ingest:
-  The loader rejects duplicate product_ids. To re-ingest the same merchant,
-  first drop the catalog via
-      ALLOW_MERCHANT_DROP=1 python -c \\
-          "from app.ingestion.schema import drop_merchant_catalog; ..."
-  and then re-run this script. See ARCHITECTURE.md for the rationale.
+  The loader raises MerchantAlreadyBootstrapped if the target table has
+  rows. To re-ingest the same merchant, drop the catalog first:
+
+      ALLOW_MERCHANT_DROP=1 python -c "
+      import os
+      from sqlalchemy import create_engine
+      from app.ingestion.schema import drop_merchant_catalog
+      eng = create_engine(os.environ['DATABASE_URL'])
+      conn = eng.raw_connection()
+      try: drop_merchant_catalog('<merchant-id>', conn)
+      finally: conn.close()
+      "
+
+  then re-run this script.
 """
 
 import argparse
