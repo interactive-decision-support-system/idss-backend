@@ -2,7 +2,11 @@
 Catalog Ingestion / Normalization Layer
 =======================================
 Uses an LLM to rewrite product descriptions into a consistent, concise style
-and stores the result in attributes['normalized_description'].
+and stores the result in products_enriched under strategy='normalizer_v1'.
+
+The raw `products` table is the golden source and is never mutated here.
+Derived attributes land in products_enriched keyed by (product_id, strategy)
+so multiple enrichment strategies can coexist for A/B and merchant simulations.
 
 Normalization philosophy:
   - 1-2 sentences, ≤ 30 words each
@@ -25,7 +29,14 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 logger = logging.getLogger(__name__)
+
+# Strategy label for this enricher's output. Fine-grained: description normalization
+# is its own strategy, independent of other enrichers (soft tags, LLM spec extract, etc.).
+STRATEGY = "normalizer_v1"
+MODEL = "gpt-4o-mini"
 
 # ---------------------------------------------------------------------------
 # Prompt
@@ -143,38 +154,39 @@ class CatalogNormalizer:
         force: bool = False,
     ) -> Dict[str, int]:
         """
-        Process up to `limit` products from the DB.
+        Process up to `limit` products and write normalized output to
+        products_enriched under strategy='normalizer_v1'.
+
+        The raw `products` table is NEVER mutated by this method.
 
         Args:
             db:       SQLAlchemy session.
             limit:    Maximum number of products to process.
             dry_run:  If True, print results but do not write to DB.
-            force:    If True, reprocess products that already have normalized_description.
+            force:    If True, re-normalize products that already have a row
+                      under this strategy (UPSERT overwrites).
 
         Returns:
             {"normalized": N, "skipped": N, "failed": N}
         """
-        from app.models import Product  # local import to avoid circular deps
+        from app.models import Product, ProductEnriched  # local import to avoid circular deps
 
-        products = db.query(Product).limit(limit * 3).all()  # fetch extra so we can skip
+        # Find products that don't yet have a normalizer_v1 row (unless forcing).
+        q = db.query(Product)
+        if not force:
+            already_done = (
+                db.query(ProductEnriched.product_id)
+                .filter(ProductEnriched.strategy == STRATEGY)
+            )
+            q = q.filter(~Product.product_id.in_(already_done))
+
+        products = q.limit(limit).all()
 
         normalized_count = 0
         skipped_count = 0
         failed_count = 0
-        processed = 0
 
         for product in products:
-            if processed >= limit:
-                break
-
-            attrs: Dict[str, Any] = product.attributes or {}
-
-            # Skip if already normalized and not forcing
-            if not force and "normalized_description" in attrs:
-                skipped_count += 1
-                continue
-
-            processed += 1
             normalized = self.normalize_product(product)
 
             if normalized is None:
@@ -191,11 +203,25 @@ class CatalogNormalizer:
                     f"{(product.name or '')[:45]!r:46s} → {normalized[:80]!r}"
                 )
             else:
-                new_attrs = dict(attrs)
-                new_attrs["normalized_description"] = normalized
-                new_attrs["normalized_at"] = datetime.now(timezone.utc).isoformat()
-                product.attributes = new_attrs
-                db.add(product)
+                payload = {
+                    "normalized_description": normalized,
+                    "normalized_at": datetime.now(timezone.utc).isoformat(),
+                }
+                stmt = pg_insert(ProductEnriched).values(
+                    product_id=product.product_id,
+                    strategy=STRATEGY,
+                    attributes=payload,
+                    model=MODEL,
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["product_id", "strategy"],
+                    set_={
+                        "attributes": payload,
+                        "model": MODEL,
+                        "updated_at": datetime.now(timezone.utc),
+                    },
+                )
+                db.execute(stmt)
 
             normalized_count += 1
 
@@ -203,7 +229,12 @@ class CatalogNormalizer:
             db.commit()
             logger.info(
                 "batch_normalize_done",
-                extra={"normalized": normalized_count, "skipped": skipped_count, "failed": failed_count},
+                extra={
+                    "strategy": STRATEGY,
+                    "normalized": normalized_count,
+                    "skipped": skipped_count,
+                    "failed": failed_count,
+                },
             )
 
         return {"normalized": normalized_count, "skipped": skipped_count, "failed": failed_count}

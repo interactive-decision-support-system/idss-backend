@@ -79,17 +79,14 @@ class Product(Base):
     # Compatibility properties for code that expects old field names
     @property
     def description(self):
-        """Return the best available description from attributes JSON.
+        """Return the raw scraped description from attributes JSON.
 
-        Prefers LLM-normalized text (normalized_description) when available
-        so that callers automatically get the clean, concise version set by
-        the catalog ingestion layer. Falls back to the raw scraped description.
+        The normalized form lives in merchants.products_enriched_default under
+        strategy='normalizer_v1' and is read via enriched_reader.hydrate_batch
+        in the merchant-agent search path — not from the raw attributes here.
         """
         if self.attributes and isinstance(self.attributes, dict):
-            return (
-                self.attributes.get("normalized_description")
-                or self.attributes.get("description")
-            )
+            return self.attributes.get("description")
         return None
 
     @property
@@ -132,6 +129,29 @@ class Product(Base):
         if self.attributes and isinstance(self.attributes, dict):
             return self.attributes.get("kg_features")
         return None
+
+
+class ProductEnriched(Base):
+    """
+    Derived attributes per (product, strategy). The raw `products` table is the
+    golden source and is never mutated by enrichment — enrichers write here.
+
+    A `strategy` is a named recipe (e.g. 'normalizer_v1', 'soft_tags_heuristic_v1',
+    'llm_extract_gpt4o_mini'). Multiple strategies can coexist for the same product
+    so A/B comparisons and merchant simulations are just different strategy labels.
+    """
+    __tablename__ = "products_enriched_default"
+    __table_args__ = {"extend_existing": True, "schema": "merchants"}
+
+    product_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("merchants.products_default.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    strategy = Column(Text, primary_key=True)
+    attributes = Column(PG_JSONB, nullable=False, default=dict)
+    model = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 # Stub classes for code that imports Price/Inventory/Cart/CartItem/Order

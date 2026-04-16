@@ -83,7 +83,7 @@ class ProductSchema(BaseModel):
     # ── 2. Common spec fields (written to attributes JSONB) ─────────────────
 
     description: Optional[str] = None
-    normalized_description: Optional[str] = None  # LLM-generated (1-2 sentences)
+    normalized_description: Optional[str] = None  # populated via enriched hydration (strategy='normalizer_v1' in merchants.products_enriched_default), not from raw
 
     # Reviews — list of short snippet strings (real or LLM-generated)
     reviews: List[str] = Field(default_factory=list)

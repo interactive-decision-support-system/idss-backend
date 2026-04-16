@@ -145,7 +145,7 @@ Raw product data from Supabase goes through several normalization steps before i
 
 **Price unit conversion** — Supabase stores prices in dollars. The agent filter layer works in cents (`price_max_cents`, `price_min_cents`). The conversion happens in `get_search_filters()` in `agent/universal_agent.py` when it builds the search request.
 
-**LLM description normalization** — `mcp-server/app/catalog_ingestion.py` contains `CatalogNormalizer`, which uses gpt-4o-mini to rewrite raw product descriptions into 1–2 feature-focused sentences (≤30 words each), stored back in `attributes['normalized_description']`. This is a one-time ingestion step, not a live inference path.
+**LLM description normalization** — `mcp-server/app/catalog_ingestion.py` contains `CatalogNormalizer`, which uses gpt-4o-mini to rewrite raw product descriptions into 1–2 feature-focused sentences (≤30 words each). Output is UPSERTed into `merchants.products_enriched_default` under `strategy='normalizer_v1'`; raw `merchants.products_default` is never mutated. Run via `scripts/run_normalizer.py`. Readers join via `enriched_reader.hydrate_batch`. This is a one-time ingestion step, not a live inference path.
 
 **Post-filter for brand exclusions** — SQL `NOT ILIKE '%HP%'` misses products where the DB `brand` column is "New" but the title contains "HP XYZ". A post-filter step in `_SQLAlchemyProductStore._sql_fetch()` re-checks derived brand AND product title after the SQL query returns. Don't remove it.
 

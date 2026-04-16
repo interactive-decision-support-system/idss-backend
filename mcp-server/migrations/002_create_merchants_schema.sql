@@ -40,42 +40,8 @@ WHERE merchant_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_merchants_products_default_merchant_id
   ON merchants.products_default (merchant_id);
 
--- --------------------------------------------------------------------------
--- merchants.products_enriched_default  — enrichment mirror (if source exists)
--- --------------------------------------------------------------------------
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'products_enriched'
-  ) THEN
-    EXECUTE
-      'CREATE TABLE IF NOT EXISTS merchants.products_enriched_default (
-         LIKE public.products_enriched INCLUDING ALL
-       )';
-
-    -- Snapshot semantics: only populate when the target is empty.
-    EXECUTE
-      'INSERT INTO merchants.products_enriched_default
-       SELECT e.* FROM public.products_enriched e
-       WHERE EXISTS (
-         SELECT 1 FROM merchants.products_default p WHERE p.id = e.product_id
-       )
-       AND NOT EXISTS (SELECT 1 FROM merchants.products_enriched_default)';
-
-    -- LIKE ... INCLUDING ALL does NOT copy foreign keys — recreate within schema.
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_constraint
-      WHERE conname = 'fk_products_enriched_default_product'
-    ) THEN
-      EXECUTE
-        'ALTER TABLE merchants.products_enriched_default
-           ADD CONSTRAINT fk_products_enriched_default_product
-           FOREIGN KEY (product_id)
-           REFERENCES merchants.products_default (id)
-           ON DELETE CASCADE';
-    END IF;
-  END IF;
-END $$;
+-- merchants.products_enriched_default is created by migration 003. Keeping that
+-- table out of this migration removes the deploy-ordering trap where this
+-- migration's clone-from-public branch would silently no-op on fresh setups.
 
 COMMIT;
