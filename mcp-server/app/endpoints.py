@@ -1119,6 +1119,17 @@ async def search_products(
             "category": filters["category"]
         })
 
+    # Per-merchant catalog scope
+    if filters and filters.get("merchant_id"):
+        mid = filters["merchant_id"]
+        if mid == "default":
+            base_query = base_query.filter(
+                or_(Product.merchant_id.is_(None), Product.merchant_id == "default")
+            )
+        else:
+            base_query = base_query.filter(Product.merchant_id == mid)
+        logger.info("merchant_filter_applied", f"merchant_id={mid}", {"merchant_id": mid})
+
     # HARD FILTERS FIRST: product_type, gpu_vendor (DB columns), price_max
     if filters:
         if "product_type" in filters:
