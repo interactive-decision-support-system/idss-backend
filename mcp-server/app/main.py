@@ -1284,13 +1284,54 @@ async def merchant_search(
     if "category" not in merged_filters and query.domain:
         merged_filters["category"] = query.domain
 
+    # Translate agent slot vocabulary → KG scoring-flag vocabulary.
+    # Two naming conventions arrive depending on the upstream path:
+    #   - "use_case"  (singular, string)  — from agent chat interview
+    #   - "use_cases" (plural,   list)    — from MCP query parser
+    # The agent schema says "machine_learning"; the MCP parser says "ml".
+    # Normalize both into the KG's good_for_* boolean flags.
+    _USE_CASE_FLAG_MAP = {
+        "ml": "good_for_ml",
+        "machine_learning": "good_for_ml",
+        "gaming": "good_for_gaming",
+        "web_dev": "good_for_web_dev",
+        "creative": "good_for_creative",
+        "linux": "good_for_linux",
+    }
+    _raw_uc = merged_filters.get("use_cases") or []
+    if isinstance(_raw_uc, str):
+        _raw_uc = [_raw_uc]
+    _single_uc = merged_filters.get("use_case")
+    if _single_uc and isinstance(_single_uc, str):
+        _raw_uc.append(_single_uc)
+    for _uc in _raw_uc:
+        _flag = _USE_CASE_FLAG_MAP.get(str(_uc).lower().strip())
+        if _flag:
+            merged_filters[_flag] = True
+
     # Agent hints via user_context:
     #  - "query": free-text for KG substring matching
     #  - "exclude_ids": products to omit (pagination / "show more" flows)
     _ctx = query.user_context if isinstance(query.user_context, dict) else {}
-    text_query = _ctx.get("query")
     exclude_ids = list(_ctx.get("exclude_ids") or [])
     exclude_set = set(exclude_ids)
+
+    # Harvest text-ish values from soft_preferences so the KG's substring match
+    # sees richer signal than the agent's single-word hint ("book"/"laptop").
+    # The raw user utterance never crosses the contract boundary — if the
+    # agent didn't extract a slot, we don't invent one. This is the quality
+    # ceiling: better slot extraction (agent-side) → better merchant ranking.
+    _TEXT_HARVEST_SLOTS = ("subcategory", "brand", "genre", "style", "material", "color")
+    _parts: _List[str] = []
+    if _ctx.get("query"):
+        _parts.append(str(_ctx["query"]))
+    for _slot in _TEXT_HARVEST_SLOTS:
+        _val = query.soft_preferences.get(_slot)
+        if isinstance(_val, list):
+            _parts.extend(str(v) for v in _val if v)
+        elif isinstance(_val, str) and _val.strip().lower() not in ("", "no preference", "specific brand"):
+            _parts.append(_val)
+    text_query = " ".join(dict.fromkeys(p.strip() for p in _parts if p.strip())) or None
 
     # Over-fetch so that after server-side exclusion we can still return
     # top_k. Cap at the SearchProductsRequest upper bound (100).
