@@ -11,7 +11,7 @@
 -- exist in raw `merchants.products_default.attributes`. Readers join the
 -- two tables; the union is a disjoint set of keys, never a COALESCE.
 -- =============================================================================
--- Usage: psql $DATABASE_URL -f mcp-server/scripts/create_products_enriched_table.sql
+-- Usage: psql $DATABASE_URL -f mcp-server/migrations/003_create_merchants_products_enriched_default.sql
 -- =============================================================================
 
 CREATE SCHEMA IF NOT EXISTS merchants;
