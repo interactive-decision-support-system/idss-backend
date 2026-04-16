@@ -14,6 +14,8 @@ import os
 import re
 import uuid
 from typing import Optional, Dict, Any, List
+
+import httpx
 from pydantic import BaseModel, Field
 
 from agent.interview.session_manager import (
@@ -4232,7 +4234,6 @@ async def _search_ecommerce_products(
         # /merchant/search endpoint and unpack the returned list[Offer].
         # Per ARCHITECTURE.md this is the ONLY surface the shopping agent
         # uses — no imports from merchant internals.
-        import httpx
         _mcp_base = os.environ.get("MCP_BASE_URL", "http://localhost:8001").rstrip("/")
         _mcp_query = _build_kg_search_query(filters, category)
         # Split today's flat filter dict into hard vs soft per the contract.
@@ -4320,25 +4321,22 @@ async def _search_ecommerce_products(
 
         # Offers arrive pre-ranked by the merchant's /merchant/search.
         # Preserve that order — no re-ranking or re-sorting here.
-        kg_candidate_ids: List[str] = []
 
         product_dicts = _diversify_by_brand(product_dicts)
 
-        # Log diversity metrics so we can assess whether KG adds value over SQL alone.
-        # brand_diversity=1.0 means every recommendation is a different brand.
-        # price_spread=1.0 means huge price range (budget → premium).
+        # Log diversity metrics (brand spread + price spread). KG-usage signal
+        # is no longer available here since ranking happens merchant-side.
         _div = _compute_diversity_score(product_dicts)
         logger.info(
             "recommendation_diversity",
             f"Diversity: overall={_div['overall']:.3f} "
-            f"brands={_div['brand_diversity']:.3f} price_spread={_div['price_spread']:.3f} "
-            f"kg_used={bool(kg_candidate_ids)}",
+            f"brands={_div['brand_diversity']:.3f} price_spread={_div['price_spread']:.3f}",
             _div,
         )
 
         try:
             from app.research_compare import generate_recommendation_reasons
-            generate_recommendation_reasons(product_dicts, filters=filters, kg_candidate_ids=kg_candidate_ids)
+            generate_recommendation_reasons(product_dicts, filters=filters)
         except Exception:
             pass
 

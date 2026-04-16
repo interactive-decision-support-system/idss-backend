@@ -20,10 +20,13 @@ CREATE TABLE IF NOT EXISTS merchants.products_default (
   LIKE public.products INCLUDING ALL
 );
 
+-- One-shot snapshot: copy only if the target is empty. ON CONFLICT would
+-- silently back-fill rows added to public.products between re-runs; we want
+-- strict snapshot semantics so a re-run is a no-op once initialised.
 -- Data copy runs before adding merchant_id so SELECT * column counts line up.
 INSERT INTO merchants.products_default
 SELECT * FROM public.products
-ON CONFLICT (id) DO NOTHING;
+WHERE NOT EXISTS (SELECT 1 FROM merchants.products_default);
 
 -- Per-merchant scoping column. Only present on the merchants schema — never
 -- added to public.products (see CLAUDE.md: public is the golden catalog).
@@ -51,13 +54,14 @@ BEGIN
          LIKE public.products_enriched INCLUDING ALL
        )';
 
+    -- Snapshot semantics: only populate when the target is empty.
     EXECUTE
       'INSERT INTO merchants.products_enriched_default
        SELECT e.* FROM public.products_enriched e
        WHERE EXISTS (
          SELECT 1 FROM merchants.products_default p WHERE p.id = e.product_id
        )
-       ON CONFLICT DO NOTHING';
+       AND NOT EXISTS (SELECT 1 FROM merchants.products_enriched_default)';
 
     -- LIKE ... INCLUDING ALL does NOT copy foreign keys — recreate within schema.
     IF NOT EXISTS (

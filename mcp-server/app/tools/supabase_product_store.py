@@ -778,7 +778,7 @@ class _SQLAlchemyProductStore:
         fetch_limit = min(limit * 8, 800)
         # ORDER BY id (index scan) is ~25x faster than ORDER BY RANDOM() (full table sort).
         # Python-side shuffle at line ~839 provides the randomisation instead.
-        sql = sa_text(f"SELECT * FROM products WHERE {where} ORDER BY id LIMIT :fetch_limit")
+        sql = sa_text(f"SELECT * FROM merchants.products_default WHERE {where} ORDER BY id LIMIT :fetch_limit")
         params["fetch_limit"] = fetch_limit
 
         try:
@@ -871,7 +871,7 @@ class _SQLAlchemyProductStore:
         try:
             from sqlalchemy import text as sa_text
             with self._engine.connect() as conn:
-                result = conn.execute(sa_text("SELECT * FROM products WHERE id = :id LIMIT 1"), {"id": product_id})
+                result = conn.execute(sa_text("SELECT * FROM merchants.products_default WHERE id = :id LIMIT 1"), {"id": product_id})
                 row = result.fetchone()
                 return SupabaseProductStore._row_to_dict(dict(row._mapping)) if row else None
         except Exception as e:
@@ -892,7 +892,7 @@ class _SQLAlchemyProductStore:
             placeholders = ", ".join(f":id{i}" for i in range(len(product_ids)))
             with self._engine.connect() as conn:
                 result = conn.execute(
-                    sa_text(f"SELECT * FROM products WHERE id IN ({placeholders})"),
+                    sa_text(f"SELECT * FROM merchants.products_default WHERE id IN ({placeholders})"),
                     params,
                 )
                 rows = result.fetchall()
