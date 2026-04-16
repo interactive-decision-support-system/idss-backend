@@ -79,5 +79,6 @@ def combine_raw_and_enriched(
     raw = raw_attributes or {}
     enriched = enriched_attributes or {}
     overlap = set(raw) & set(enriched)
-    assert not overlap, f"enriched must not duplicate raw keys: {overlap}"
+    if overlap:
+        raise ValueError(f"enriched must not duplicate raw keys: {sorted(overlap)}")
     return {**raw, **enriched}

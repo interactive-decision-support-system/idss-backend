@@ -79,17 +79,14 @@ class Product(Base):
     # Compatibility properties for code that expects old field names
     @property
     def description(self):
-        """Return the best available description from attributes JSON.
+        """Return the raw scraped description from attributes JSON.
 
-        Prefers LLM-normalized text (normalized_description) when available
-        so that callers automatically get the clean, concise version set by
-        the catalog ingestion layer. Falls back to the raw scraped description.
+        The normalized form lives in merchants.products_enriched_default under
+        strategy='normalizer_v1' and is read via enriched_reader.hydrate_batch
+        in the merchant-agent search path — not from the raw attributes here.
         """
         if self.attributes and isinstance(self.attributes, dict):
-            return (
-                self.attributes.get("normalized_description")
-                or self.attributes.get("description")
-            )
+            return self.attributes.get("description")
         return None
 
     @property
