@@ -1,0 +1,6 @@
+# Additional deps for the shopping_agent_llm prototype, on top of the repo's
+# main requirements.txt. Install with:
+#   pip install -r shopping_agent_llm/requirements.txt
+
+pydantic-ai>=0.0.14
+httpx>=0.27

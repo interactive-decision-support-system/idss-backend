@@ -273,6 +273,30 @@ app.include_router(supplier_router)
 if _slack_router_loaded and _slack_router is not None:
     app.include_router(_slack_router, prefix="/channels")
 
+# Experimental LLM-first shopping agent (exp/llm-shopping-agent prototype).
+# Mounts /chat/llm next to legacy /chat so the UI can A/B via env var.
+# Lives in shopping_agent_llm/ at the repo root; we insert the root onto
+# sys.path since uvicorn is launched with --app-dir mcp-server. Load is
+# best-effort — if pydantic-ai isn't installed we log and skip, so the
+# prototype dep doesn't block the main app from booting.
+try:
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _repo_root = _Path(__file__).resolve().parent.parent.parent
+    if str(_repo_root) not in _sys.path:
+        _sys.path.insert(0, str(_repo_root))
+    from shopping_agent_llm.api import router as _llm_router  # noqa: E402
+
+    app.include_router(_llm_router)
+    logger.info("Mounted experimental /chat/llm router from shopping_agent_llm")
+except Exception as _llm_exc:  # noqa: BLE001
+    logger.warning(
+        "shopping_agent_llm router not mounted: %s "
+        "(install `pip install -r shopping_agent_llm/requirements.txt` to enable)",
+        _llm_exc,
+    )
+
 
 
 @app.exception_handler(Exception)
