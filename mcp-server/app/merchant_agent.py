@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -19,6 +20,30 @@ from app.models import Product
 from app.schemas import SearchProductsRequest
 
 logger = logging.getLogger(__name__)
+
+# Merchant id slug grammar. Narrow so it is always safe to splice into an
+# identifier position in SQL once it has matched. Client-supplied slug only —
+# callers never pass raw user input through these helpers; ingress validates
+# at the endpoint before routing into the registry.
+MERCHANT_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
+
+
+def validate_merchant_id(merchant_id: str) -> str:
+    if not isinstance(merchant_id, str) or not MERCHANT_ID_RE.fullmatch(merchant_id):
+        raise ValueError(
+            f"invalid merchant_id {merchant_id!r}: must match {MERCHANT_ID_RE.pattern}"
+        )
+    return merchant_id
+
+
+def merchant_catalog_table(merchant_id: str) -> str:
+    """Fully-qualified raw catalog table for this merchant."""
+    return f"merchants.products_{validate_merchant_id(merchant_id)}"
+
+
+def merchant_enriched_table(merchant_id: str) -> str:
+    """Fully-qualified enriched catalog table for this merchant."""
+    return f"merchants.products_enriched_{validate_merchant_id(merchant_id)}"
 
 # Translate agent slot vocabulary → KG scoring-flag vocabulary.
 # Two naming conventions arrive depending on the upstream path:
@@ -47,8 +72,18 @@ class MerchantAgent:
         merchant_id: str,
         domain: str,
     ) -> None:
-        self.merchant_id = merchant_id
+        self.merchant_id = validate_merchant_id(merchant_id)
         self.domain = domain
+        self._catalog_table = merchant_catalog_table(self.merchant_id)
+        self._enriched_table = merchant_enriched_table(self.merchant_id)
+
+    def catalog_table(self) -> str:
+        """Return fully-qualified raw catalog table name for this merchant."""
+        return self._catalog_table
+
+    def enriched_table(self) -> str:
+        """Return fully-qualified enriched catalog table name for this merchant."""
+        return self._enriched_table
 
     # ------------------------------------------------------------------
     # Search

@@ -2629,8 +2629,8 @@ def get_product(
     logger.info("processing_step", "Step 2: Querying PostgreSQL database", {
         "request_id": request_id,
         "step": "postgresql_query",
-        "query": f"SELECT * FROM merchants.products_default WHERE id = '{request.product_id}'",
-        "tables": ["merchants.products_default", "prices", "inventory"],
+        "query": f"SELECT * FROM {Product.__table__.schema}.{Product.__tablename__} WHERE id = '{request.product_id}'",
+        "tables": [f"{Product.__table__.schema}.{Product.__tablename__}", "prices", "inventory"],
         "joins": ["products.price_info", "products.inventory_info"]
     })
     

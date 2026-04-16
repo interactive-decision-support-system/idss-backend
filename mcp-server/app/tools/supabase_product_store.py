@@ -27,6 +27,27 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("mcp.supabase_product_store")
 
+
+# ---------------------------------------------------------------------------
+# Catalog table resolution
+#
+# The raw SQL paths below are per-merchant scoped. Resolution always goes
+# through `merchant_catalog_table(...)` in `app.merchant_agent`, which
+# regex-validates the merchant id before interpolation — the value is never
+# spliced into SQL without that check. Imports are local so this module stays
+# importable during app startup before app.merchant_agent has finished loading.
+# ---------------------------------------------------------------------------
+
+def _catalog_table_for(merchant_id: Optional[str]) -> str:
+    from app.merchant_agent import merchant_catalog_table
+    return merchant_catalog_table(merchant_id or "default")
+
+
+def _resolve_catalog_table(filters: Optional[Dict[str, Any]]) -> str:
+    mid = (filters or {}).get("merchant_id") if isinstance(filters, dict) else None
+    return _catalog_table_for(mid if isinstance(mid, str) and mid else None)
+
+
 # ---------------------------------------------------------------------------
 # Singleton store (lazy-init)
 # ---------------------------------------------------------------------------
@@ -639,6 +660,8 @@ class _SQLAlchemyProductStore:
         filters: Dict[str, Any],
         limit: int = 100,
         exclude_ids: Optional[List[str]] = None,
+        *,
+        table_name: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Progressive filter relaxation — mirrors SupabaseProductStore's 5-step approach.
@@ -647,10 +670,16 @@ class _SQLAlchemyProductStore:
           2. drop price floor (price_min only)
           3. drop brand
           4. drop both brand and price floor
+
+        `table_name` (optional): fully-qualified raw catalog table for the
+        merchant scope. When omitted, we derive it from `filters["merchant_id"]`
+        via `merchant_catalog_table(...)` so the call-site can stay thin.
         """
         if self._engine is None:
             logger.error("SQLAlchemy engine not available")
             return []
+
+        table_name = table_name or _resolve_catalog_table(filters)
 
         # Parse prices once — shared across relaxation steps
         price_min = _parse_price(filters.get("price_min_cents"), filters.get("price_min"))
@@ -686,6 +715,7 @@ class _SQLAlchemyProductStore:
                 limit=limit,
                 exclude_ids=exclude_ids,
                 drop_os=step["drop_os"],
+                table_name=table_name,
             )
             if rows:
                 logger.info(
@@ -704,6 +734,8 @@ class _SQLAlchemyProductStore:
         limit: int,
         exclude_ids: Optional[List[str]],
         drop_os: bool = False,
+        *,
+        table_name: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Execute one SQL query + Python-side spec filtering pass."""
         import json as _json
@@ -778,7 +810,8 @@ class _SQLAlchemyProductStore:
         fetch_limit = min(limit * 8, 800)
         # ORDER BY id (index scan) is ~25x faster than ORDER BY RANDOM() (full table sort).
         # Python-side shuffle at line ~839 provides the randomisation instead.
-        sql = sa_text(f"SELECT * FROM merchants.products_default WHERE {where} ORDER BY id LIMIT :fetch_limit")
+        resolved_table = table_name or _resolve_catalog_table(filters)
+        sql = sa_text(f"SELECT * FROM {resolved_table} WHERE {where} ORDER BY id LIMIT :fetch_limit")
         params["fetch_limit"] = fetch_limit
 
         try:
@@ -865,20 +898,36 @@ class _SQLAlchemyProductStore:
         random.shuffle(filtered)
         return filtered[:limit]
 
-    def get_by_id(self, product_id: str) -> Optional[Dict[str, Any]]:
+    def get_by_id(
+        self,
+        product_id: str,
+        *,
+        table_name: Optional[str] = None,
+        merchant_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         if self._engine is None:
             return None
         try:
             from sqlalchemy import text as sa_text
+            resolved_table = table_name or _catalog_table_for(merchant_id)
             with self._engine.connect() as conn:
-                result = conn.execute(sa_text("SELECT * FROM merchants.products_default WHERE id = :id LIMIT 1"), {"id": product_id})
+                result = conn.execute(
+                    sa_text(f"SELECT * FROM {resolved_table} WHERE id = :id LIMIT 1"),
+                    {"id": product_id},
+                )
                 row = result.fetchone()
                 return SupabaseProductStore._row_to_dict(dict(row._mapping)) if row else None
         except Exception as e:
             logger.error(f"get_by_id (SQLAlchemy) failed: {e}")
             return None
 
-    def get_by_ids(self, product_ids: List[str]) -> List[Dict[str, Any]]:
+    def get_by_ids(
+        self,
+        product_ids: List[str],
+        *,
+        table_name: Optional[str] = None,
+        merchant_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Fetch multiple products by ID in one query, preserving caller order.
 
         Uses _row_to_dict so spec parsing (_parse_specs_from_title, brand
@@ -890,9 +939,10 @@ class _SQLAlchemyProductStore:
             from sqlalchemy import text as sa_text
             params = {f"id{i}": pid for i, pid in enumerate(product_ids)}
             placeholders = ", ".join(f":id{i}" for i in range(len(product_ids)))
+            resolved_table = table_name or _catalog_table_for(merchant_id)
             with self._engine.connect() as conn:
                 result = conn.execute(
-                    sa_text(f"SELECT * FROM merchants.products_default WHERE id IN ({placeholders})"),
+                    sa_text(f"SELECT * FROM {resolved_table} WHERE id IN ({placeholders})"),
                     params,
                 )
                 rows = result.fetchall()
