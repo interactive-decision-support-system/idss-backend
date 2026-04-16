@@ -8,8 +8,9 @@ Examples:
   python scripts/run_enrichment.py --mode fixed --strategies parser_v1,soft_tagger_v1 --dry-run
   python scripts/run_enrichment.py --ab-eval --limit 25 --eval-output runs/ab.json
 
-The catalog itself (merchants.products_default) is never mutated. All writes
-land in merchants.products_enriched_default keyed by (product_id, strategy).
+v1 scope: runs only against the default merchant. Reads merchants.products_default
+and writes merchants.products_enriched_default. Per-merchant enrichment is
+tracked in issue #47.
 """
 
 from __future__ import annotations
@@ -33,7 +34,6 @@ except ImportError:
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Run multi-agent catalog enrichment.")
     p.add_argument("--mode", choices=["fixed", "orchestrated"], default="fixed")
-    p.add_argument("--merchant", default="default", help="merchant_id (default: 'default')")
     p.add_argument("--limit", type=int, default=10, help="Max products to process.")
     p.add_argument(
         "--strategies",
@@ -55,6 +55,9 @@ def _parse_args() -> argparse.Namespace:
         help="Run BOTH modes on the same product set and emit a comparison.",
     )
     return p.parse_args()
+
+
+_V1_MERCHANT_ID = "default"
 
 
 def main() -> int:
@@ -84,7 +87,7 @@ def main() -> int:
         result = run_enrichment(
             db,
             mode=args.mode,
-            merchant_id=args.merchant,
+            merchant_id=_V1_MERCHANT_ID,
             limit=args.limit,
             strategies_filter=strategies_filter,
             dry_run=args.dry_run,
@@ -114,7 +117,7 @@ def _run_ab_eval(db, args, strategies_filter) -> int:
     fixed_result = run_enrichment(
         db,
         mode="fixed",
-        merchant_id=args.merchant,
+        merchant_id=_V1_MERCHANT_ID,
         limit=args.limit,
         strategies_filter=strategies_filter,
         dry_run=True,  # eval mode never writes
@@ -123,7 +126,7 @@ def _run_ab_eval(db, args, strategies_filter) -> int:
     orch_result = run_enrichment(
         db,
         mode="orchestrated",
-        merchant_id=args.merchant,
+        merchant_id=_V1_MERCHANT_ID,
         limit=args.limit,
         strategies_filter=strategies_filter,
         dry_run=True,
