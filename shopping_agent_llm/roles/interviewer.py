@@ -119,4 +119,4 @@ async def run_interviewer(
     )
     prompt = _render_state_block(state, utterance)
     result = await agent.run(prompt)
-    return result.data
+    return result.output

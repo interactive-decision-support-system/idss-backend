@@ -97,7 +97,7 @@ async def run_query_builder(
         _QueryDraft,
         _SYSTEM_PROMPT,
     )
-    draft = (await agent.run(_render_prompt(state))).data
+    draft = (await agent.run(_render_prompt(state))).output
 
     # Always enforce in_stock and exclude_ids server-contract-style; the LLM
     # shouldn't have to remember these every time.

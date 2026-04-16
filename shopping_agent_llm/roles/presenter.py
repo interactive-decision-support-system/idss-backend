@@ -106,4 +106,4 @@ async def run_presenter(
         f"Domain: {state.domain or '(unknown)'}\n"
         f"Offers (top to bottom, merchant-ranked):\n{_render_offers(offers)}\n"
     )
-    return (await agent.run(prompt)).data
+    return (await agent.run(prompt)).output

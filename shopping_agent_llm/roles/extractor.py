@@ -69,4 +69,4 @@ async def run_extractor(
         _SYSTEM_PROMPT,
     )
     result = await agent.run(_render_prompt(state, utterance))
-    return result.data
+    return result.output

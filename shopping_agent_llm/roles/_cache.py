@@ -6,7 +6,7 @@ at import time if OPENAI_API_KEY is missing. We therefore construct agents
 lazily — on first use — and cache by (model, role) so subsequent turns don't
 pay reconstruction overhead.
 
-Each role calls `get_agent(role_name, model, result_type, system_prompt)`.
+Each role calls `get_agent(role_name, model, output_type, system_prompt)`.
 """
 
 from __future__ import annotations
@@ -22,14 +22,14 @@ _CACHE: Dict[Tuple[str, str], Agent] = {}
 def get_agent(
     role_name: str,
     model: str,
-    result_type: Type[Any],
+    output_type: Type[Any],
     system_prompt: str,
 ) -> Agent:
     key = (role_name, model)
     agent = _CACHE.get(key)
     if agent is None:
         agent = Agent(
-            model=model, result_type=result_type, system_prompt=system_prompt
+            model=model, output_type=output_type, system_prompt=system_prompt
         )
         _CACHE[key] = agent
     return agent
