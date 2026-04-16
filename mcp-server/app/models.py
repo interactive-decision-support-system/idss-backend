@@ -19,12 +19,20 @@ from app.database import Base
 
 class Product(Base):
     """
-    Product catalog - maps to Supabase 'products' table.
-    Column('db_name', ...) maps Supabase column names to Python attribute names
-    so existing code continues to work without changes.
+    Product catalog — maps to `merchants.products_default`.
+
+    Per the interim design (CLAUDE.md: "Merchant agent is generic; each uploaded
+    catalog is isolated"), the default merchant's catalog lives in the `merchants`
+    schema, cloned from `public.products`. Reads go through this model; the raw
+    `public.products` table stays frozen as the reference catalog.
+
+    Issue #38 tracks the long-term target of one schema per merchant.
+
+    Column('db_name', ...) maps the underlying column names to Python attribute
+    names so existing code continues to work without changes.
     """
-    __tablename__ = "products"
-    __table_args__ = {"extend_existing": True}
+    __tablename__ = "products_default"
+    __table_args__ = {"extend_existing": True, "schema": "merchants"}
 
     # Primary identifier — Supabase uses 'id' (UUID), we keep attribute name 'product_id'
     product_id = Column("id", PG_UUID(as_uuid=True), primary_key=True, index=True)
