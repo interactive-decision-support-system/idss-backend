@@ -288,7 +288,7 @@ def _detect_excluded_brands(message: str) -> List[str]:
     # "no HP, Acer, or Dell" are captured as one group and split below.
     _excl_kw_pat = re.compile(
         r'(?:no|not|never|anything\s+but|avoid|hate|refuse|bad|terrible|poor|skip|'
-        r'exclude|excluded|without|steer\s+clear\s+of)'
+        r"exclude|excluded|without|steer\s+clear\s+of|don[''`]?t\s+(?:want|like)(?:\s+any)?)"
         r'(?:\s+experiences?\s+with)?'
         r'\s+([A-Za-z][A-Za-z0-9\-,; ]{1,60})',
         re.IGNORECASE,
@@ -1290,6 +1290,15 @@ class UniversalAgent:
                         if not self.filters.get("excluded_brands"):
                             self.filters.pop("excluded_brands", None)
                         logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
+                # Supplement LLM extraction with deterministic brand exclusion detection.
+                # Matches the same supplement logic used in process_refinement, so phrases
+                # like "I don't want any Dell products" are never missed even when the LLM
+                # omits excluded_brands from its structured output.
+                _det_excl = _detect_excluded_brands(message)
+                if _det_excl:
+                    self.filters["excluded_brands"] = _merge_excluded_brands(
+                        self.filters.get("excluded_brands"), ",".join(_det_excl)
+                    )
 
             # Mirror regex fallback heuristic: if user provides ≥2 substantive criteria
             # in a single statement-style message, they've stated their requirements →
@@ -2120,6 +2129,30 @@ Write the recommendation message."""}
 
         except Exception as e:
             logger.error(f"Refinement classification failed: {e}")
+            # Regex fallback: extract budget and brand exclusions even when LLM fails,
+            # so post-rec refinements like "under $1000, no HP" are not silently dropped.
+            _fallback_updated = False
+            _b_under = re.search(
+                r'(?:under|below|less\s+than|at\s+most|up\s+to|max|budget[:\s]+)\s*\$\s*(\d[\d,]*)',
+                message, re.IGNORECASE
+            )
+            _b_plain = re.search(r'\$\s*(\d[\d,]+)', message)
+            if _b_under:
+                self.filters["budget"] = f"under{_b_under.group(1).replace(',', '')}"
+                _fallback_updated = True
+            elif _b_plain:
+                self.filters["budget"] = f"${_b_plain.group(1).replace(',', '')}"
+                _fallback_updated = True
+            _regex_excl = _detect_excluded_brands(message)
+            if _regex_excl:
+                self.filters["excluded_brands"] = _merge_excluded_brands(
+                    self.filters.get("excluded_brands"), ",".join(_regex_excl)
+                )
+                _fallback_updated = True
+            if _fallback_updated:
+                self.history.append({"role": "user", "content": message})
+                schema = get_domain_schema(self.domain)
+                return self._handoff_to_search(schema)
             return {"response_type": "not_refinement", "intent": "error"}
 
     def _summarize_product(self, product: Dict[str, Any], domain: str) -> Optional[str]:
