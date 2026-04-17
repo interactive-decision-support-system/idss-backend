@@ -1,0 +1,170 @@
+"""OpenAI wrapper used by every enrichment agent.
+
+Centralizes:
+  - model selection (default gpt-4o-mini; gpt-4o opt-in via ENRICHMENT_LARGE_MODEL)
+  - retry on transient errors (rate limits, timeouts)
+  - cost metering (per-call usage and a process-level running total)
+  - JSON-mode parsing convenience
+
+Lazy-imports openai so unit tests can monkey-patch a fake client.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+# Per-1K-token rates (USD). Update if OpenAI changes pricing — only used for
+# the in-process running total; Langfuse computes its own server-side.
+_PRICING: dict[str, tuple[float, float]] = {
+    # model: (input_per_1k, output_per_1k)
+    "gpt-4o-mini": (0.00015, 0.00060),
+    "gpt-4o": (0.00250, 0.01000),
+}
+
+
+@dataclass
+class LLMResponse:
+    text: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+    latency_ms: int
+    parsed_json: Any | None = None
+
+
+@dataclass
+class CostLedger:
+    """Process-level running tally. Reset between runs by the orchestrator."""
+
+    total_usd: float = 0.0
+    calls: int = 0
+    by_model: dict[str, float] = field(default_factory=dict)
+
+    def record(self, response: LLMResponse) -> None:
+        self.total_usd += response.cost_usd
+        self.calls += 1
+        self.by_model[response.model] = self.by_model.get(response.model, 0.0) + response.cost_usd
+
+    def reset(self) -> None:
+        self.total_usd = 0.0
+        self.calls = 0
+        self.by_model = {}
+
+
+_LEDGER = CostLedger()
+
+
+def get_ledger() -> CostLedger:
+    return _LEDGER
+
+
+def default_model(*, large: bool = False) -> str:
+    if large:
+        return os.getenv("ENRICHMENT_LARGE_MODEL", "gpt-4o")
+    return os.getenv("ENRICHMENT_DEFAULT_MODEL", "gpt-4o-mini")
+
+
+def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    rates = _PRICING.get(model)
+    if not rates:
+        return 0.0
+    in_rate, out_rate = rates
+    return (input_tokens / 1000.0) * in_rate + (output_tokens / 1000.0) * out_rate
+
+
+class LLMClient:
+    """Thin facade over the OpenAI chat-completions API."""
+
+    def __init__(self, openai_client: Any | None = None) -> None:
+        if openai_client is not None:
+            self._client = openai_client
+            return
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            self._client = None
+            return
+        try:
+            from openai import OpenAI
+
+            self._client = OpenAI(api_key=api_key)
+        except ImportError:
+            logger.warning("openai package not installed — LLMClient is no-op")
+            self._client = None
+        except Exception as exc:  # noqa: BLE001 - never let init crash module load
+            logger.warning("openai client init failed (%s) — LLMClient is no-op", exc)
+            self._client = None
+
+    # ------------------------------------------------------------------
+
+    def complete(
+        self,
+        *,
+        system: str,
+        user: str,
+        model: str | None = None,
+        json_mode: bool = False,
+        max_tokens: int = 600,
+        temperature: float = 0.2,
+        max_retries: int = 3,
+    ) -> LLMResponse:
+        if self._client is None:
+            raise RuntimeError("LLMClient: openai not installed")
+
+        model_name = model or default_model()
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        kwargs: dict[str, Any] = {
+            "model": model_name,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        last_err: Exception | None = None
+        for attempt in range(max_retries):
+            start = time.perf_counter()
+            try:
+                resp = self._client.chat.completions.create(**kwargs)
+                latency_ms = int((time.perf_counter() - start) * 1000)
+                text = (resp.choices[0].message.content or "").strip()
+                usage = getattr(resp, "usage", None)
+                in_tok = getattr(usage, "prompt_tokens", 0) or 0
+                out_tok = getattr(usage, "completion_tokens", 0) or 0
+                cost = _estimate_cost(model_name, in_tok, out_tok)
+                parsed = None
+                if json_mode:
+                    try:
+                        parsed = json.loads(text) if text else None
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(f"json_mode response was not valid JSON: {exc}") from exc
+                response = LLMResponse(
+                    text=text,
+                    model=model_name,
+                    input_tokens=in_tok,
+                    output_tokens=out_tok,
+                    cost_usd=cost,
+                    latency_ms=latency_ms,
+                    parsed_json=parsed,
+                )
+                _LEDGER.record(response)
+                return response
+            except Exception as exc:  # noqa: BLE001 - retry envelope
+                last_err = exc
+                # Cheap backoff: 0.5s, 1s, 2s.
+                if attempt < max_retries - 1:
+                    time.sleep(0.5 * (2**attempt))
+                continue
+        raise RuntimeError(f"LLMClient.complete failed after {max_retries} retries: {last_err}")
