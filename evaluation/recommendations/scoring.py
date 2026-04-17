@@ -145,7 +145,10 @@ def get_embedding_for_product(
 
     if product_dict:
         from app.vector_search import get_vector_store
-        store = get_vector_store()
+        # Encoding-only path — the encoder is model-scoped, not catalog-scoped,
+        # so ask for the default merchant's store. The (default, normalizer_v1)
+        # store's encoder is the same model as every other merchant's.
+        store = get_vector_store("default", "normalizer_v1")
         # encode_product expects name, description, category, brand, metadata (attributes), product_type
         p = dict(product_dict)
         if "metadata" not in p and "attributes" in p:
