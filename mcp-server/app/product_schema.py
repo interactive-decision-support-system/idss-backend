@@ -201,19 +201,22 @@ class ProductSchema(BaseModel):
         if product_id is None:
             product_id = str(uuid.uuid4())
 
-        # Map product_type → category (how Supabase stores it)
+        # Map product_type → category. Values are lowercase because the
+        # search filter in endpoints.search_products compares
+        # `Product.category == filters["category"]` case-sensitively and the
+        # agent emits lowercase slot values ("electronics").
         _TYPE_TO_CATEGORY: Dict[str, str] = {
-            "laptop": "Electronics",
-            "phone": "Electronics",
-            "tablet": "Electronics",
-            "camera": "Electronics",
-            "book": "Books",
-            "vehicle": "Vehicles",
-            "car": "Vehicles",
-            "truck": "Vehicles",
-            "suv": "Vehicles",
+            "laptop": "electronics",
+            "phone": "electronics",
+            "tablet": "electronics",
+            "camera": "electronics",
+            "book": "books",
+            "vehicle": "vehicles",
+            "car": "vehicles",
+            "truck": "vehicles",
+            "suv": "vehicles",
         }
-        category = _TYPE_TO_CATEGORY.get(self.product_type, "Other")
+        category = _TYPE_TO_CATEGORY.get(self.product_type, "other")
 
         return {
             "id": product_id,
