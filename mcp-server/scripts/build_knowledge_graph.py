@@ -320,6 +320,17 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Build Neo4j knowledge graph from PostgreSQL")
     parser.add_argument("--clear", action="store_true", help="Clear Neo4j before building (use after populate_real_only_db)")
+    parser.add_argument(
+        "--merchant-id",
+        default="default",
+        help="Merchant scope to build nodes under (mirrors products_enriched.merchant_id). Default: 'default'.",
+    )
+    parser.add_argument(
+        "--strategy",
+        default="default_v1",
+        dest="kg_strategy",
+        help="KG strategy label that identifies which enrichment mix the KG was built from. Default: 'default_v1'.",
+    )
     args = parser.parse_args()
 
     print("="*80)
@@ -394,7 +405,12 @@ def main():
 
             # Create node (projection carries enriched-derived node properties)
             projection = laptop_projections.get(laptop.product_id, {})
-            product_id = builder.create_laptop_node(laptop_data, projection=projection)
+            product_id = builder.create_laptop_node(
+                laptop_data,
+                projection=projection,
+                merchant_id=args.merchant_id,
+                kg_strategy=args.kg_strategy,
+            )
             laptop_ids.append(product_id)
             
             # Add software compatibility
@@ -426,7 +442,12 @@ def main():
 
             # Create node (projection carries enriched-derived node properties)
             projection = book_projections.get(book.product_id, {})
-            product_id = builder.create_book_node(book_data, projection=projection)
+            product_id = builder.create_book_node(
+                book_data,
+                projection=projection,
+                merchant_id=args.merchant_id,
+                kg_strategy=args.kg_strategy,
+            )
             book_ids.append(product_id)
             
             if i % 10 == 0:

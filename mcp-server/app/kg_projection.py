@@ -197,8 +197,11 @@ def project(
 
 # Reader-side properties that exist on every node by construction and do not
 # need to be produced by a rule. Kept short and explicit so changes are
-# visible in review.
-READER_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"created_at"})
+# visible in review. Tenancy fields (merchant_id, kg_strategy) are SET by
+# the builder and used as leading WHERE filters by the reader.
+READER_SYSTEM_PROPERTIES: frozenset[str] = frozenset(
+    {"created_at", "merchant_id", "kg_strategy"}
+)
 
 
 # Boolean features the reader filters on (``p.repairable = true``,

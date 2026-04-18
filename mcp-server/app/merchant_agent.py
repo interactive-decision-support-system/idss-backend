@@ -65,15 +65,25 @@ _TEXT_HARVEST_SLOTS = ("subcategory", "brand", "genre", "style", "material", "co
 
 class MerchantAgent:
     """Per-merchant search agent. Scopes catalog by merchant_id and delegates
-    to the shared retrieval stack (KG → vector → SQL)."""
+    to the shared retrieval stack (KG → vector → SQL).
+
+    ``kg_strategy`` identifies the enrichment mix this agent's KG was built
+    from — one ``MerchantAgent`` ↔ one ``(merchant_id, kg_strategy)`` pair,
+    mirroring how products_enriched rows are keyed. The default of
+    ``"default_v1"`` is a pin for the pre-multi-strategy era; merchants that
+    run two strategies in parallel will need two MerchantAgent instances and
+    two KG instances (contract rule 3 of #52).
+    """
 
     def __init__(
         self,
         merchant_id: str,
         domain: str,
+        kg_strategy: str = "default_v1",
     ) -> None:
         self.merchant_id = validate_merchant_id(merchant_id)
         self.domain = domain
+        self.kg_strategy = kg_strategy
         self._catalog_table = merchant_catalog_table(self.merchant_id)
         self._enriched_table = merchant_enriched_table(self.merchant_id)
         # Per-merchant ORM models. Cached on the instance so downstream
@@ -216,6 +226,9 @@ class MerchantAgent:
 
         # --- Catalog scope --------------------------------------------
         merged_filters["merchant_id"] = self.merchant_id
+        # Thread kg_strategy through filters so endpoints.search_products can
+        # pick it up at the KG call site without a new positional arg.
+        merged_filters["_kg_strategy"] = self.kg_strategy
 
         # --- Extract exclude_ids from user_context --------------------
         _ctx = query.user_context if isinstance(query.user_context, dict) else {}

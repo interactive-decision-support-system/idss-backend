@@ -84,18 +84,29 @@ class KnowledgeGraphService:
         self,
         query: str,
         filters: Optional[Dict[str, Any]] = None,
-        limit: int = 20
+        limit: int = 20,
+        *,
+        merchant_id: Optional[str] = None,
+        kg_strategy: Optional[str] = None,
     ) -> Tuple[List[str], Dict[str, Any]]:
         """
         Search for product candidates using knowledge graph.
-        
-        Per week4notes.txt: KG handles complex constraint-based queries.
-        
+
+        The KG stores one node per ``(product_id, merchant_id, kg_strategy)``
+        triple — mirroring the ``(merchant_id, strategy)`` key in
+        products_enriched. Call sites MUST pass the agent's merchant /
+        strategy pair or results cross-leak between tenants. ``None`` is
+        accepted for backwards compatibility with pre-#52 call sites; the
+        resulting Cypher short-circuits the tenancy filter.
+
         Args:
             query: Natural language query (e.g., "gaming laptop for video editing")
             filters: Structured filters (category, price_max, brand, etc.)
             limit: Maximum number of candidates to return
-        
+            merchant_id: Tenant scope. ``None`` → legacy unfiltered.
+            kg_strategy: Enrichment strategy this KG was built from. ``None``
+                → legacy unfiltered.
+
         Returns:
             Tuple of (product_ids, explanation_path)
             - product_ids: List of candidate product IDs from KG
@@ -103,16 +114,21 @@ class KnowledgeGraphService:
         """
         if not self.is_available():
             return [], {}
-        
+
         try:
             with self.driver.session() as session:
-                cypher_query = self._build_cypher_query(query, filters, limit)
+                cypher_query = self._build_cypher_query(
+                    query, filters, limit,
+                    merchant_id=merchant_id, kg_strategy=kg_strategy,
+                )
                 params = {
                     "limit": limit,
                     # Soft-tag confidence cutoff is a parameter, not a literal
                     # in the Cypher string, so we can recalibrate it without a
                     # query rebuild. See issue #60 for calibration tracking.
                     "tag_threshold": float(TAG_CONFIDENCE_THRESHOLD),
+                    "merchant_id": merchant_id,
+                    "kg_strategy": kg_strategy,
                     **self._extract_filters(filters or {}),
                 }
                 if query and len(query) >= 2:
@@ -122,14 +138,16 @@ class KnowledgeGraphService:
                         for i, tok in enumerate(tokens):
                             params[f"q_tok_{i}"] = tok
                 result = session.run(cypher_query, params)
-                
+
                 product_ids = []
                 explanation_path = {
                     "query": query,
                     "filters": filters,
+                    "merchant_id": merchant_id,
+                    "kg_strategy": kg_strategy,
                     "traversal": []
                 }
-                
+
                 for record in result:
                     product_id = record.get("product_id")
                     if product_id:
@@ -139,10 +157,10 @@ class KnowledgeGraphService:
                             "score": record.get("score", 0.0),
                             "path": record.get("path", "")
                         })
-                
+
                 logger.info(f"KG search found {len(product_ids)} candidates for query: {query[:50]}")
                 return product_ids, explanation_path
-                
+
         except Exception as e:
             logger.error(f"KG search failed: {e}", exc_info=True)
             return [], {"error": str(e)}
@@ -170,10 +188,19 @@ class KnowledgeGraphService:
         self,
         query: str,
         filters: Optional[Dict[str, Any]],
-        limit: int
+        limit: int,
+        *,
+        merchant_id: Optional[str] = None,
+        kg_strategy: Optional[str] = None,
     ) -> str:
         """
         Build Cypher query for product search with hard and soft constraints.
+
+        Tenant scope (leading WHERE): ``p.merchant_id = $merchant_id AND
+        p.kg_strategy = $kg_strategy`` when both args are set. Mirrors the
+        ``(merchant_id, strategy)`` composite key on products_enriched.
+        Either arg set to ``None`` skips that condition — legacy callers
+        get unfiltered behaviour.
 
         Hard constraints (WHERE clause): category, price bounds, brand, subcategory,
             repairable, refurbished, battery_life_min.  Products that fail these are
@@ -189,7 +216,14 @@ class KnowledgeGraphService:
         """
         # ── Hard constraints (WHERE) ─────────────────────────────────────────
         category = (filters or {}).get("category", "Electronics")
-        hard_conditions: List[str] = ["p.category = $category"]
+        hard_conditions: List[str] = []
+        # Tenancy scope — prepended so every scan short-circuits on the index
+        # before any other predicate runs.
+        if merchant_id is not None:
+            hard_conditions.append("p.merchant_id = $merchant_id")
+        if kg_strategy is not None:
+            hard_conditions.append("p.kg_strategy = $kg_strategy")
+        hard_conditions.append("p.category = $category")
 
         if filters:
             if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
