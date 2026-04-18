@@ -80,7 +80,8 @@ def test_build_cypher_query_soft_constraints_become_case_when():
         limit=10,
     )
     # Soft: use-case flag is a CASE WHEN, not a hard WHERE condition
-    assert "CASE WHEN p.good_for_gaming" in cypher
+    assert "CASE WHEN coalesce(p.good_for_gaming" in cypher
+    assert "$tag_threshold" in cypher
     # Hard WHERE should NOT contain the use-case flag as a bare condition
     where_part = cypher.split("WHERE")[1].split("WITH")[0] if "WITH" in cypher else cypher
     assert "p.good_for_gaming = true" not in where_part

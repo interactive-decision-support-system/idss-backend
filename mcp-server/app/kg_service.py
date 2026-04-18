@@ -15,6 +15,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import logging
 
+from app.kg_projection import TAG_CONFIDENCE_THRESHOLD
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -105,7 +107,14 @@ class KnowledgeGraphService:
         try:
             with self.driver.session() as session:
                 cypher_query = self._build_cypher_query(query, filters, limit)
-                params = {"limit": limit, **self._extract_filters(filters or {})}
+                params = {
+                    "limit": limit,
+                    # Soft-tag confidence cutoff is a parameter, not a literal
+                    # in the Cypher string, so we can recalibrate it without a
+                    # query rebuild. See issue #60 for calibration tracking.
+                    "tag_threshold": float(TAG_CONFIDENCE_THRESHOLD),
+                    **self._extract_filters(filters or {}),
+                }
                 if query and len(query) >= 2:
                     params["q"] = query.lower()[:50]
                     tokens = self._tokenize_query(query)
@@ -204,6 +213,13 @@ class KnowledgeGraphService:
         # ── Soft constraints (scoring) ────────────────────────────────────────
         # Use-case flags boost relevance but do NOT exclude products that lack them.
         # Weight 3 for primary use cases, 2 for secondary.
+        #
+        # Each good_for_* node property carries a float confidence (0.0–1.0)
+        # produced by soft_tagger_v1. We threshold against $tag_threshold
+        # (named Python constant TAG_CONFIDENCE_THRESHOLD in kg_projection)
+        # rather than a Cypher literal so calibration (issue #60) is a
+        # one-line change. coalesce(..., 0.0) handles products that never
+        # received the tag — they score 0 instead of NULL-propagating.
         soft_score_cases: List[str] = []
         if filters:
             for flag, boost in [
@@ -215,7 +231,8 @@ class KnowledgeGraphService:
             ]:
                 if filters.get(flag):
                     soft_score_cases.append(
-                        f"CASE WHEN p.{flag} = true THEN {boost} ELSE 0 END"
+                        f"CASE WHEN coalesce(p.{flag}, 0.0) >= $tag_threshold "
+                        f"THEN {boost} ELSE 0 END"
                     )
 
         # Text match is also soft: preferred but not required.
