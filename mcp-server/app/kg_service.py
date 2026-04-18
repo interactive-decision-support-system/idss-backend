@@ -182,6 +182,19 @@ class KnowledgeGraphService:
             return [], {}, {"error": str(e)}
     
     @staticmethod
+    def _safe_prop_suffix(token: str) -> str:
+        """Return ``token`` restricted to ``[a-z0-9_]`` so it's safe to splice
+        into a Cypher property name (``p.good_for_<suffix>``). Empty result
+        means "don't generate a good_for_ clause for this token" — the
+        caller should skip it."""
+        if not token:
+            return ""
+        import re as _re
+        # Keep the first matchable run of identifier chars; reject anything else.
+        m = _re.fullmatch(r"[a-z0-9_]+", token)
+        return m.group(0) if m else ""
+
+    @staticmethod
     def _tokenize_query(query: str, max_tokens: int = 12) -> List[str]:
         """Lowercase, whitespace-split, strip light punctuation, dedupe.
 
@@ -306,19 +319,31 @@ class KnowledgeGraphService:
         else:
             phrase_expr = "0"
 
-        # Per-token match: +1 per token that hits name/description/subcategory.
+        # Per-token match: +1 per token that hits name/description/subcategory,
+        # PLUS +1 per token that matches a good_for_<token> node property
+        # above threshold. The good_for_ check makes soft tags first-class
+        # without a full synonym graph — #32 called this out as the reason
+        # "laptop for ml" scored no differently than "laptop". Token strings
+        # are sanitized through _safe_prop_suffix before splicing into the
+        # Cypher string so arbitrary user text can't introduce injection.
         # Skip for single-token queries — phrase match already covers that.
         token_cases: List[str] = []
         if query and len(query) >= 2:
             tokens = self._tokenize_query(query)
             if len(tokens) >= 2:
-                for i, _tok in enumerate(tokens):
+                for i, tok in enumerate(tokens):
                     pname = f"q_tok_{i}"
                     token_cases.append(
                         f"CASE WHEN (toLower(coalesce(p.subcategory, '')) CONTAINS ${pname} OR "
                         f"toLower(coalesce(p.name, '')) CONTAINS ${pname} OR "
                         f"toLower(coalesce(p.description, '')) CONTAINS ${pname}) THEN 1 ELSE 0 END"
                     )
+                    suffix = self._safe_prop_suffix(tok)
+                    if suffix:
+                        token_cases.append(
+                            f"CASE WHEN coalesce(p.good_for_{suffix}, 0.0) "
+                            f">= $tag_threshold THEN 1 ELSE 0 END"
+                        )
         token_expr = " + ".join(token_cases) if token_cases else "0"
 
         has_scoring = bool(soft_score_cases or (query and len(query) >= 2))

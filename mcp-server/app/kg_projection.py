@@ -215,7 +215,13 @@ READER_SYSTEM_PROPERTIES: frozenset[str] = frozenset(
 RESERVED_BOOL_FEATURES: frozenset[str] = frozenset({"repairable", "refurbished"})
 
 
-_CYPHER_PROP_RE = re.compile(r"\bp\.([a-z_][a-z0-9_]*)\b")
+# Identifier characters for Cypher properties. Matches typical snake_case.
+# The `(?=...)` lookahead stops the match before any non-identifier character
+# — notably f-string ``{`` interpolation boundaries like ``p.good_for_{suffix}``.
+# Those templated-suffix references yield a bare ``good_for_`` prefix, which
+# we strip in ``cypher_referenced_properties`` since the drift-producible set
+# handles them via KEY_PATTERNS.
+_CYPHER_PROP_RE = re.compile(r"\bp\.([a-z_][a-z0-9_]*)")
 
 
 def cypher_referenced_properties(source: Optional[str] = None) -> set[str]:
@@ -238,7 +244,10 @@ def cypher_referenced_properties(source: Optional[str] = None) -> set[str]:
         from app.kg_service import KnowledgeGraphService
 
         source = inspect.getsource(KnowledgeGraphService._build_cypher_query)
-    return set(_CYPHER_PROP_RE.findall(source))
+    # Skip references that end with ``_`` — those are f-string templated
+    # suffixes like ``p.good_for_{suffix}``. The real property name is
+    # ``good_for_<something>``, covered by KEY_PATTERNS at lookup time.
+    return {r for r in _CYPHER_PROP_RE.findall(source) if r and not r.endswith("_")}
 
 
 __all__ = [

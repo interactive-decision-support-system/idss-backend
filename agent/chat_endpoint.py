@@ -3382,6 +3382,7 @@ async def _search_and_respond_ecommerce(
     session_manager.add_message(session_id, "user", "")
     recs, labels = await _search_ecommerce_products(
         search_filters, category, n_rows=n_rows, n_per_row=n_per_row,
+        user_message=original_message,
     )
     timings["ecommerce_search_ms"] = (time.perf_counter() - t_search) * 1000
     t_format = time.perf_counter()
@@ -4010,9 +4011,32 @@ def _fetch_products_by_ids(
     return ordered
 
 
-def _build_kg_search_query(filters: Dict[str, Any], category: str) -> str:
-    """Build a search query string for KG from filters."""
-    parts = []
+def _build_kg_search_query(
+    filters: Dict[str, Any],
+    category: str,
+    user_message: Optional[str] = None,
+) -> str:
+    """Build a search query string for KG from filters and the user's message.
+
+    Prior to #32's fix this function ignored the user's actual words,
+    handing the KG only extracted slot values. Cypher's CONTAINS scoring
+    therefore scored the same regardless of what the user typed. We now
+    prepend sanitized tokens from ``user_message`` so phrases like
+    "ml laptop" actually participate in soft scoring against
+    ``p.name/description/subcategory`` — and against the open-vocab
+    ``good_for_*`` tags via the per-token layer in
+    ``kg_service._build_cypher_query``.
+    """
+    parts: List[str] = []
+    if user_message:
+        # Reuse the tokenizer on the reader side so the upstream sanitization
+        # matches downstream Cypher parameter naming (stop tokens <2 chars
+        # dropped, lowercased, punctuation stripped, first-seen order kept).
+        # Truncate to the same 50-char window kg_service uses for $q so the
+        # prepended tokens never exceed what the reader would see anyway.
+        from app.kg_service import KnowledgeGraphService
+        tokens = KnowledgeGraphService._tokenize_query(user_message[:50])
+        parts.extend(tokens)
     if filters.get("subcategory"):
         parts.append(str(filters["subcategory"]))
     if filters.get("brand") and str(filters["brand"]).lower() not in ("no preference", "specific brand"):
@@ -4021,7 +4045,14 @@ def _build_kg_search_query(filters: Dict[str, Any], category: str) -> str:
         parts.append("laptop")
     elif category.lower() == "books":
         parts.append("book")
-    return " ".join(parts) if parts else ""
+    # Dedupe while preserving order — tokenizer already does this within
+    # user_message but filters can duplicate a token the user typed.
+    seen: List[str] = []
+    for p in parts:
+        p = p.strip()
+        if p and p.lower() not in (s.lower() for s in seen):
+            seen.append(p)
+    return " ".join(seen) if seen else ""
 
 
 def _diversify_by_brand(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -4195,6 +4226,7 @@ async def _search_ecommerce_products(
     n_per_row: int = 3,
     idss_preferences: Optional[Dict[str, Any]] = None,
     exclude_ids: Optional[List[str]] = None,
+    user_message: Optional[str] = None,
 ) -> tuple:
     """
     Search e-commerce products via Supabase REST API.
@@ -4235,7 +4267,7 @@ async def _search_ecommerce_products(
         # Per ARCHITECTURE.md this is the ONLY surface the shopping agent
         # uses — no imports from merchant internals.
         _mcp_base = os.environ.get("MCP_BASE_URL", "http://localhost:8001").rstrip("/")
-        _mcp_query = _build_kg_search_query(filters, category)
+        _mcp_query = _build_kg_search_query(filters, category, user_message=user_message)
         # Split today's flat filter dict into hard vs soft per the contract.
         # HARD = explicit constraints (price bounds, category, product_type,
         # availability). SOFT = everything else (brand, color, subcategory,
