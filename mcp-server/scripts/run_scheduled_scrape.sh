@@ -26,8 +26,11 @@ fi
 # 1. Populate real-only DB (--full = books + Selenium for blocked sites)
 python scripts/populate_real_only_db.py --full
 
-# 2. Backfill kg_features
-python scripts/backfill_kg_features.py
+# 2. (Removed) backfill_kg_features.py was retired under issue #52 — the KG
+#    now consumes products_enriched instead of deriving features from raw
+#    text. Whether the legacy heuristic logic migrates into the enrichment
+#    pipeline is tracked in issue #61. Until that lands, enriched rows for
+#    this refresh must come from a separate run_enrichment invocation.
 
 # 3. Rebuild Neo4j knowledge graph (optional; comment out if not using Neo4j)
 if command -v python &>/dev/null; then
