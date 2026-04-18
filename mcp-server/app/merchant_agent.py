@@ -45,6 +45,52 @@ def merchant_enriched_table(merchant_id: str) -> str:
     """Fully-qualified enriched catalog table for this merchant."""
     return f"merchants.products_enriched_{validate_merchant_id(merchant_id)}"
 
+
+def upsert_registry_row(
+    *,
+    merchant_id: str,
+    domain: str,
+    strategy: str,
+    kg_strategy: str,
+) -> None:
+    """Persist this merchant into merchants.registry (issue #53).
+
+    UPSERT semantics: re-running ``from_csv`` with the same ``merchant_id``
+    refreshes ``domain`` / ``strategy`` / ``kg_strategy`` and bumps
+    ``updated_at``; it does not error. This is the only idempotency
+    guarantee in the registry PR — CSV row-level dedupe is unrelated.
+    """
+    from sqlalchemy import text
+
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO merchants.registry
+                    (merchant_id, domain, strategy, kg_strategy)
+                VALUES
+                    (:mid, :domain, :strategy, :kg_strategy)
+                ON CONFLICT (merchant_id) DO UPDATE SET
+                    domain      = EXCLUDED.domain,
+                    strategy    = EXCLUDED.strategy,
+                    kg_strategy = EXCLUDED.kg_strategy,
+                    updated_at  = NOW()
+                """
+            ),
+            {
+                "mid": validate_merchant_id(merchant_id),
+                "domain": domain,
+                "strategy": strategy,
+                "kg_strategy": kg_strategy,
+            },
+        )
+        db.commit()
+    finally:
+        db.close()
+
 # Translate agent slot vocabulary → KG scoring-flag vocabulary.
 # Two naming conventions arrive depending on the upstream path:
 #   - "use_case"  (singular, string)  — from agent chat interview
@@ -126,6 +172,7 @@ class MerchantAgent:
         domain: str,
         product_type: str,
         strategy: str = "normalizer_v1",
+        kg_strategy: str = "default_v1",
         source: Optional[str] = None,
         col_map: Optional[Dict[str, str]] = None,
         normalize_limit: int = 1000,
@@ -164,7 +211,12 @@ class MerchantAgent:
         finally:
             raw_conn.close()
 
-        agent = cls(merchant_id=merchant_id, domain=domain, strategy=strategy)
+        agent = cls(
+            merchant_id=merchant_id,
+            domain=domain,
+            strategy=strategy,
+            kg_strategy=kg_strategy,
+        )
 
         db = SessionLocal()
         try:
@@ -211,8 +263,16 @@ class MerchantAgent:
                     merchant_id, exc,
                 )
 
-        # In-memory registry only — on restart, the operator re-runs bootstrap
-        # to re-register. Tables persist in Postgres so data is not lost.
+        # Durable registration. merchants.registry is the source of truth;
+        # the in-process dict is a cache that other workers / post-restart
+        # processes populate via lazy hydration. See issue #53.
+        upsert_registry_row(
+            merchant_id=merchant_id,
+            domain=domain,
+            strategy=strategy,
+            kg_strategy=kg_strategy,
+        )
+
         from app import main as app_main
         app_main.merchants[merchant_id] = agent
         logger.info("merchant_registered id=%s domain=%s", merchant_id, domain)
