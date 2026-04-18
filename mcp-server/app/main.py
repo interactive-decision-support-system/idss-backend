@@ -152,12 +152,35 @@ async def lifespan(app: FastAPI):
         logger.warning("Could not create shared_chats table: %s", _e)
 
     # --- Merchant registry -------------------------------------------
+    # In-process ``merchants`` dict is a cache; the source of truth is
+    # ``merchants.registry`` (issue #53). Seeding the default entry here —
+    # both in the dict and in the registry table — avoids a bootstrap
+    # special case elsewhere: after this block, any worker can hydrate the
+    # default merchant by the same path as any other merchant.
     from app.merchant_agent import MerchantAgent
 
     merchants["default"] = MerchantAgent(
         merchant_id="default",
         domain="electronics",
     )
+    try:
+        with engine.connect() as _conn:
+            _conn.execute(_sa_text(
+                """
+                INSERT INTO merchants.registry
+                    (merchant_id, domain, strategy, kg_strategy)
+                VALUES
+                    ('default', 'electronics', 'normalizer_v1', 'default_v1')
+                ON CONFLICT (merchant_id) DO NOTHING
+                """
+            ))
+            _conn.commit()
+    except Exception as _e:
+        # Missing table means migration 005 has not been applied on this DB.
+        # Do not crash startup — the dict still serves the default merchant;
+        # lazy hydration for other merchants will fail loudly on first use,
+        # which is the correct failure mode to surface the deploy gap.
+        logger.warning("Could not UPSERT default merchant into registry: %s", _e)
     logger.info("Merchant registry initialised: %s", list(merchants.keys()))
 
     skip_preload = os.getenv("MCP_SKIP_PRELOAD", "0") == "1"
@@ -1275,13 +1298,53 @@ from typing import List as _List
 from app.contract import StructuredQuery, Offer
 
 
+def _get_or_hydrate_merchant(merchant_id: str, db: Session):
+    """Return the MerchantAgent for ``merchant_id``, hydrating from DB on miss.
+
+    The ``merchants`` dict is the per-process cache; ``merchants.registry``
+    is the cross-process source of truth (issue #53). On a cache miss we
+    reconstruct the agent with the plain constructor — the per-merchant
+    FAISS index is already on disk and KG rows already live in Neo4j keyed
+    by ``(merchant_id, kg_strategy)``, so there's nothing to rebuild.
+
+    Raises 404 if the merchant is absent from both the cache and the
+    registry — that's the real "unknown merchant" signal.
+    """
+    from app.merchant_agent import MerchantAgent
+
+    agent = merchants.get(merchant_id)
+    if agent is not None:
+        return agent
+    row = db.execute(
+        _sa_text(
+            "SELECT merchant_id, domain, strategy, kg_strategy "
+            "FROM merchants.registry WHERE merchant_id = :mid"
+        ),
+        {"mid": merchant_id},
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail=f"Merchant '{merchant_id}' not found"
+        )
+    agent = MerchantAgent(
+        merchant_id=row["merchant_id"],
+        domain=row["domain"],
+        strategy=row["strategy"],
+        kg_strategy=row["kg_strategy"],
+    )
+    merchants[merchant_id] = agent
+    logger.info("merchant_hydrated id=%s domain=%s", merchant_id, row["domain"])
+    return agent
+
+
 @app.post("/merchant/search", response_model=_List[Offer])
 async def merchant_search(
     query: StructuredQuery,
     db: Session = Depends(get_db),
 ) -> _List[Offer]:
     """Default merchant search — backward-compatible entry point."""
-    return await merchants["default"].search(query, db)
+    agent = _get_or_hydrate_merchant("default", db)
+    return await agent.search(query, db)
 
 
 @app.post("/merchant/{merchant_id}/search", response_model=_List[Offer])
@@ -1291,18 +1354,14 @@ async def merchant_search_by_id(
     db: Session = Depends(get_db),
 ) -> _List[Offer]:
     """Per-merchant search endpoint."""
-    agent = merchants.get(merchant_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail=f"Merchant '{merchant_id}' not found")
+    agent = _get_or_hydrate_merchant(merchant_id, db)
     return await agent.search(query, db)
 
 
 @app.get("/merchant/{merchant_id}/health")
 def merchant_health(merchant_id: str, db: Session = Depends(get_db)):
     """Per-merchant health check."""
-    agent = merchants.get(merchant_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail=f"Merchant '{merchant_id}' not found")
+    agent = _get_or_hydrate_merchant(merchant_id, db)
     return agent.health(db)
 
 

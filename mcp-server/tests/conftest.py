@@ -58,6 +58,7 @@ _POSTGRES_REQUIRED_FILES = {
     "test_endpoint_integration.py",
     "test_endpoints.py",
     "test_inventory_agent_response.py",
+    "test_merchant_registry.py",
     "test_mcp_pipeline.py",
     "test_reddit_queries.py",
     "test_week6_enriched.py",
