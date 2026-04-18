@@ -57,6 +57,9 @@ class AgentResult(BaseModel):
     trace_id: str | None = None
     strategy: str
     product_id: UUID
+    # Populated when the agent runs inside a run_context block; None otherwise.
+    run_id: str | None = None
+    kg_strategy: str | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -133,38 +133,73 @@ class LLMClient:
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
+        # Child span per LLM call — parent is whichever agent span opened
+        # in BaseEnrichmentAgent.run(). When tracing is off, this is a
+        # zero-cost _NoopSpan; when on, Langfuse shows the full prompt,
+        # response, and per-call cost/latency/tokens.
+        from app.enrichment.tracing import get_tracer
+
+        tracer = get_tracer()
+        span_input = (
+            {"system": system, "user": user, "json_mode": json_mode}
+            if tracer.enabled
+            else {"model": model_name}
+        )
         last_err: Exception | None = None
-        for attempt in range(max_retries):
-            start = time.perf_counter()
-            try:
-                resp = self._client.chat.completions.create(**kwargs)
-                latency_ms = int((time.perf_counter() - start) * 1000)
-                text = (resp.choices[0].message.content or "").strip()
-                usage = getattr(resp, "usage", None)
-                in_tok = getattr(usage, "prompt_tokens", 0) or 0
-                out_tok = getattr(usage, "completion_tokens", 0) or 0
-                cost = _estimate_cost(model_name, in_tok, out_tok)
-                parsed = None
-                if json_mode:
-                    try:
-                        parsed = json.loads(text) if text else None
-                    except json.JSONDecodeError as exc:
-                        raise ValueError(f"json_mode response was not valid JSON: {exc}") from exc
-                response = LLMResponse(
-                    text=text,
-                    model=model_name,
-                    input_tokens=in_tok,
-                    output_tokens=out_tok,
-                    cost_usd=cost,
-                    latency_ms=latency_ms,
-                    parsed_json=parsed,
-                )
-                _LEDGER.record(response)
-                return response
-            except Exception as exc:  # noqa: BLE001 - retry envelope
-                last_err = exc
-                # Cheap backoff: 0.5s, 1s, 2s.
-                if attempt < max_retries - 1:
-                    time.sleep(0.5 * (2**attempt))
-                continue
-        raise RuntimeError(f"LLMClient.complete failed after {max_retries} retries: {last_err}")
+        with tracer.span(name=f"llm:{model_name}", input=span_input) as span:
+            for attempt in range(max_retries):
+                start = time.perf_counter()
+                try:
+                    resp = self._client.chat.completions.create(**kwargs)
+                    latency_ms = int((time.perf_counter() - start) * 1000)
+                    text = (resp.choices[0].message.content or "").strip()
+                    usage = getattr(resp, "usage", None)
+                    in_tok = getattr(usage, "prompt_tokens", 0) or 0
+                    out_tok = getattr(usage, "completion_tokens", 0) or 0
+                    cost = _estimate_cost(model_name, in_tok, out_tok)
+                    parsed = None
+                    if json_mode:
+                        try:
+                            parsed = json.loads(text) if text else None
+                        except json.JSONDecodeError as exc:
+                            raise ValueError(
+                                f"json_mode response was not valid JSON: {exc}"
+                            ) from exc
+                    response = LLMResponse(
+                        text=text,
+                        model=model_name,
+                        input_tokens=in_tok,
+                        output_tokens=out_tok,
+                        cost_usd=cost,
+                        latency_ms=latency_ms,
+                        parsed_json=parsed,
+                    )
+                    _LEDGER.record(response)
+                    span.update(
+                        output=text if tracer.enabled else {"len": len(text)},
+                        metadata={
+                            "model": model_name,
+                            "input_tokens": in_tok,
+                            "output_tokens": out_tok,
+                            "cost_usd": cost,
+                            "latency_ms": latency_ms,
+                            "attempt": attempt + 1,
+                            "json_mode": json_mode,
+                        },
+                    )
+                    return response
+                except Exception as exc:  # noqa: BLE001 - retry envelope
+                    last_err = exc
+                    # Cheap backoff: 0.5s, 1s, 2s.
+                    if attempt < max_retries - 1:
+                        time.sleep(0.5 * (2**attempt))
+                    continue
+            # Exhausted retries — record failure on the span before raising.
+            span.update(
+                level="ERROR",
+                status_message=str(last_err),
+                metadata={"model": model_name, "attempts": max_retries},
+            )
+        raise RuntimeError(
+            f"LLMClient.complete failed after {max_retries} retries: {last_err}"
+        )
