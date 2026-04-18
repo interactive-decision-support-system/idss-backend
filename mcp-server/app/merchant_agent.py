@@ -264,13 +264,7 @@ class MerchantAgent:
 
     def health(self, db: Session) -> dict:
         _Product = self._product_model
-        if self.merchant_id == "default":
-            from sqlalchemy import or_
-            catalog_q = db.query(_Product).filter(
-                or_(_Product.merchant_id.is_(None), _Product.merchant_id == "default")
-            )
-        else:
-            catalog_q = db.query(_Product).filter(_Product.merchant_id == self.merchant_id)
+        catalog_q = db.query(_Product).filter(_Product.merchant_id == self.merchant_id)
 
         catalog_size = catalog_q.count()
 
