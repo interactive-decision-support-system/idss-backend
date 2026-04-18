@@ -194,17 +194,10 @@ def load_csv_into_merchant(
             continue
 
         row = schema.to_product_row(product_id=pid_str)
-        # `ProductSchema.to_product_row` returns category capitalized
-        # (e.g. "Electronics") from its product_type→category map. The search
-        # path filters with a case-sensitive equality check, so we lowercase
-        # here to match the agent's default-domain filter (e.g. "electronics").
-        # Temporary workaround — follow-up issue #45 moves the normalisation
-        # into ProductSchema / the search filter so every caller benefits.
-        category_norm = (row["category"] or "").strip().lower() or None
         instance = product_model(
             product_id=pid,
             name=row["title"],
-            category=category_norm,
+            category=row["category"],
             product_type=row["product_type"],
             brand=row["brand"],
             price_value=row["price"],
