@@ -90,20 +90,17 @@ class _KeyPattern:
 
 # Known open-vocabulary patterns. Each entry mirrors the prefix/shape the
 # corresponding flattening rule below can emit.
+#
+# Only truly open-vocab shapes go here — parser_v1 emits snake_case scalars
+# but the drift test treats those as "producible" only when they appear in
+# KNOWN_RAW_ATTRIBUTE_KEYS (the registry's shared attribute vocabulary).
+# A parser_v1 wildcard would swallow every new reader reference and defeat
+# the whole point of drift detection.
 KEY_PATTERNS: tuple[_KeyPattern, ...] = (
     _KeyPattern(
         strategy="soft_tagger_v1",
         regex=re.compile(r"^good_for_[a-z0-9_]+$"),
         description="Open-vocab confidence (0.0–1.0) per soft tag.",
-    ),
-    _KeyPattern(
-        strategy="parser_v1",
-        # Open-vocab numeric/text specs. Parser emits snake_case keys with
-        # unit suffixes (e.g. ram_gb, battery_life_hours, wattage_w). Allow
-        # any snake_case identifier — the disjoint-keys invariant (enforced
-        # by registry) keeps this from colliding with other strategies.
-        regex=re.compile(r"^[a-z][a-z0-9_]*$"),
-        description="Open-vocab parsed specs (snake_case scalars).",
     ),
 )
 
@@ -204,6 +201,17 @@ def project(
 READER_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"created_at"})
 
 
+# Boolean features the reader filters on (``p.repairable = true``,
+# ``p.refurbished = true``) but which no registered enrichment strategy
+# currently emits. The legacy ``backfill_kg_features.py`` used regex
+# heuristics against title/description; that script is being retired under
+# #52 and whether its logic migrates into a new strategy is tracked in #61.
+#
+# These stay in the producible set so drift detection doesn't false-positive
+# while #61 is open. Remove when a strategy starts emitting them.
+RESERVED_BOOL_FEATURES: frozenset[str] = frozenset({"repairable", "refurbished"})
+
+
 _CYPHER_PROP_RE = re.compile(r"\bp\.([a-z_][a-z0-9_]*)\b")
 
 
@@ -236,6 +244,7 @@ __all__ = [
     "KEY_PATTERNS",
     "FLATTENING_RULES",
     "READER_SYSTEM_PROPERTIES",
+    "RESERVED_BOOL_FEATURES",
     "project",
     "cypher_referenced_properties",
 ]
