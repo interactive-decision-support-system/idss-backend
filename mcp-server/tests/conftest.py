@@ -54,6 +54,7 @@ _POSTGRES_UP = _postgres_available()
 # skipped automatically — same pattern as Redis tests use pytest.skip().
 _POSTGRES_REQUIRED_FILES = {
     "test_database.py",
+    "test_default_merchant_collapse.py",
     "test_endpoint_integration.py",
     "test_endpoints.py",
     "test_inventory_agent_response.py",

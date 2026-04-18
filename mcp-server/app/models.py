@@ -71,8 +71,8 @@ def _product_columns() -> Dict[str, Any]:
         promotions_discounts=Column(Text, nullable=True),
         merchant_product_url=Column(Text, nullable=True),
         attributes=Column(PG_JSONB, nullable=True),
-        # Per-merchant scoping column (NULL = legacy/default catalog).
-        merchant_id=Column(String, nullable=True, index=True),
+        # Per-merchant scoping column.
+        merchant_id=Column(String, nullable=False, index=True),
         created_at=Column(DateTime(timezone=True), server_default=func.now()),
         updated_at=Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
     )
