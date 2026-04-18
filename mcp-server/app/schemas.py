@@ -324,6 +324,15 @@ class SearchResultsData(BaseModel):
     products: List[ProductSummary]
     total_count: int
     next_cursor: Optional[str] = None
+    # KG per-product retrieval scores and per-term breakdown. Opaque to the
+    # shopping agent — consumed by MerchantAgent.search to populate
+    # Offer.score / Offer.score_breakdown (issue #52 §4.D, replacing the
+    # positional placeholder that #34 flagged). Default None preserves the
+    # pre-#52 shape for clients that never look at scoring internals.
+    scores: Optional[Dict[str, Dict[str, Any]]] = Field(
+        None,
+        description="Per-product KG score + breakdown; internal.",
+    )
 
 
 # 

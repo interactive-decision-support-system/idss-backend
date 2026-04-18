@@ -88,7 +88,7 @@ class KnowledgeGraphService:
         *,
         merchant_id: Optional[str] = None,
         kg_strategy: Optional[str] = None,
-    ) -> Tuple[List[str], Dict[str, Any]]:
+    ) -> Tuple[List[str], Dict[str, Dict[str, Any]], Dict[str, Any]]:
         """
         Search for product candidates using knowledge graph.
 
@@ -108,12 +108,17 @@ class KnowledgeGraphService:
                 → legacy unfiltered.
 
         Returns:
-            Tuple of (product_ids, explanation_path)
-            - product_ids: List of candidate product IDs from KG
-            - explanation_path: Graph traversal explanation for debugging
+            Tuple of ``(product_ids, scores, explanation_path)``:
+            - ``product_ids``: candidate product IDs in rank order.
+            - ``scores``: ``{product_id: {"score": float, "breakdown":
+              {"soft": ..., "phrase": ..., "token": ..., "connectivity": ...}}}``.
+              Per-term contributions are for Offer.score_breakdown (issue #52
+              §4.D). Opaque payload — the shopping agent must not branch on
+              internals.
+            - ``explanation_path``: Graph traversal explanation for debugging.
         """
         if not self.is_available():
-            return [], {}
+            return [], {}, {}
 
         try:
             with self.driver.session() as session:
@@ -139,31 +144,42 @@ class KnowledgeGraphService:
                             params[f"q_tok_{i}"] = tok
                 result = session.run(cypher_query, params)
 
-                product_ids = []
-                explanation_path = {
+                product_ids: List[str] = []
+                scores: Dict[str, Dict[str, Any]] = {}
+                explanation_path: Dict[str, Any] = {
                     "query": query,
                     "filters": filters,
                     "merchant_id": merchant_id,
                     "kg_strategy": kg_strategy,
-                    "traversal": []
+                    "traversal": [],
                 }
 
                 for record in result:
                     product_id = record.get("product_id")
-                    if product_id:
-                        product_ids.append(product_id)
-                        explanation_path["traversal"].append({
-                            "product_id": product_id,
-                            "score": record.get("score", 0.0),
-                            "path": record.get("path", "")
-                        })
+                    if not product_id:
+                        continue
+                    product_ids.append(product_id)
+                    breakdown = {
+                        "soft": float(record.get("soft_score") or 0.0),
+                        "phrase": float(record.get("phrase_score") or 0.0),
+                        "token": float(record.get("token_score") or 0.0),
+                        "connectivity": float(record.get("connectivity_score") or 0.0),
+                    }
+                    total = sum(breakdown.values())
+                    scores[product_id] = {"score": total, "breakdown": breakdown}
+                    explanation_path["traversal"].append({
+                        "product_id": product_id,
+                        "score": total,
+                        "breakdown": breakdown,
+                        "path": record.get("path", ""),
+                    })
 
                 logger.info(f"KG search found {len(product_ids)} candidates for query: {query[:50]}")
-                return product_ids, explanation_path
+                return product_ids, scores, explanation_path
 
         except Exception as e:
             logger.error(f"KG search failed: {e}", exc_info=True)
-            return [], {"error": str(e)}
+            return [], {}, {"error": str(e)}
     
     @staticmethod
     def _tokenize_query(query: str, max_tokens: int = 12) -> List[str]:
@@ -270,40 +286,62 @@ class KnowledgeGraphService:
                     )
 
         # Text match is also soft: preferred but not required.
-        # +3 for an exact-phrase substring hit on name/description/subcategory.
-        # For multi-word queries, also give +1 per matched token so a novel
-        # whose description mentions both "fantasy" and "novel" outscores one
-        # that happens to contain just "novel". Single-token queries skip the
-        # per-token layer (it would just duplicate the phrase match).
+        # Scoring is split into NAMED per-term buckets (soft, phrase, token,
+        # connectivity) so the MerchantAgent can emit a full score_breakdown
+        # on Offer.score and the shopping agent can attribute relevance.
+
+        # Use-case flags (good_for_*) roll up into `soft_score`.
+        if soft_score_cases:
+            soft_expr = " + ".join(soft_score_cases)
+        else:
+            soft_expr = "0"
+
+        # Phrase match: +3 if any of name/description/subcategory CONTAINS $q.
         if query and len(query) >= 2:
-            soft_score_cases.append(
+            phrase_expr = (
                 "CASE WHEN (toLower(coalesce(p.subcategory, '')) CONTAINS $q OR "
                 "toLower(coalesce(p.name, '')) CONTAINS $q OR "
                 "toLower(coalesce(p.description, '')) CONTAINS $q) THEN 3 ELSE 0 END"
             )
+        else:
+            phrase_expr = "0"
+
+        # Per-token match: +1 per token that hits name/description/subcategory.
+        # Skip for single-token queries — phrase match already covers that.
+        token_cases: List[str] = []
+        if query and len(query) >= 2:
             tokens = self._tokenize_query(query)
             if len(tokens) >= 2:
                 for i, _tok in enumerate(tokens):
                     pname = f"q_tok_{i}"
-                    soft_score_cases.append(
+                    token_cases.append(
                         f"CASE WHEN (toLower(coalesce(p.subcategory, '')) CONTAINS ${pname} OR "
                         f"toLower(coalesce(p.name, '')) CONTAINS ${pname} OR "
                         f"toLower(coalesce(p.description, '')) CONTAINS ${pname}) THEN 1 ELSE 0 END"
                     )
+        token_expr = " + ".join(token_cases) if token_cases else "0"
 
-        if soft_score_cases:
-            score_expr = " + ".join(soft_score_cases)
-            # OPTIONAL MATCH counts outgoing SIMILAR_TO edges as a connectivity bonus.
+        has_scoring = bool(soft_score_cases or (query and len(query) >= 2))
+        if has_scoring:
             cypher = f"""
             MATCH (p:Product)
             WHERE {where_clause}
             OPTIONAL MATCH (p)-[:SIMILAR_TO]->(nb:Product)
-            WITH p, count(nb) AS connectivity,
-                 ({score_expr}) AS relevance_score
-            ORDER BY relevance_score DESC, connectivity DESC, p.price ASC
+            WITH p,
+                 count(nb) AS connectivity_raw,
+                 toFloat({soft_expr}) AS soft_score,
+                 toFloat({phrase_expr}) AS phrase_score,
+                 toFloat({token_expr}) AS token_score
+            WITH p, soft_score, phrase_score, token_score,
+                 toFloat(connectivity_raw) * 0.1 AS connectivity_score
+            ORDER BY (soft_score + phrase_score + token_score) DESC,
+                     connectivity_score DESC, p.price ASC
             LIMIT $limit
             RETURN p.product_id AS product_id,
-                   toFloat(relevance_score) + connectivity * 0.1 AS score,
+                   soft_score AS soft_score,
+                   phrase_score AS phrase_score,
+                   token_score AS token_score,
+                   connectivity_score AS connectivity_score,
                    [p.name] AS path
             """
         else:
@@ -312,10 +350,16 @@ class KnowledgeGraphService:
             MATCH (p:Product)
             WHERE {where_clause}
             OPTIONAL MATCH (p)-[:SIMILAR_TO]->(nb:Product)
-            WITH p, count(nb) AS connectivity
-            ORDER BY connectivity DESC, p.price ASC
+            WITH p, count(nb) AS connectivity_raw
+            WITH p, toFloat(connectivity_raw) * 0.1 AS connectivity_score
+            ORDER BY connectivity_score DESC, p.price ASC
             LIMIT $limit
-            RETURN p.product_id AS product_id, connectivity * 0.1 AS score, [p.name] AS path
+            RETURN p.product_id AS product_id,
+                   0.0 AS soft_score,
+                   0.0 AS phrase_score,
+                   0.0 AS token_score,
+                   connectivity_score AS connectivity_score,
+                   [p.name] AS path
             """
         return cypher
     

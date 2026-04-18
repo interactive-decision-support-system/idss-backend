@@ -259,16 +259,63 @@ class MerchantAgent:
         raw = resp.data.products if resp.data and resp.data.products else []
         products = [p for p in raw if p.product_id not in exclude_set][: query.top_k]
         n = max(len(products), 1)
+
+        # Pull per-product KG scores out of the response envelope. When
+        # KG didn't run (SQL-only hit, KG offline) or none of the returned
+        # products have a score, we fall back to the pre-#52 positional
+        # ranking and log once at INFO so the degraded path stays visible.
+        kg_scores: Dict[str, Dict[str, Any]] = (
+            (resp.data.scores or {}) if resp.data else {}
+        )
+        scored_totals = [
+            kg_scores[p.product_id]["score"]
+            for p in products
+            if p.product_id in kg_scores
+        ]
+        if scored_totals:
+            # Min-max normalize onto [0, 1] per request. Single-score batches
+            # collapse to 1.0 rather than divide-by-zero.
+            lo, hi = min(scored_totals), max(scored_totals)
+            span = hi - lo if hi > lo else 0.0
+        else:
+            lo = hi = span = 0.0
+            logger.info(
+                "merchant_search_no_kg_scores merchant=%s n=%d — falling back "
+                "to positional score (KG offline or SQL-only hit)",
+                self.merchant_id, len(products),
+            )
+
         offers: List[Offer] = []
         for i, p in enumerate(products):
-            offers.append(Offer(
-                merchant_id=self.merchant_id,
-                product_id=p.product_id,
-                score=round(1.0 - (i / n), 4),
-                score_breakdown={},
-                product=p,
-                rationale=p.reason or "",
-            ))
+            score_row = kg_scores.get(p.product_id)
+            if score_row is not None:
+                raw_total = float(score_row["score"])
+                if span > 0:
+                    normalized = (raw_total - lo) / span
+                else:
+                    normalized = 1.0
+                breakdown_terms = {
+                    k: float(v) for k, v in (score_row.get("breakdown") or {}).items()
+                }
+                breakdown_terms["raw"] = raw_total
+                offers.append(Offer(
+                    merchant_id=self.merchant_id,
+                    product_id=p.product_id,
+                    score=round(normalized, 4),
+                    score_breakdown=breakdown_terms,
+                    product=p,
+                    rationale=p.reason or "",
+                ))
+            else:
+                # Pre-#52 fallback: positional placeholder with empty breakdown.
+                offers.append(Offer(
+                    merchant_id=self.merchant_id,
+                    product_id=p.product_id,
+                    score=round(1.0 - (i / n), 4),
+                    score_breakdown={},
+                    product=p,
+                    rationale=p.reason or "",
+                ))
         return offers
 
     # ------------------------------------------------------------------
