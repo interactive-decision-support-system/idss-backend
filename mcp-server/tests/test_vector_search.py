@@ -11,15 +11,20 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.vector_search import UniversalEmbeddingStore, get_vector_store
+from app.vector_search import UniversalEmbeddingStore, get_vector_store, reset_vector_store_cache
 
 
 class TestUniversalEmbeddingStore:
     """Test suite for Universal Embedding Store."""
-    
+
     def setup_method(self):
         """Set up test fixtures."""
-        self.store = UniversalEmbeddingStore(use_cache=False)
+        # Isolated (merchant, strategy) so no prior on-disk index bleeds in.
+        self.store = UniversalEmbeddingStore(
+            merchant_id="test_unit",
+            strategy="unit_test",
+            use_cache=False,
+        )
     
     def test_encode_text(self):
         """Test text encoding."""
@@ -159,7 +164,11 @@ class TestUniversalEmbeddingStore:
     
     def test_empty_search(self):
         """Test search with no index."""
-        store = UniversalEmbeddingStore()
+        store = UniversalEmbeddingStore(
+            merchant_id="test_unit_empty",
+            strategy="unit_test",
+            use_cache=False,
+        )
         store._index = None
         
         product_ids, scores = store.search("test", k=5)
@@ -170,7 +179,11 @@ class TestUniversalEmbeddingStore:
     def test_cache_embeddings(self):
         """Test embedding caching."""
         # Create store with caching enabled
-        store = UniversalEmbeddingStore(use_cache=True)
+        store = UniversalEmbeddingStore(
+            merchant_id="test_unit_cache",
+            strategy="unit_test",
+            use_cache=True,
+        )
         
         product = {
             "product_id": "TEST-001",
@@ -191,12 +204,24 @@ class TestUniversalEmbeddingStore:
 class TestVectorSearchIntegration:
     """Integration tests for vector search in MCP."""
     
-    def test_vector_store_singleton(self):
-        """Test that get_vector_store returns singleton."""
-        store1 = get_vector_store()
-        store2 = get_vector_store()
-        
+    def test_vector_store_cached_per_pair(self):
+        """get_vector_store(m, s) is idempotent within a (merchant, strategy) pair."""
+        reset_vector_store_cache()
+        store1 = get_vector_store("cache_test", "normalizer_v1")
+        store2 = get_vector_store("cache_test", "normalizer_v1")
+
         assert store1 is store2
+
+    def test_vector_store_distinct_across_pairs(self):
+        """Different (merchant, strategy) pairs get distinct store instances."""
+        reset_vector_store_cache()
+        acme_v1 = get_vector_store("acme", "normalizer_v1")
+        acme_v2 = get_vector_store("acme", "normalizer_v2")
+        widgets_v1 = get_vector_store("widgets", "normalizer_v1")
+
+        assert acme_v1 is not acme_v2
+        assert acme_v1 is not widgets_v1
+        assert acme_v2 is not widgets_v1
 
 
 if __name__ == "__main__":

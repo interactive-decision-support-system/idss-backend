@@ -1202,7 +1202,14 @@ async def search_products(
     if use_vector_search:
         try:
             vector_start = time.time()
-            vector_store = get_vector_store()
+            # Scope vector retrieval to (merchant_id, strategy). Strategy
+            # defaults to normalizer_v1 (the only enricher in prod today) —
+            # MerchantAgent.search threads the real label through filters
+            # once multiple strategies coexist. See issue #56.
+            _vs_filters = filters or {}
+            _vs_merchant = _vs_filters.get("merchant_id") or "default"
+            _vs_strategy = _vs_filters.get("strategy") or "normalizer_v1"
+            vector_store = get_vector_store(_vs_merchant, _vs_strategy)
             
             # Check if index exists and is ready
             has_index = vector_store._index is not None and len(vector_store._product_ids) > 0

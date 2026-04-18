@@ -79,10 +79,15 @@ class MerchantAgent:
         self,
         merchant_id: str,
         domain: str,
+        strategy: str = "normalizer_v1",
         kg_strategy: str = "default_v1",
     ) -> None:
         self.merchant_id = validate_merchant_id(merchant_id)
         self.domain = domain
+        # One MerchantAgent instance <=> one (merchant_id, strategy) pair.
+        # KG and vector store are keyed by that pair; two enrichment
+        # strategies in parallel = two agents. See issues #52, #56.
+        self.strategy = strategy
         self.kg_strategy = kg_strategy
         self._catalog_table = merchant_catalog_table(self.merchant_id)
         self._enriched_table = merchant_enriched_table(self.merchant_id)
@@ -159,7 +164,7 @@ class MerchantAgent:
         finally:
             raw_conn.close()
 
-        agent = cls(merchant_id=merchant_id, domain=domain)
+        agent = cls(merchant_id=merchant_id, domain=domain, strategy=strategy)
 
         db = SessionLocal()
         try:
@@ -193,6 +198,18 @@ class MerchantAgent:
                 )
             finally:
                 db.close()
+
+            # Build the per-(merchant, strategy) FAISS index off the freshly
+            # enriched catalog. Failure here is non-fatal — search still
+            # works without vector retrieval — but we log it loudly so the
+            # ingest UI can surface the degraded state. See issue #56.
+            try:
+                agent.refresh_vector_index()
+            except Exception as exc:
+                logger.warning(
+                    "from_csv_vector_index_failed merchant=%s err=%s",
+                    merchant_id, exc,
+                )
 
         # In-memory registry only — on restart, the operator re-runs bootstrap
         # to re-register. Tables persist in Postgres so data is not lost.
@@ -229,6 +246,9 @@ class MerchantAgent:
         # Thread kg_strategy through filters so endpoints.search_products can
         # pick it up at the KG call site without a new positional arg.
         merged_filters["_kg_strategy"] = self.kg_strategy
+        # Route vector retrieval to this agent's (merchant, strategy) index.
+        # endpoints.search_products reads this to pick the right FAISS file.
+        merged_filters["strategy"] = self.strategy
 
         # --- Extract exclude_ids from user_context --------------------
         _ctx = query.user_context if isinstance(query.user_context, dict) else {}
@@ -319,6 +339,60 @@ class MerchantAgent:
         return offers
 
     # ------------------------------------------------------------------
+    # Vector index build / refresh
+    # ------------------------------------------------------------------
+
+    def refresh_vector_index(self) -> int:
+        """Rebuild this merchant's FAISS index from its current catalog.
+
+        Reads raw rows from the merchant's per-tenant ``Product`` table and
+        hydrates the normalized description from its enriched sidecar (so the
+        embedding matches what search will see at read time). The resulting
+        index is written under ``data/merchants/<merchant_id>/<strategy>/``
+        and hot-swapped in the in-process store cache.
+
+        Returns the number of products indexed.
+        """
+        from app.database import SessionLocal
+        from app.vector_search import get_vector_store
+
+        _Product = self._product_model
+        _Enriched = self._enriched_model
+
+        db = SessionLocal()
+        try:
+            enriched_by_id: Dict[str, str] = {
+                row.product_id: (row.attributes or {}).get("normalized_description") or ""
+                for row in db.query(_Enriched).filter(_Enriched.strategy == self.strategy).all()
+            }
+            raw_products = db.query(_Product).all()
+
+            products_for_index: List[Dict[str, Any]] = []
+            for p in raw_products:
+                description = enriched_by_id.get(p.product_id) or (
+                    (getattr(p, "attributes", None) or {}).get("description", "") if getattr(p, "attributes", None) else ""
+                )
+                products_for_index.append({
+                    "product_id": p.product_id,
+                    "name": p.name,
+                    "description": description,
+                    "category": getattr(p, "category", None) or "",
+                    "brand": getattr(p, "brand", None) or "",
+                    "product_type": getattr(p, "product_type", None) or "",
+                    "metadata": getattr(p, "attributes", None) or {},
+                })
+        finally:
+            db.close()
+
+        store = get_vector_store(self.merchant_id, self.strategy)
+        store.build_index(products_for_index, save_index=True)
+        logger.info(
+            "vector_index_built merchant=%s strategy=%s count=%d path=%s",
+            self.merchant_id, self.strategy, len(products_for_index), store.index_path,
+        )
+        return len(products_for_index)
+
+    # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
 
@@ -331,18 +405,22 @@ class MerchantAgent:
         from sqlalchemy import func
         max_created = catalog_q.with_entities(func.max(_Product.created_at)).scalar()
 
-        # Vector index mtime (best-effort)
+        # Vector index mtime — read from this merchant's own path, not the
+        # global one. A missing file means the index was never built for
+        # this (merchant, strategy) pair and search will fall back to
+        # keyword-only retrieval.
         vector_index_mtime = None
         try:
-            cache_dir = os.path.join(os.path.dirname(__file__), "..", "data", "vector_cache")
-            idx_path = os.path.join(cache_dir, "faiss_index.bin")
-            if os.path.exists(idx_path):
-                vector_index_mtime = os.path.getmtime(idx_path)
+            from app.vector_search import merchant_index_path
+            idx_path = merchant_index_path(self.merchant_id, self.strategy)
+            if idx_path.exists():
+                vector_index_mtime = idx_path.stat().st_mtime
         except Exception:
             pass
 
         return {
             "merchant_id": self.merchant_id,
+            "strategy": self.strategy,
             "catalog_size": catalog_size,
             "kg_last_update": max_created.isoformat() if max_created else None,
             "vector_index_mtime": vector_index_mtime,
