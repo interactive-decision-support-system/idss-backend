@@ -1,0 +1,25 @@
+# Railway service definition for the Enrichment Inspector (Streamlit).
+#
+# Deploy as a second Railway service in the same project as the FastAPI
+# backend so it shares DATABASE_URL. The FastAPI service keeps
+# railway.toml; this file is for the inspector service only.
+#
+# Set up (once):
+#   railway link                       # link to the project
+#   railway service create inspector   # or add via dashboard
+#   railway variables set --service inspector \
+#       DATABASE_URL=... \
+#       LANGFUSE_HOST=... \
+#       MERCHANT_ADMIN_HOST=...
+#   railway up --service inspector --config railway.inspector.toml
+#
+# Streamlit requires --server.headless=true and --server.address=0.0.0.0
+# to serve a Railway-assigned port. $PORT is injected by the platform.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "streamlit run /app/scripts/enrichment_inspector.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"
+restartPolicyType = "ON_FAILURE"
