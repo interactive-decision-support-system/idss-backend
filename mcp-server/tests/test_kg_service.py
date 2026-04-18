@@ -42,8 +42,9 @@ def test_kg_unavailable_returns_empty_lists():
     assert svc.get_better_than("any-id") == []
     assert svc.get_diverse_alternatives(["any-id"]) == []
     assert svc.get_compatible_components("any-id") == []
-    ids, explanation = svc.search_candidates("gaming laptop", {})
+    ids, scores, explanation = svc.search_candidates("gaming laptop", {})
     assert ids == []
+    assert scores == {}
     assert isinstance(explanation, dict)
     svc.close()
 
@@ -80,7 +81,8 @@ def test_build_cypher_query_soft_constraints_become_case_when():
         limit=10,
     )
     # Soft: use-case flag is a CASE WHEN, not a hard WHERE condition
-    assert "CASE WHEN p.good_for_gaming" in cypher
+    assert "CASE WHEN coalesce(p.good_for_gaming" in cypher
+    assert "$tag_threshold" in cypher
     # Hard WHERE should NOT contain the use-case flag as a bare condition
     where_part = cypher.split("WHERE")[1].split("WITH")[0] if "WITH" in cypher else cypher
     assert "p.good_for_gaming = true" not in where_part
@@ -222,13 +224,14 @@ def test_kg_connection_available():
 @pytest.mark.skipif(not NEO4J_AVAILABLE, reason="neo4j driver not installed")
 @pytest.mark.skipif(not NEO4J_ENV_READY, reason="Neo4j env vars not configured")
 def test_kg_search_candidates_returns_list():
-    """Basic KG search should return list output and explanation dict."""
+    """Basic KG search should return list output, scores dict, and explanation."""
     service = _make_service()
     try:
-        product_ids, explanation = service.search_candidates(
+        product_ids, scores, explanation = service.search_candidates(
             "gaming laptop", {"category": "Electronics"}, limit=5
         )
         assert isinstance(product_ids, list)
+        assert isinstance(scores, dict)
         assert isinstance(explanation, dict)
     finally:
         service.close()
@@ -271,7 +274,7 @@ def test_kg_soft_constraint_search_returns_results():
         # Searching with good_for_gaming as a soft constraint.
         # Even if no product has good_for_gaming=true, we should still get results
         # because it's now a CASE WHEN score, not a hard WHERE filter.
-        ids, _ = service.search_candidates(
+        ids, _scores, _explanation = service.search_candidates(
             query="laptop",
             filters={"category": "Electronics", "good_for_gaming": True},
             limit=5,

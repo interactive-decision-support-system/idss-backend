@@ -33,14 +33,20 @@ class KnowledgeGraphBuilder:
         self.database = connection.database
     
     def create_indexes_and_constraints(self):
-        """Create indexes and constraints for performance."""
+        """Create indexes and constraints for performance.
+
+        Product/Laptop/Book/etc. uniqueness is over the
+        ``(product_id, merchant_id, kg_strategy)`` triple — the same
+        composite key used by products_enriched. Two different merchants
+        can have the same product_id without colliding.
+        """
         queries = [
-            # Constraints (ensure uniqueness)
-            "CREATE CONSTRAINT product_id IF NOT EXISTS FOR (p:Product) REQUIRE p.product_id IS UNIQUE",
-            "CREATE CONSTRAINT laptop_id IF NOT EXISTS FOR (l:Laptop) REQUIRE l.product_id IS UNIQUE",
-            "CREATE CONSTRAINT book_id IF NOT EXISTS FOR (b:Book) REQUIRE b.product_id IS UNIQUE",
-            "CREATE CONSTRAINT jewelry_id IF NOT EXISTS FOR (j:Jewelry) REQUIRE j.product_id IS UNIQUE",
-            "CREATE CONSTRAINT accessory_id IF NOT EXISTS FOR (a:Accessory) REQUIRE a.product_id IS UNIQUE",
+            # Constraints (ensure uniqueness per (merchant, strategy) pair)
+            "CREATE CONSTRAINT product_pid_tenant IF NOT EXISTS FOR (p:Product) REQUIRE (p.product_id, p.merchant_id, p.kg_strategy) IS UNIQUE",
+            "CREATE CONSTRAINT laptop_pid_tenant IF NOT EXISTS FOR (l:Laptop) REQUIRE (l.product_id, l.merchant_id, l.kg_strategy) IS UNIQUE",
+            "CREATE CONSTRAINT book_pid_tenant IF NOT EXISTS FOR (b:Book) REQUIRE (b.product_id, b.merchant_id, b.kg_strategy) IS UNIQUE",
+            "CREATE CONSTRAINT jewelry_pid_tenant IF NOT EXISTS FOR (j:Jewelry) REQUIRE (j.product_id, j.merchant_id, j.kg_strategy) IS UNIQUE",
+            "CREATE CONSTRAINT accessory_pid_tenant IF NOT EXISTS FOR (a:Accessory) REQUIRE (a.product_id, a.merchant_id, a.kg_strategy) IS UNIQUE",
             "CREATE CONSTRAINT author_name IF NOT EXISTS FOR (a:Author) REQUIRE a.name IS UNIQUE",
             "CREATE CONSTRAINT manufacturer_name IF NOT EXISTS FOR (m:Manufacturer) REQUIRE m.name IS UNIQUE",
             "CREATE CONSTRAINT cpu_model IF NOT EXISTS FOR (c:CPU) REQUIRE c.model IS UNIQUE",
@@ -59,6 +65,10 @@ class KnowledgeGraphBuilder:
             "CREATE INDEX jewelry_brand IF NOT EXISTS FOR (j:Jewelry) ON (j.brand)",
             "CREATE INDEX accessory_brand IF NOT EXISTS FOR (a:Accessory) ON (a.brand)",
             "CREATE INDEX product_category IF NOT EXISTS FOR (p:Product) ON (p.category)",
+            # Tenancy indexes so (merchant_id, kg_strategy) hard filters
+            # in the Cypher reader don't force a full :Product scan.
+            "CREATE INDEX product_merchant IF NOT EXISTS FOR (p:Product) ON (p.merchant_id)",
+            "CREATE INDEX product_kg_strategy IF NOT EXISTS FOR (p:Product) ON (p.kg_strategy)",
             "CREATE INDEX user_session_id IF NOT EXISTS FOR (s:UserSession) ON (s.session_id)",
             "CREATE INDEX session_intent_name IF NOT EXISTS FOR (si:SessionIntent) ON (si.name)",
             "CREATE INDEX step_intent_name IF NOT EXISTS FOR (st:StepIntent) ON (st.name)",
@@ -72,19 +82,48 @@ class KnowledgeGraphBuilder:
             except Exception as e:
                 print(f"[WARN] {query}: {e}")
     
-    def create_laptop_node(self, laptop_data: Dict[str, Any]) -> str:
+    def create_laptop_node(
+        self,
+        laptop_data: Dict[str, Any],
+        projection: Optional[Dict[str, Any]] = None,
+        *,
+        merchant_id: str = "default",
+        kg_strategy: str = "default_v1",
+    ) -> str:
         """
         Create a complex laptop node with all components and relationships.
-        
+
+        Node-level Product properties the Cypher reader scores against
+        (``battery_life_hours``, ``good_for_*``, etc.) come from the
+        ``projection`` arg — the output of ``kg_projection.project()`` over
+        the raw identity fields + per-strategy enriched rows. The main MERGE
+        only sets identity/relationship fields here; projection is applied as
+        a second-pass ``SET l += $projection`` so tomorrow's new reader
+        reference needs only a flattening-rule edit, not a builder edit.
+
         Args:
-            laptop_data: Dictionary containing laptop information
-            
+            laptop_data: Dictionary containing laptop information (identity +
+                relationship fields: brand, CPU/GPU/RAM/Storage/Display).
+            projection: Flat dict of node properties from kg_projection.project().
+                Empty / None ⇒ node receives no enriched-derived properties
+                (safe degrade: the Cypher scorer will score 0 on them via
+                coalesce, not error).
+
         Returns:
             Product ID of created laptop
         """
         query = """
-        // Create main Laptop node
-        MERGE (l:Laptop:Product {product_id: $product_id})
+        // Create main Laptop node. Identity + relationship SETs only —
+        // enriched-derived scoring fields (battery_life_hours, good_for_*,
+        // …) come from $projection.
+        //
+        // Tenancy: product_id alone is not unique across merchants; the
+        // MERGE key is the (product_id, merchant_id, kg_strategy) triple.
+        MERGE (l:Laptop:Product {
+            product_id: $product_id,
+            merchant_id: $merchant_id,
+            kg_strategy: $kg_strategy
+        })
         SET l.name = $name,
             l.brand = $brand,
             l.model = $model,
@@ -96,18 +135,19 @@ class KnowledgeGraphBuilder:
             l.available = $available,
             l.weight_kg = $weight_kg,
             l.portability_score = $portability_score,
-            l.battery_life_hours = $battery_life_hours,
-            l.screen_size_inches = $screen_size_inches,
-            l.refresh_rate_hz = $refresh_rate_hz,
             l.created_at = datetime()
-        
+        // Overlay enriched-derived properties last so they win over any
+        // stale value from a prior build. $projection is always bound (empty
+        // dict when no enrichment available) so the += is valid either way.
+        SET l += $projection
+
         // Create or connect Manufacturer
         MERGE (m:Manufacturer {name: $brand})
         SET m.country = $manufacturer_country,
             m.founded_year = $manufacturer_founded,
             m.website = $manufacturer_website
         MERGE (l)-[:MANUFACTURED_BY]->(m)
-        
+
         // Create CPU node
         MERGE (cpu:CPU {model: $cpu_model})
         SET cpu.manufacturer = $cpu_manufacturer,
@@ -119,7 +159,7 @@ class KnowledgeGraphBuilder:
             cpu.generation = $cpu_generation,
             cpu.tier = $cpu_tier
         MERGE (l)-[:HAS_CPU]->(cpu)
-        
+
         // Create GPU node (if exists)
         FOREACH (ignore IN CASE WHEN $gpu_model IS NOT NULL THEN [1] ELSE [] END |
             MERGE (gpu:GPU {model: $gpu_model})
@@ -131,14 +171,14 @@ class KnowledgeGraphBuilder:
                 gpu.ray_tracing = $gpu_ray_tracing
             MERGE (l)-[:HAS_GPU]->(gpu)
         )
-        
+
         // Create RAM node
         MERGE (ram:RAM {capacity_gb: $ram_capacity, type: $ram_type})
         SET ram.speed_mhz = $ram_speed,
             ram.channels = $ram_channels,
             ram.expandable = $ram_expandable
         MERGE (l)-[:HAS_RAM]->(ram)
-        
+
         // Create Storage node
         MERGE (storage:Storage {capacity_gb: $storage_capacity, type: $storage_type})
         SET storage.interface = $storage_interface,
@@ -146,36 +186,68 @@ class KnowledgeGraphBuilder:
             storage.write_speed_mbps = $storage_write_speed,
             storage.expandable = $storage_expandable
         MERGE (l)-[:HAS_STORAGE]->(storage)
-        
-        // Create Display node
-        MERGE (display:Display {size_inches: $screen_size_inches, resolution: $display_resolution})
+
+        // Create Display node. display_size_inches falls back to the
+        // projection-supplied screen_size_inches when set; Display uniqueness
+        // is (size_inches, resolution) so a missing projection means a single
+        // "unknown-size" Display node per resolution.
+        WITH l
+        WITH l, coalesce(l.screen_size_inches, 0.0) AS _disp_size
+        MERGE (display:Display {size_inches: _disp_size, resolution: $display_resolution})
         SET display.panel_type = $display_panel_type,
-            display.refresh_rate_hz = $refresh_rate_hz,
+            display.refresh_rate_hz = coalesce(l.refresh_rate_hz, $display_refresh_rate_fallback),
             display.brightness_nits = $display_brightness,
             display.color_gamut = $display_color_gamut,
             display.touch_screen = $display_touch
         MERGE (l)-[:HAS_DISPLAY]->(display)
-        
+
         RETURN l.product_id AS product_id
         """
-        
+
+        params = dict(laptop_data)
+        params["projection"] = dict(projection or {})
+        params["merchant_id"] = merchant_id
+        params["kg_strategy"] = kg_strategy
+        # Display node needs a fallback refresh rate when projection doesn't
+        # carry one — keep the Display schema populated even for catalogs
+        # without parser_v1 output.
+        params.setdefault("display_refresh_rate_fallback", 60)
         with self.driver.session(database=self.database) as session:
-            result = session.run(query, laptop_data)
+            result = session.run(query, params)
             return result.single()["product_id"]
     
-    def create_book_node(self, book_data: Dict[str, Any]) -> str:
+    def create_book_node(
+        self,
+        book_data: Dict[str, Any],
+        projection: Optional[Dict[str, Any]] = None,
+        *,
+        merchant_id: str = "default",
+        kg_strategy: str = "default_v1",
+    ) -> str:
         """
         Create a complex book node with author, genre, publisher relationships.
-        
+
+        Enriched-derived node properties come from ``projection`` (output of
+        ``kg_projection.project()``), overlaid as ``SET b += $projection``
+        after the main MERGE. See ``create_laptop_node`` for the rationale.
+
         Args:
-            book_data: Dictionary containing book information
-            
+            book_data: Dictionary containing book information (identity +
+                relationship fields: author, publisher, genre, themes, series).
+            projection: Flat dict of node properties from kg_projection.project().
+
         Returns:
             Product ID of created book
         """
         query = """
-        // Create main Book node
-        MERGE (b:Book:Product {product_id: $product_id})
+        // Create main Book node. Enriched properties from $projection are
+        // overlaid after the identity SET.
+        // Tenancy: MERGE key is (product_id, merchant_id, kg_strategy).
+        MERGE (b:Book:Product {
+            product_id: $product_id,
+            merchant_id: $merchant_id,
+            kg_strategy: $kg_strategy
+        })
         SET b.title = $title,
             b.name = $name,
             b.price = $price,
@@ -190,6 +262,7 @@ class KnowledgeGraphBuilder:
             b.format = $format,
             b.available = $available,
             b.created_at = datetime()
+        SET b += $projection
         
         // Create or connect Author
         MERGE (a:Author {name: $author})
@@ -223,12 +296,16 @@ class KnowledgeGraphBuilder:
             SET s.total_books = $series_total_books
             MERGE (b)-[:PART_OF_SERIES {position: $series_position}]->(s)
         )
-        
+
         RETURN b.product_id AS product_id
         """
-        
+
+        params = dict(book_data)
+        params["projection"] = dict(projection or {})
+        params["merchant_id"] = merchant_id
+        params["kg_strategy"] = kg_strategy
         with self.driver.session(database=self.database) as session:
-            result = session.run(query, book_data)
+            result = session.run(query, params)
             return result.single()["product_id"]
     
     def create_jewelry_node(self, jewelry_data: Dict[str, Any]) -> str:

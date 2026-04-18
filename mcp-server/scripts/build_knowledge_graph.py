@@ -26,6 +26,8 @@ except Exception:
     pass
 
 from app.database import SessionLocal
+from app.enriched_reader import hydrate_batch
+from app.kg_projection import project as kg_project
 from app.models import Product, Price, Inventory
 from app.neo4j_config import Neo4jConnection
 from app.knowledge_graph import KnowledgeGraphBuilder
@@ -33,6 +35,10 @@ import json
 import random
 from datetime import datetime, timedelta
 import uuid
+
+# Enrichment strategies the KG builder flattens onto :Product nodes.
+# Order is irrelevant — the flattening-rule registry keys on strategy name.
+_PROJECTION_STRATEGIES: tuple[str, ...] = ("soft_tagger_v1", "parser_v1")
 
 
 # Sample data for enrichment
@@ -80,7 +86,15 @@ SOFTWARE_CATALOG = [
 
 
 def extract_laptop_specs(product: Product) -> dict:
-    """Extract detailed laptop specifications from metadata."""
+    """Extract detailed laptop specifications from metadata.
+
+    Node-scoring fields (``battery_life_hours``, ``screen_size_inches``,
+    ``refresh_rate_hz``) are intentionally NOT populated here — they come
+    from the projection dict built via ``kg_projection.project`` over
+    ``products_enriched``. Legacy random generators for those fields were
+    the root cause of #51: values that had nothing to do with the actual
+    product, which the scorer then trusted.
+    """
     specs = {
         "product_id": product.product_id,
         "name": product.name,
@@ -91,12 +105,11 @@ def extract_laptop_specs(product: Product) -> dict:
         "image_url": product.image_url or "",
         "subcategory": product.subcategory or "General",
         "available": True,
+        # Non-projection orthogonal fields retain random placeholders until a
+        # strategy starts emitting them.
         "weight_kg": round(random.uniform(1.2, 3.5), 2),
         "portability_score": random.randint(60, 95),
-        "battery_life_hours": random.randint(4, 15),
-        "screen_size_inches": random.choice([13.3, 14.0, 15.6, 16.0, 17.3]),
-        "refresh_rate_hz": random.choice([60, 120, 144, 165, 240]),
-        
+
         # Manufacturer
         "manufacturer_country": LAPTOP_MANUFACTURERS.get(product.brand, {}).get("country", "Unknown"),
         "manufacturer_founded": LAPTOP_MANUFACTURERS.get(product.brand, {}).get("founded"),
@@ -269,11 +282,55 @@ def extract_book_metadata(product: Product) -> dict:
     return metadata
 
 
+def _build_enriched_projection_map(
+    db, products: list, strategies: tuple[str, ...] = _PROJECTION_STRATEGIES
+) -> dict:
+    """Return ``{product_id: projection_dict}`` for ``products``.
+
+    Batch-fetches enriched rows per strategy via ``hydrate_batch`` and feeds
+    them through ``kg_projection.project()`` so the builder can apply a
+    single ``SET n += $projection`` per node. Products with no enriched rows
+    get an empty projection — the builder treats that as "no enriched-derived
+    properties on this node", which degrades to zero-score scoring rather
+    than erroring (issue #52, contract rule 2).
+    """
+    if not products:
+        return {}
+    product_ids = [p.product_id for p in products]
+    enriched_by_strategy: dict[str, dict] = {
+        strategy: hydrate_batch(db, product_ids, strategy) for strategy in strategies
+    }
+    out: dict = {}
+    for p in products:
+        pid = p.product_id
+        per_strategy_attrs = {
+            strategy: enriched_by_strategy[strategy].get(pid, {})
+            for strategy in strategies
+        }
+        # Identity side intentionally left minimal — the laptop/book MERGE
+        # still sets name/brand/price/etc. from the original data dict. The
+        # projection path is reserved for enriched-derived keys so it never
+        # clobbers identity-side writes.
+        out[pid] = kg_project(raw_identity={}, enriched_by_strategy=per_strategy_attrs)
+    return out
+
+
 def main():
     """Build the complete knowledge graph."""
     import argparse
     parser = argparse.ArgumentParser(description="Build Neo4j knowledge graph from PostgreSQL")
     parser.add_argument("--clear", action="store_true", help="Clear Neo4j before building (use after populate_real_only_db)")
+    parser.add_argument(
+        "--merchant-id",
+        default="default",
+        help="Merchant scope to build nodes under (mirrors products_enriched.merchant_id). Default: 'default'.",
+    )
+    parser.add_argument(
+        "--strategy",
+        default="default_v1",
+        dest="kg_strategy",
+        help="KG strategy label that identifies which enrichment mix the KG was built from. Default: 'default_v1'.",
+    )
     args = parser.parse_args()
 
     print("="*80)
@@ -321,6 +378,18 @@ def main():
     builder.create_genre_hierarchy(GENRE_HIERARCHY)
     print(f" Created {len(GENRE_HIERARCHY)} genres")
     
+    # Fetch enriched rows and build per-product projection dicts once per
+    # batch — builder applies them with a single SET per node.
+    print("\n4b. Fetching enriched rows and building projections...")
+    laptop_projections = _build_enriched_projection_map(pg_db, laptops[:50])
+    book_projections = _build_enriched_projection_map(pg_db, books[:50])
+    n_laptop_with_proj = sum(1 for v in laptop_projections.values() if v)
+    n_book_with_proj = sum(1 for v in book_projections.values() if v)
+    print(
+        f"   {n_laptop_with_proj}/{len(laptop_projections)} laptops and "
+        f"{n_book_with_proj}/{len(book_projections)} books have enriched projections"
+    )
+
     # Process laptops
     print("\n5. Processing laptops...")
     laptop_ids = []
@@ -329,13 +398,19 @@ def main():
             # Get price
             price_obj = pg_db.query(Price).filter(Price.product_id == laptop.product_id).first()
             price = price_obj.price_cents / 100 if price_obj else 999.99
-            
+
             # Extract specs
             laptop_data = extract_laptop_specs(laptop)
             laptop_data["price"] = price
-            
-            # Create node
-            product_id = builder.create_laptop_node(laptop_data)
+
+            # Create node (projection carries enriched-derived node properties)
+            projection = laptop_projections.get(laptop.product_id, {})
+            product_id = builder.create_laptop_node(
+                laptop_data,
+                projection=projection,
+                merchant_id=args.merchant_id,
+                kg_strategy=args.kg_strategy,
+            )
             laptop_ids.append(product_id)
             
             # Add software compatibility
@@ -364,9 +439,15 @@ def main():
             # Extract metadata
             book_data = extract_book_metadata(book)
             book_data["price"] = price
-            
-            # Create node
-            product_id = builder.create_book_node(book_data)
+
+            # Create node (projection carries enriched-derived node properties)
+            projection = book_projections.get(book.product_id, {})
+            product_id = builder.create_book_node(
+                book_data,
+                projection=projection,
+                merchant_id=args.merchant_id,
+                kg_strategy=args.kg_strategy,
+            )
             book_ids.append(product_id)
             
             if i % 10 == 0:

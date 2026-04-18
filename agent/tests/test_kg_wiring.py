@@ -53,10 +53,11 @@ class TestKGOfflineStub:
         )
 
     def test_search_candidates_returns_empty_list_offline(self):
-        """search_candidates() must return ([], {}) when KG is offline."""
+        """search_candidates() must return ([], {}, {}) when KG is offline."""
         svc = self._make_offline_svc()
-        ids, explanation = svc.search_candidates("gaming laptop under $800", {})
+        ids, scores, explanation = svc.search_candidates("gaming laptop under $800", {})
         assert ids == [], f"Expected empty id list, got {ids}"
+        assert scores == {}, f"Expected empty scores dict, got {scores}"
         assert isinstance(explanation, dict), "Explanation must be a dict"
 
     def test_get_similar_products_returns_empty_offline(self):
@@ -104,8 +105,8 @@ class TestKGWiredIntoEcommerceSearchPath:
         """Return a mock KG service that reports availability and returns controlled IDs."""
         mock_kg = MagicMock()
         mock_kg.is_available.return_value = is_available
-        # search_candidates returns (list_of_ids, explanation_dict)
-        mock_kg.search_candidates.return_value = (candidate_ids or [], {})
+        # search_candidates returns (list_of_ids, scores_dict, explanation_dict)
+        mock_kg.search_candidates.return_value = (candidate_ids or [], {}, {})
         return mock_kg
 
     def _make_dummy_products(self, n=3):

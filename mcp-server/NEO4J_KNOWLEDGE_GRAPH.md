@@ -142,14 +142,16 @@ This implementation creates a **rich, multi-dimensional knowledge graph** for la
 
 Laptops from **System76** (Linux; warranty/returns), **Framework** (repairable; warranty/return docs), and **Back Market** (refurbished; warranty/returns/shipping) are seeded via `scripts/scrape_merchant_laptops.py`. Descriptions include shipping, return policy, and warranty text for merchant-agent demos.
 
-### PostgreSQL `products.kg_features` (JSONB)
+### PostgreSQL `products.kg_features` (JSONB) — retired under #52
 
-Same concepts are stored in PostgreSQL for search when Neo4j is not used:
-
-- **good_for_ml**, **good_for_gaming**, **good_for_web_dev**, **good_for_creative**: boolean (true when product matches).
-- **battery_life_hours**: integer (parsed from description or default for laptops).
-
-Backfill: `scripts/backfill_kg_features.py`. Search and `kg_service` use these in filters (see §7 in WEEK6_ACTION_PLAN.md).
+Previously, same concepts were stored in PostgreSQL for search when Neo4j
+was not used. Retired under issue #52: the KG now consumes
+`products_enriched` (per-strategy rows) via `app.kg_projection`, and
+`products` is read-only. See [`docs/kg_enriched_contract.md`](docs/kg_enriched_contract.md)
+for the contract (direction one-way, per-`(merchant_id, strategy)` keying,
+identity vs derived split). `backfill_kg_features.py` is a deprecation
+shim; whether its heuristic logic migrates into an enrichment strategy is
+tracked in #61.
 
 ### CPU Node
 ```cypher

@@ -1105,6 +1105,7 @@ async def search_products(
     # Knowledge Graph search (Stage 3A - per week4notes.txt)
     # KG provides candidate IDs, then hydrate from Postgres
     kg_candidate_ids = None
+    kg_scores: Dict[str, Dict[str, Any]] = {}
     kg_explanation = {}
     kg_service = get_kg_service()
     
@@ -1116,10 +1117,18 @@ async def search_products(
     if kg_service.is_available() and _kg_query_text and len(_kg_query_text) >= 3:
         try:
             kg_start = time.time()
-            kg_candidate_ids, kg_explanation = kg_service.search_candidates(
+            # Tenancy: the MerchantAgent stashed merchant_id + _kg_strategy
+            # into filters so we forward them to the KG reader. Pre-v2
+            # callers that never set these fall back to the legacy
+            # unfiltered query (search_candidates treats None as a skip).
+            _kg_mid = (filters or {}).get("merchant_id")
+            _kg_strat = (filters or {}).get("_kg_strategy")
+            kg_candidate_ids, kg_scores, kg_explanation = kg_service.search_candidates(
                 query=_kg_query_text,
                 filters=filters,
-                limit=request.limit * 2  # Get more candidates for filtering
+                limit=request.limit * 2,  # Get more candidates for filtering
+                merchant_id=_kg_mid,
+                kg_strategy=_kg_strat,
             )
             timings["kg"] = (time.time() - kg_start) * 1000
             sources.append("neo4j")
@@ -2293,7 +2302,15 @@ async def search_products(
         data=SearchResultsData(
             products=product_summaries,
             total_count=total_count,
-            next_cursor=next_cursor
+            next_cursor=next_cursor,
+            # KG scores are only meaningful for products actually returned —
+            # trim so the MerchantAgent doesn't min-max normalize across IDs
+            # that got post-validation-dropped.
+            scores=(
+                {s.product_id: kg_scores[s.product_id]
+                 for s in product_summaries if s.product_id in kg_scores}
+                if kg_scores else None
+            ),
         ),
         constraints=constraints_out,
         trace=create_trace(request_id, cache_hit, timings, sources, trace_metadata),
