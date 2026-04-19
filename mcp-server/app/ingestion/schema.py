@@ -102,9 +102,14 @@ def create_merchant_catalog(merchant_id: str, conn: Any) -> None:
     logger.info("created_merchant_catalog merchant_id=%s", merchant_id)
 
 
-def drop_merchant_catalog(merchant_id: str, conn: Any) -> None:
-    """Drop both per-merchant tables. Gated on ``ALLOW_MERCHANT_DROP=1``."""
-    if os.environ.get("ALLOW_MERCHANT_DROP", "") != "1":
+def drop_merchant_catalog(merchant_id: str, conn: Any, *, _force: bool = False) -> None:
+    """Drop both per-merchant tables. Gated on ``ALLOW_MERCHANT_DROP=1``.
+
+    ``_force=True`` bypasses the env gate — reserved for in-request cleanup
+    of a half-provisioned merchant whose tables were just created in the
+    same turn. Not for external callers.
+    """
+    if not _force and os.environ.get("ALLOW_MERCHANT_DROP", "") != "1":
         raise PermissionError(
             "drop_merchant_catalog disabled. Set ALLOW_MERCHANT_DROP=1 to enable."
         )
