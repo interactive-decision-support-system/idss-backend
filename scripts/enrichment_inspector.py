@@ -196,13 +196,18 @@ def fetch_enriched_table(
     into ``<strategy>.<key>`` columns so every raw column sits next to the
     features the agents derived from it. Returns
     ``(rows, raw_columns, enriched_columns)`` or ``None`` if the merchant's
-    tables are gone (DELETE /merchant mid-session)."""
+    tables are gone (DELETE /merchant mid-session) **or** the slug doesn't
+    match ``MERCHANT_ID_RE`` (stale URL param, malformed test fixture, any
+    future path that bypasses the registry-backed selector)."""
     # Route through the canonical helpers so a future schema-per-tenant
     # move (issue #38) only has to touch ``merchant_*_table``. The helpers
     # also re-validate the slug against MERCHANT_ID_RE — interpolation
     # below is safe by construction.
-    raw = merchant_catalog_table(merchant_id)
-    enr = merchant_enriched_table(merchant_id)
+    try:
+        raw = merchant_catalog_table(merchant_id)
+        enr = merchant_enriched_table(merchant_id)
+    except ValueError:
+        return None
     sql = text(
         f"""
         SELECT p.product_id, p.name, p.brand, p.category, p.price,
@@ -262,9 +267,16 @@ def fetch_enriched_table(
 def fetch_one_product(
     engine: Engine, merchant_id: str, product_id: str
 ) -> tuple[dict[str, Any] | None, dict[str, dict[str, Any]]]:
-    """Return (raw_row_dict, {strategy: attributes_dict}) for the drill-down."""
-    raw = merchant_catalog_table(merchant_id)
-    enr = merchant_enriched_table(merchant_id)
+    """Return (raw_row_dict, {strategy: attributes_dict}) for the drill-down.
+
+    Returns ``(None, {})`` when ``merchant_id`` doesn't match
+    ``MERCHANT_ID_RE`` — same defensive posture as ``fetch_enriched_table``,
+    so a stale URL param can't surface as an uncaught ``ValueError``."""
+    try:
+        raw = merchant_catalog_table(merchant_id)
+        enr = merchant_enriched_table(merchant_id)
+    except ValueError:
+        return None, {}
     raw_row: dict[str, Any] | None
     with engine.connect() as conn:
         rr = conn.execute(
@@ -308,8 +320,10 @@ def kg_property_catalog() -> list[dict[str, Any]]:
         referenced = set()
     try:
         tag_threshold = float(kg_projection.TAG_CONFIDENCE_THRESHOLD)
-    except Exception:
-        tag_threshold = 0.5  # mirrors the projection default
+    except (AttributeError, TypeError, ValueError):
+        # Mirrors the projection default; narrow tuple keeps surprises (e.g.
+        # an ImportError during a partial refactor) loud instead of silent.
+        tag_threshold = 0.5
     soft_tag_note = (
         f"stored as float; thresholded ≥ {tag_threshold} in Cypher (#60)"
     )
@@ -520,10 +534,17 @@ def render_enriched_table(engine: Engine, merchant_id: str) -> None:
     limit = st.slider("max rows", min_value=10, max_value=2000, value=200, step=10)
     result = fetch_enriched_table(engine, merchant_id, limit=limit)
     if result is None:
+        # Slug may have been rejected by the helper (malformed) or the
+        # tables themselves are gone — keep the message generic so we
+        # don't re-raise the same ValueError just to render copy.
+        try:
+            table_hint = f"`{merchant_catalog_table(merchant_id)}`"
+        except ValueError:
+            table_hint = f"the catalog table for `{merchant_id}`"
         st.warning(
-            f"`{merchant_catalog_table(merchant_id)}` or its enriched "
-            "table is missing — the merchant may have been deleted. Use "
-            "**Refresh merchants** in the sidebar to re-hydrate the selector."
+            f"{table_hint} or its enriched table is missing — the merchant "
+            "may have been deleted, or the id is malformed. Use **Refresh "
+            "merchants** in the sidebar to re-hydrate the selector."
         )
         return
     rows, raw_cols, enriched_cols = result
