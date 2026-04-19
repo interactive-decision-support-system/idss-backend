@@ -59,6 +59,7 @@ from sqlalchemy.exc import DatabaseError, ProgrammingError
 
 from app import kg_projection
 from app.enrichment import registry as enrichment_registry
+from app.merchant_agent import merchant_catalog_table, merchant_enriched_table
 
 
 RUNS_DIR = _REPO_ROOT / "runs"
@@ -91,7 +92,7 @@ def _fmt_ts(value: Any) -> str:
 
 def list_merchants_from_db(engine: Engine) -> list[dict[str, Any]]:
     """Read merchants.registry and enrich each row with a live catalog_size
-    from COUNT(*) on merchants.products_<id>. Matches the six-field shape
+    from COUNT(*) on the per-merchant raw table. Matches the six-field shape
     that GET /merchant (#66) returns."""
     with engine.connect() as conn:
         rows = conn.execute(
@@ -105,15 +106,18 @@ def list_merchants_from_db(engine: Engine) -> list[dict[str, Any]]:
         mid = r["merchant_id"]
         size: int | None
         try:
+            raw = merchant_catalog_table(mid)
             with engine.connect() as conn:
                 size = int(
-                    conn.execute(
-                        text(f'SELECT COUNT(*) FROM merchants.products_{mid}')
-                    ).scalar()
+                    conn.execute(text(f'SELECT COUNT(*) FROM {raw}')).scalar()
                     or 0
                 )
-        except (ProgrammingError, DatabaseError):
-            size = None  # table missing (DELETE /merchant mid-session)
+        except (ProgrammingError, DatabaseError, ValueError):
+            # ProgrammingError / DatabaseError: table missing
+            # (DELETE /merchant mid-session). ValueError: registry holds a
+            # malformed merchant_id (shouldn't happen but #71's verified
+            # factory makes silent leakage worse than a None size).
+            size = None
         merchants.append(
             {
                 "merchant_id": mid,
@@ -193,10 +197,12 @@ def fetch_enriched_table(
     features the agents derived from it. Returns
     ``(rows, raw_columns, enriched_columns)`` or ``None`` if the merchant's
     tables are gone (DELETE /merchant mid-session)."""
-    # Identifier values are validated by merchant_catalog_table at ingest;
-    # interpolating here is safe because MERCHANT_ID_RE restricts the charset.
-    raw = f"merchants.products_{merchant_id}"
-    enr = f"merchants.products_enriched_{merchant_id}"
+    # Route through the canonical helpers so a future schema-per-tenant
+    # move (issue #38) only has to touch ``merchant_*_table``. The helpers
+    # also re-validate the slug against MERCHANT_ID_RE — interpolation
+    # below is safe by construction.
+    raw = merchant_catalog_table(merchant_id)
+    enr = merchant_enriched_table(merchant_id)
     sql = text(
         f"""
         SELECT p.product_id, p.name, p.brand, p.category, p.price,
@@ -257,8 +263,8 @@ def fetch_one_product(
     engine: Engine, merchant_id: str, product_id: str
 ) -> tuple[dict[str, Any] | None, dict[str, dict[str, Any]]]:
     """Return (raw_row_dict, {strategy: attributes_dict}) for the drill-down."""
-    raw = f"merchants.products_{merchant_id}"
-    enr = f"merchants.products_enriched_{merchant_id}"
+    raw = merchant_catalog_table(merchant_id)
+    enr = merchant_enriched_table(merchant_id)
     raw_row: dict[str, Any] | None
     with engine.connect() as conn:
         rr = conn.execute(
@@ -286,11 +292,28 @@ def fetch_one_product(
 
 def kg_property_catalog() -> list[dict[str, Any]]:
     """Build the KG-side reference table: every property the :Product node
-    can carry, annotated with producer + whether the Cypher reader uses it."""
+    can carry, annotated with producer + whether the Cypher reader uses it.
+
+    The ``notes`` column surfaces calibration tensions the projection itself
+    can't express — currently the soft-tagger threshold (#60), which gates
+    every ``good_for_*`` flag at ``coalesce(p.flag, 0.0) >= TAG_CONFIDENCE_THRESHOLD``
+    in the Cypher scorer. Floats are stored as-is so the threshold can move
+    without a rebuild; the dashboard surfaces the *current* value so a
+    reader looking at a low-confidence soft tag can tell why it's not
+    contributing to ``soft_score``.
+    """
     try:
         referenced = kg_projection.cypher_referenced_properties()
     except Exception:
         referenced = set()
+    try:
+        tag_threshold = float(kg_projection.TAG_CONFIDENCE_THRESHOLD)
+    except Exception:
+        tag_threshold = 0.5  # mirrors the projection default
+    soft_tag_note = (
+        f"stored as float; thresholded ≥ {tag_threshold} in Cypher (#60)"
+    )
+
     rows: list[dict[str, Any]] = []
     for k in sorted(kg_projection.IDENTITY_FIELDS):
         rows.append(
@@ -298,6 +321,7 @@ def kg_property_catalog() -> list[dict[str, Any]]:
                 "property": k,
                 "producer": "identity",
                 "reader_references": k in referenced,
+                "notes": "",
             }
         )
     for strategy, rule in kg_projection.FLATTENING_RULES.items():
@@ -306,14 +330,21 @@ def kg_property_catalog() -> list[dict[str, Any]]:
                 "property": f"<rule:{strategy}>",
                 "producer": strategy,
                 "reader_references": "(dynamic)",
+                "notes": "",
             }
         )
     for pat in kg_projection.KEY_PATTERNS:
+        # Open-vocab good_for_* tags are the only KEY_PATTERNS today, but
+        # gate the note on the actual strategy so a future soft-tagger
+        # variant — or a different open-vocab pattern — doesn't inherit it
+        # by accident.
+        notes = soft_tag_note if pat.strategy == "soft_tagger_v1" else ""
         rows.append(
             {
                 "property": pat.regex.pattern,
                 "producer": f"pattern:{pat.strategy}",
                 "reader_references": "(pattern)",
+                "notes": notes,
             }
         )
     for k in sorted(kg_projection.RESERVED_BOOL_FEATURES):
@@ -322,6 +353,7 @@ def kg_property_catalog() -> list[dict[str, Any]]:
                 "property": k,
                 "producer": "reserved (#61)",
                 "reader_references": k in referenced,
+                "notes": "",
             }
         )
     return rows
@@ -489,9 +521,9 @@ def render_enriched_table(engine: Engine, merchant_id: str) -> None:
     result = fetch_enriched_table(engine, merchant_id, limit=limit)
     if result is None:
         st.warning(
-            f"merchants.products_{merchant_id} or its enriched table is "
-            "missing — the merchant may have been deleted. Use **Refresh "
-            "merchants** in the sidebar to re-hydrate the selector."
+            f"`{merchant_catalog_table(merchant_id)}` or its enriched "
+            "table is missing — the merchant may have been deleted. Use "
+            "**Refresh merchants** in the sidebar to re-hydrate the selector."
         )
         return
     rows, raw_cols, enriched_cols = result
