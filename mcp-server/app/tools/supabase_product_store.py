@@ -87,7 +87,7 @@ def _reject_non_default_merchant(filters: Optional[Dict[str, Any]], op: str) -> 
     The REST PostgREST endpoint is hard-coded to ``/rest/v1/products`` —
     that's the legacy shared ``public.products`` table, not the per-merchant
     ``merchants.products_<id>`` tables introduced for multi-merchant ingest.
-    Routing a uploaded merchant's filters through this path would silently
+    Routing an uploaded merchant's filters through this path would silently
     return rows from the default catalog, leaking data and breaking the
     per-tenant isolation contract.
 
@@ -166,8 +166,20 @@ class SupabaseProductStore:
                 return rows
         return []
 
-    def get_by_id(self, product_id: str) -> Optional[Dict[str, Any]]:
-        """Fetch a single product by UUID."""
+    def get_by_id(
+        self,
+        product_id: str,
+        *,
+        merchant_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch a single product by UUID — default merchant only.
+
+        ``merchant_id`` is accepted for symmetry with the SQLAlchemy store and
+        guarded the same way as ``search_products``. Anything other than
+        ``"default"`` raises ``NotImplementedError`` rather than silently
+        returning a row from the legacy ``public.products`` table.
+        """
+        _reject_non_default_merchant({"merchant_id": merchant_id}, "get_by_id")
         try:
             resp = self._client.get(
                 "/rest/v1/products",

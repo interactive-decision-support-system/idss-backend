@@ -125,8 +125,14 @@ def run_enrichment(
         started_at=datetime.now(timezone.utc).isoformat(),
     )
 
-    # 1) load products
-    products = load_products(db, merchant_id=merchant_id, limit=limit)
+    # 1) load products — bind the catalog explicitly so we read from
+    # merchants.products_<merchant_id>, not the default-bound module class.
+    from app.catalog import Catalog
+    products = load_products(
+        db,
+        product_model=Catalog.for_merchant(merchant_id).product_model,
+        limit=limit,
+    )
     if not products:
         summary.notes.append("no_products_loaded")
         summary.finished_at = datetime.now(timezone.utc).isoformat()

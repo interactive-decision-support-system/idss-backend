@@ -85,6 +85,45 @@ def test_for_merchant_is_frozen():
         cat.merchant_id = "other"  # type: ignore[misc]
 
 
+def test_catalog_equality_is_pinned_to_merchant_id():
+    """Equality compares ``merchant_id`` only, not all fields.
+
+    Pinning the contract so a future change to make_product_model caching
+    (per-session scope, eviction, etc.) can't silently flip ``==`` to
+    field-wise comparison.
+    """
+    from app.catalog import Catalog
+
+    a = Catalog.for_merchant("acme")
+    b = Catalog.for_merchant("acme")
+    c = Catalog.for_merchant("default")
+
+    assert a == b
+    assert hash(a) == hash(b)
+    assert a != c
+    assert a != "not a catalog"
+
+
+def test_catalog_equality_independent_of_model_identity():
+    """Two Catalogs with different model objects but same merchant_id are equal.
+
+    Simulates the future where ``make_product_model`` returns a fresh class
+    per call. Today the cache makes them identical, but the equality
+    contract has to hold either way.
+    """
+    from dataclasses import replace
+
+    from app.catalog import Catalog
+
+    a = Catalog.for_merchant("acme")
+    # Construct a sibling with a stand-in model object — proves equality
+    # ignores the model fields entirely.
+    b = replace(a, product_model=object(), enriched_model=object())
+
+    assert a == b
+    assert hash(a) == hash(b)
+
+
 # ---------------------------------------------------------------------------
 # 2. open_catalog — missing table case (pure unit, no DB)
 # ---------------------------------------------------------------------------
@@ -291,3 +330,22 @@ def test_rest_store_rejects_non_default_merchant_id():
         _reject_non_default_merchant(
             {"merchant_id": "acme_books"}, "search_products"
         )
+
+
+def test_rest_store_get_by_id_guards_non_default_merchant(monkeypatch):
+    """``get_by_id(..., merchant_id=...)`` is guarded the same way as search.
+
+    Pre-fix, ``get_by_id`` accepted no merchant_id and silently hit
+    ``/rest/v1/products`` regardless of intended scope. Now it accepts an
+    explicit ``merchant_id=`` kwarg and rejects anything non-default.
+    """
+    from app.tools.supabase_product_store import SupabaseProductStore
+
+    # Build a SupabaseProductStore without making any HTTP calls — only the
+    # guard runs before the httpx client is touched.
+    monkeypatch.setenv("SUPABASE_URL", "http://example.invalid")
+    monkeypatch.setenv("SUPABASE_KEY", "test_key")
+    store = SupabaseProductStore()
+
+    with pytest.raises(NotImplementedError, match="cannot serve merchant_id"):
+        store.get_by_id("00000000-0000-0000-0000-000000000000", merchant_id="acme")

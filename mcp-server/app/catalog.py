@@ -60,14 +60,21 @@ class CatalogNotFound(LookupError):
         self.missing_table = missing_table
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Catalog:
     """Immutable per-merchant table binding.
 
-    Equality is by ``merchant_id`` only — the table names and models are
-    deterministic functions of the slug, so two Catalogs for the same merchant
-    are interchangeable. Using ``frozen=True`` lets the agent stash this on
-    ``self`` without callers worrying about mutation.
+    Equality is defined explicitly on ``merchant_id`` (not the dataclass
+    default of all-fields). The table names and models are deterministic
+    functions of the slug, so two Catalogs for the same merchant are
+    interchangeable — but the model identity only happens to coincide today
+    because ``make_product_model`` / ``make_enriched_model`` are cached in
+    ``app.models``. If that cache is ever scoped per-session or removed,
+    field-wise equality would silently break. Pinning equality to
+    ``merchant_id`` here makes the intent the contract.
+
+    ``frozen=True`` keeps the agent free to stash this on ``self`` without
+    callers worrying about mutation.
     """
 
     merchant_id: str
@@ -75,6 +82,14 @@ class Catalog:
     enriched_table: str     # "merchants.products_enriched_<id>"
     product_model: Any      # SQLAlchemy class for the raw table
     enriched_model: Any     # SQLAlchemy class for the enriched table
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Catalog):
+            return NotImplemented
+        return self.merchant_id == other.merchant_id
+
+    def __hash__(self) -> int:
+        return hash(("Catalog", self.merchant_id))
 
     @classmethod
     def for_merchant(cls, merchant_id: str) -> "Catalog":

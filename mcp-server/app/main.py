@@ -1310,11 +1310,10 @@ def _get_or_hydrate_merchant(merchant_id: str, db: Session):
     ``(merchant_id, kg_strategy)``, so there's nothing else to rebuild.
 
     Failure modes, distinguished:
-      * registry miss        → 404 ("unknown merchant")
-      * registry hit, table  → 500 ("registry/DDL skew") — the registry
-        missing            said this merchant exists, but Postgres disagrees.
-                             Hiding that as a 404 would let an operator
-                             chase the wrong bug.
+      * registry miss → 404 ("unknown merchant").
+      * registry hit + table missing → 500 ("registry/DDL skew") — the
+        registry says this merchant exists, but Postgres disagrees. Hiding
+        that as a 404 would let an operator chase the wrong bug.
     """
     from app.catalog import CatalogNotFound
     from app.merchant_agent import MerchantAgent
