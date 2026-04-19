@@ -38,6 +38,9 @@ openai==2.16.0
 # LLM observability (optional — _NoopTracer when unset / not installed)
 langfuse>=2.0,<3.0
 
+# Enrichment inspector (scripts/enrichment_inspector.py — dev-only dashboard)
+streamlit>=1.36,<2.0
+
 # Utilities
 python-dotenv==1.2.1
 
