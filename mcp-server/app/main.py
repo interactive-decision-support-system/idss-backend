@@ -5,7 +5,7 @@ Exposes typed tool-call endpoints for agent interactions.
 All endpoints follow the standard response envelope pattern.
 """
 
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ import logging
 import traceback
 import os
 import sys
+import tempfile
 import time as _time
 import json as _json
 import uuid as _uuid
@@ -1363,6 +1364,264 @@ def merchant_health(merchant_id: str, db: Session = Depends(get_db)):
     """Per-merchant health check."""
     agent = _get_or_hydrate_merchant(merchant_id, db)
     return agent.health(db)
+
+
+# ---------------------------------------------------------------------------
+# Merchant admin surface — issue #54
+# ---------------------------------------------------------------------------
+# CRUD over merchants.registry. Three sync routes (POST / GET / DELETE).
+# Auth, async ingest, UI, and KG build on ingest are out of scope here —
+# tracked in #57, #39, #61 respectively.
+
+def _catalog_row_count(db: Session, merchant_id: str) -> int:
+    """COUNT(*) for ``merchants.products_<merchant_id>``.
+
+    Live count over the per-merchant raw table — the registry does not
+    cache catalog size. Returns 0 if the table is missing (a registry row
+    with no table is a deploy-skew bug, not a runtime error).
+    """
+    from app.merchant_agent import validate_merchant_id
+
+    # Defence in depth: every registry row was inserted via validate_merchant_id,
+    # but re-validate before splicing into a SQL identifier position.
+    validate_merchant_id(merchant_id)
+    try:
+        return int(db.execute(
+            _sa_text(f"SELECT COUNT(*) FROM merchants.products_{merchant_id}")
+        ).scalar() or 0)
+    except Exception as exc:
+        logger.warning(
+            "catalog_count_failed merchant=%s err=%s — registry row without table?",
+            merchant_id, exc,
+        )
+        # Roll back the failed transaction so the surrounding session is
+        # still usable for the next merchant in the GET loop.
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return 0
+
+
+@app.post("/merchant", status_code=status.HTTP_201_CREATED)
+def create_merchant(
+    file: UploadFile = File(...),
+    merchant_id: str = Form(...),
+    domain: str = Form(...),
+    product_type: str = Form(...),
+    strategy: str = Form("normalizer_v1"),
+    kg_strategy: str = Form("default_v1"),
+    col_map: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Provision a new merchant from a CSV upload (synchronous).
+
+    Delegates to ``MerchantAgent.from_csv`` — DDL clone → CSV load →
+    enrichment → vector index → registry UPSERT. Sync ``def`` because
+    ``from_csv`` is blocking: running as ``async def`` would stall the
+    event loop for the full ingest.
+
+    Duplicate ``merchant_id`` → 409. The CSV load path is append-only; a
+    silent re-POST would duplicate rows in ``merchants.products_<id>``.
+    Operators must DELETE the merchant first and re-POST with a fresh CSV.
+
+    KG build is out of scope for this PR (tracked in #61). Search will
+    fall back to positional scoring on ``Offer.score`` until the KG path
+    is wired in.
+    """
+    from app.merchant_agent import MerchantAgent, validate_merchant_id
+    from app.ingestion.schema import drop_merchant_catalog
+
+    try:
+        validate_merchant_id(merchant_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Serialize concurrent provisions of the same merchant_id. Without the
+    # lock, two in-flight POSTs can both pass the existence check and each
+    # run create_merchant_catalog (CREATE IF NOT EXISTS is a no-op on the
+    # second) plus load_csv_into_merchant — doubling the rows in
+    # merchants.products_<id>. xact_lock is released when ``db`` closes
+    # (Depends(get_db) rolls back on request end), which happens after
+    # from_csv completes.
+    db.execute(
+        _sa_text("SELECT pg_advisory_xact_lock(hashtext(:mid))"),
+        {"mid": merchant_id},
+    )
+
+    existing = db.execute(
+        _sa_text("SELECT 1 FROM merchants.registry WHERE merchant_id = :mid"),
+        {"mid": merchant_id},
+    ).first()
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Merchant '{merchant_id}' already exists. "
+                "DELETE /merchant/{id} first, then re-POST."
+            ),
+        )
+
+    parsed_col_map: Optional[Dict[str, str]] = None
+    if col_map:
+        try:
+            parsed_col_map = _json.loads(col_map)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"col_map is not valid JSON: {exc}"
+            )
+        if not isinstance(parsed_col_map, dict):
+            raise HTTPException(
+                status_code=400, detail="col_map must be a JSON object"
+            )
+        if not all(
+            isinstance(k, str) and isinstance(v, str)
+            for k, v in parsed_col_map.items()
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="col_map must be a JSON object of string → string",
+            )
+
+    contents = file.file.read()
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".csv")
+    try:
+        with os.fdopen(tmp_fd, "wb") as fh:
+            fh.write(contents)
+        try:
+            agent = MerchantAgent.from_csv(
+                tmp_path,
+                merchant_id=merchant_id,
+                domain=domain,
+                product_type=product_type,
+                strategy=strategy,
+                kg_strategy=kg_strategy,
+                col_map=parsed_col_map,
+            )
+        except Exception as exc:
+            # from_csv may have already run create_merchant_catalog before
+            # failing. CREATE TABLE IF NOT EXISTS means a naive retry would
+            # append to whatever rows the aborted load left behind. Drop
+            # the half-built tables so the next POST starts clean. _force
+            # bypasses ALLOW_MERCHANT_DROP for this in-request cleanup.
+            try:
+                cleanup_conn = engine.raw_connection()
+                try:
+                    drop_merchant_catalog(merchant_id, cleanup_conn, _force=True)
+                finally:
+                    cleanup_conn.close()
+            except Exception as cleanup_exc:
+                logger.warning(
+                    "create_merchant_cleanup_failed id=%s err=%s",
+                    merchant_id, cleanup_exc,
+                )
+            # Also evict any half-registered in-memory entry from_csv may
+            # have written before it raised.
+            merchants.pop(merchant_id, None)
+            raise HTTPException(
+                status_code=500,
+                detail=f"merchant provisioning failed: {exc}",
+            )
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    return {
+        "merchant_id": agent.merchant_id,
+        "onboarding_state": "ready",
+        "catalog_size": _catalog_row_count(db, agent.merchant_id),
+    }
+
+
+@app.get("/merchant")
+def list_merchants(db: Session = Depends(get_db)):
+    """List registered merchants from ``merchants.registry``.
+
+    ``catalog_size`` is computed live via COUNT(*) on the per-merchant
+    table — the registry does not persist it.
+    """
+    rows = db.execute(
+        _sa_text(
+            "SELECT merchant_id, domain, strategy, kg_strategy, created_at "
+            "FROM merchants.registry ORDER BY created_at"
+        )
+    ).mappings().all()
+    return [
+        {
+            "merchant_id": row["merchant_id"],
+            "domain": row["domain"],
+            "strategy": row["strategy"],
+            "kg_strategy": row["kg_strategy"],
+            "catalog_size": _catalog_row_count(db, row["merchant_id"]),
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        }
+        for row in rows
+    ]
+
+
+@app.delete("/merchant/{merchant_id}")
+def delete_merchant(merchant_id: str, db: Session = Depends(get_db)):
+    """Deregister a merchant: delete registry row, drop tables, evict cache.
+
+    Refuses ``default`` (it is the clone template for every new merchant).
+    Gated on ``ALLOW_MERCHANT_DROP=1`` — surfaced as 403 when the env var
+    is not set. Unknown ``merchant_id`` → 404.
+
+    Registry row is removed first, then tables: a mid-flight failure after
+    the commit leaves no route pointing at the orphan tables, so the
+    merchant is functionally gone from the API surface even if the DDL
+    phase errors out.
+    """
+    from app.merchant_agent import validate_merchant_id
+    from app.ingestion.schema import drop_merchant_catalog
+
+    try:
+        validate_merchant_id(merchant_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if merchant_id == "default":
+        raise HTTPException(
+            status_code=400,
+            detail="refusing to delete the default merchant",
+        )
+
+    existing = db.execute(
+        _sa_text("SELECT 1 FROM merchants.registry WHERE merchant_id = :mid"),
+        {"mid": merchant_id},
+    ).first()
+    if existing is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"merchant '{merchant_id}' not found",
+        )
+
+    # Pre-check the env gate before mutating the registry. Without this,
+    # the registry DELETE below would commit and then drop_merchant_catalog
+    # would raise 403 — leaving registry gone but tables intact.
+    if os.environ.get("ALLOW_MERCHANT_DROP", "") != "1":
+        raise HTTPException(
+            status_code=403,
+            detail="drop_merchant_catalog disabled. Set ALLOW_MERCHANT_DROP=1 to enable.",
+        )
+
+    db.execute(
+        _sa_text("DELETE FROM merchants.registry WHERE merchant_id = :mid"),
+        {"mid": merchant_id},
+    )
+    db.commit()
+
+    raw_conn = engine.raw_connection()
+    try:
+        drop_merchant_catalog(merchant_id, raw_conn)
+    finally:
+        raw_conn.close()
+
+    merchants.pop(merchant_id, None)
+    logger.info("merchant_deleted id=%s", merchant_id)
+    return {"merchant_id": merchant_id, "deleted": True}
 
 
 @app.post("/api/get-product", response_model=GetProductResponse, response_model_exclude_none=True)
