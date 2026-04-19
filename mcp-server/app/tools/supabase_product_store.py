@@ -81,10 +81,42 @@ def get_product_store() -> "SupabaseProductStore":
 # Store
 # ---------------------------------------------------------------------------
 
+def _reject_non_default_merchant(filters: Optional[Dict[str, Any]], op: str) -> None:
+    """Guard the REST path from accidentally serving non-default merchants.
+
+    The REST PostgREST endpoint is hard-coded to ``/rest/v1/products`` —
+    that's the legacy shared ``public.products`` table, not the per-merchant
+    ``merchants.products_<id>`` tables introduced for multi-merchant ingest.
+    Routing a uploaded merchant's filters through this path would silently
+    return rows from the default catalog, leaking data and breaking the
+    per-tenant isolation contract.
+
+    This branch only fires when ``DATABASE_URL`` is unset (the SQLAlchemy
+    store is the production path), so the guard mainly protects the
+    REST-only fallback used in local dev / minimal deployments.
+    """
+    if not isinstance(filters, dict):
+        return
+    mid = filters.get("merchant_id")
+    if isinstance(mid, str) and mid and mid != "default":
+        raise NotImplementedError(
+            f"SupabaseProductStore (REST) cannot serve merchant_id={mid!r} — "
+            "the REST path queries the legacy public.products table. Configure "
+            "DATABASE_URL so the SQLAlchemy store handles per-merchant catalogs, "
+            f"or restrict {op} to merchant_id='default'."
+        )
+
+
 class SupabaseProductStore:
     """
     Search the Supabase `products` table via its REST API.
     Supports brand, category, product_type, price range, and JSONB spec filters.
+
+    *Default merchant only.* The REST path is hard-coded to the legacy
+    ``public.products`` table; per-merchant catalogs (``merchants.products_<id>``)
+    are served exclusively by ``_SQLAlchemyProductStore``. Calls with a
+    non-default ``merchant_id`` raise ``NotImplementedError`` rather than
+    silently fall through to the wrong table.
     """
 
     def __init__(self) -> None:
@@ -120,6 +152,7 @@ class SupabaseProductStore:
           4. Drop brand if still empty
           5. Bare category/product_type only
         """
+        _reject_non_default_merchant(filters, "search_products")
         steps = [
             dict(drop_specs=False, drop_price_min=False, drop_brand=False),
             dict(drop_specs=True,  drop_price_min=False, drop_brand=False),

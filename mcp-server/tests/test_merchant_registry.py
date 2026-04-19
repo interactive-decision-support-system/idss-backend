@@ -90,20 +90,52 @@ def db_session():
 def synthetic_merchant_ids():
     """Return a list of test-only merchant_ids and scrub them before + after.
 
+    Provisions per-merchant catalog tables (``merchants.products_<id>`` +
+    ``merchants.products_enriched_<id>``) before yielding and drops them
+    after. The hydrate path now probes Postgres via ``open_catalog`` — a
+    registry row with no backing table raises ``CatalogNotFound``, which
+    these tests are not exercising. Bootstrapping the tables keeps the
+    fixture realistic: a merchant the registry knows about should also
+    have its DDL in place.
+
     The slug grammar (MERCHANT_ID_RE) forbids hyphens, so we use underscores.
     """
+    from app.ingestion.schema import create_merchant_catalog, drop_merchant_catalog
+
     ids = ["test_reg_hydrate", "test_reg_worker", "test_reg_idemp"]
 
-    def _scrub():
+    def _scrub_registry():
         with _engine.begin() as conn:
             conn.execute(
                 text("DELETE FROM merchants.registry WHERE merchant_id = ANY(:ids)"),
                 {"ids": ids},
             )
 
-    _scrub()
+    def _drop_tables():
+        raw_conn = _engine.raw_connection()
+        try:
+            for mid in ids:
+                try:
+                    drop_merchant_catalog(mid, raw_conn, _force=True)
+                except Exception:
+                    pass
+        finally:
+            raw_conn.close()
+
+    _scrub_registry()
+    _drop_tables()
+
+    raw_conn = _engine.raw_connection()
+    try:
+        for mid in ids:
+            create_merchant_catalog(mid, raw_conn)
+    finally:
+        raw_conn.close()
+
     yield ids
-    _scrub()
+
+    _scrub_registry()
+    _drop_tables()
 
 
 @pytest.fixture

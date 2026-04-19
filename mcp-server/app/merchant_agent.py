@@ -16,7 +16,6 @@ from sqlalchemy.orm import Session
 
 from app.contract import Offer, StructuredQuery
 from app.endpoints import search_products
-from app.models import Product, make_enriched_model, make_product_model
 from app.schemas import SearchProductsRequest
 
 logger = logging.getLogger(__name__)
@@ -127,7 +126,19 @@ class MerchantAgent:
         domain: str,
         strategy: str = "normalizer_v1",
         kg_strategy: str = "default_v1",
+        *,
+        catalog: Optional["Catalog"] = None,
     ) -> None:
+        """Construct an agent bound to a (merchant_id, catalog) pair.
+
+        The bare ``MerchantAgent(mid, domain)`` form derives the catalog from
+        the slug *without* probing Postgres — fine for the lifespan bootstrap
+        and unit tests that own their own fixtures, but it leaves
+        ``MerchantAgent('ghost', 'books')`` succeeding and producing a broken
+        agent. For the request hot path use ``MerchantAgent.open(...)`` (or
+        pass an already-verified ``catalog=`` from ``open_catalog``) so a
+        missing-table deploy skew fails loudly here instead of at first query.
+        """
         self.merchant_id = validate_merchant_id(merchant_id)
         self.domain = domain
         # One MerchantAgent instance <=> one (merchant_id, strategy) pair.
@@ -135,29 +146,71 @@ class MerchantAgent:
         # strategies in parallel = two agents. See issues #52, #56.
         self.strategy = strategy
         self.kg_strategy = kg_strategy
-        self._catalog_table = merchant_catalog_table(self.merchant_id)
-        self._enriched_table = merchant_enriched_table(self.merchant_id)
-        # Per-merchant ORM models. Cached on the instance so downstream
-        # retrieval paths that take a model argument don't need to re-enter
-        # the factory.
-        self._product_model = make_product_model(self.merchant_id)
-        self._enriched_model = make_enriched_model(self.merchant_id)
+
+        # Lazy import to break the cycle: app.catalog imports from this
+        # module (validate_merchant_id, merchant_catalog_table, ...), so a
+        # top-level import here would deadlock at startup.
+        from app.catalog import Catalog
+
+        if catalog is None:
+            catalog = Catalog.for_merchant(self.merchant_id)
+        elif catalog.merchant_id != self.merchant_id:
+            # Defence against a caller wiring the wrong merchant's tables
+            # into a fresh agent — silent mismatch would write into the
+            # wrong tenant's catalog.
+            raise ValueError(
+                f"catalog.merchant_id={catalog.merchant_id!r} does not match "
+                f"merchant_id={self.merchant_id!r}"
+            )
+        self.catalog = catalog
+
+    @classmethod
+    def open(
+        cls,
+        merchant_id: str,
+        db: Session,
+        *,
+        domain: str,
+        strategy: str = "normalizer_v1",
+        kg_strategy: str = "default_v1",
+    ) -> "MerchantAgent":
+        """Construct an agent after verifying the catalog tables exist.
+
+        Use from request handlers / hydration paths. Raises
+        ``app.catalog.CatalogNotFound`` when the merchant's raw table is
+        missing — the registry pointed at a slug whose DDL was never run.
+        """
+        from app.catalog import open_catalog
+
+        catalog = open_catalog(merchant_id, db)
+        return cls(
+            merchant_id=merchant_id,
+            domain=domain,
+            strategy=strategy,
+            kg_strategy=kg_strategy,
+            catalog=catalog,
+        )
+
+    # --- Catalog accessors ---------------------------------------------
+    # Read-through to the underlying Catalog. Kept on the agent so the
+    # search / enrichment paths don't need to thread a separate Catalog
+    # parameter — the agent already travels with every request.
 
     def catalog_table(self) -> str:
-        """Return fully-qualified raw catalog table name for this merchant."""
-        return self._catalog_table
+        """Fully-qualified raw catalog table name for this merchant."""
+        return self.catalog.raw_table
 
     def enriched_table(self) -> str:
-        """Return fully-qualified enriched catalog table name for this merchant."""
-        return self._enriched_table
+        """Fully-qualified enriched catalog table name for this merchant."""
+        return self.catalog.enriched_table
 
     @property
     def product_model(self):
-        return self._product_model
+        return self.catalog.product_model
 
     @property
     def enriched_model(self):
-        return self._enriched_model
+        return self.catalog.enriched_model
 
     # ------------------------------------------------------------------
     # Bootstrap
@@ -185,8 +238,14 @@ class MerchantAgent:
           2. Create per-merchant tables via ``create_merchant_catalog``.
           3. Load CSV rows into the merchant's raw table.
           4. Run ``CatalogNormalizer`` scoped to this merchant's tables.
-          5. Register the agent in the in-memory merchant registry so
-             ``/merchant/<id>/search`` routes here.
+          5. UPSERT the merchant into ``merchants.registry`` (the durable
+             source of truth — see issue #53).
+
+        The returned agent is *not* installed into ``app.main.merchants``.
+        That cache is owned by the route handler, which writes it after
+        ``from_csv`` returns successfully (issue #69 — keeping ingest free of
+        process-global mutation lets tests, scripts, and any future async
+        ingest worker call this without poking at FastAPI module state).
 
         Large catalogs will block; callers should budget accordingly. Async
         ingest with progress reporting is intentionally deferred — that work
@@ -264,8 +323,8 @@ class MerchantAgent:
                 )
 
         # Durable registration. merchants.registry is the source of truth;
-        # the in-process dict is a cache that other workers / post-restart
-        # processes populate via lazy hydration. See issue #53.
+        # other workers / post-restart processes populate the in-process
+        # cache via lazy hydration. See issue #53.
         upsert_registry_row(
             merchant_id=merchant_id,
             domain=domain,
@@ -273,8 +332,10 @@ class MerchantAgent:
             kg_strategy=kg_strategy,
         )
 
-        from app import main as app_main
-        app_main.merchants[merchant_id] = agent
+        # No write into app.main.merchants here — that cache belongs to the
+        # route handler, which knows whether the caller is a request that
+        # should serve the agent next (POST /merchant) or a script that
+        # shouldn't (offline backfills). Issue #69.
         logger.info("merchant_registered id=%s domain=%s", merchant_id, domain)
         return agent
 
@@ -416,8 +477,8 @@ class MerchantAgent:
         from app.database import SessionLocal
         from app.vector_search import get_vector_store
 
-        _Product = self._product_model
-        _Enriched = self._enriched_model
+        _Product = self.product_model
+        _Enriched = self.enriched_model
 
         db = SessionLocal()
         try:
@@ -457,8 +518,13 @@ class MerchantAgent:
     # ------------------------------------------------------------------
 
     def health(self, db: Session) -> dict:
-        _Product = self._product_model
-        catalog_q = db.query(_Product).filter(_Product.merchant_id == self.merchant_id)
+        # The per-merchant Product model is already bound to
+        # merchants.products_<id> — no merchant_id filter needed. The old
+        # ``.filter(Product.merchant_id == ...)`` was vestigial from the
+        # shared-table era and would silently return 0 rows on any merchant
+        # whose CSV import didn't populate the merchant_id column.
+        _Product = self.product_model
+        catalog_q = db.query(_Product)
 
         catalog_size = catalog_q.count()
 
