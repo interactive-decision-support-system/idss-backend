@@ -113,6 +113,7 @@ def test_run_rejects_product_id_mismatch():
 
 def test_noop_tracer_is_used_when_langfuse_unset(monkeypatch):
     monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("ENRICHMENT_TRACE_JSONL", raising=False)
     tracing._reset_for_tests()
     t = tracing.get_tracer()
     assert t.enabled is False

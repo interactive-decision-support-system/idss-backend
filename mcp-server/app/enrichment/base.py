@@ -13,7 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from app.enrichment import registry
-from app.enrichment.tracing import get_tracer
+from app.enrichment.tracing import get_run_context, get_tracer
 from app.enrichment.types import AgentResult, ProductInput, StrategyOutput
 
 logger = logging.getLogger(__name__)
@@ -54,16 +54,35 @@ class BaseEnrichmentAgent:
         ctx = context or {}
         tracer = get_tracer()
         start = time.perf_counter()
-        with tracer.span(name=self.STRATEGY, input={"product_id": str(product.product_id)}) as span:
+        # When tracing is enabled, send the full product input so the
+        # Langfuse / JSONL consumer can replay exactly what the agent saw.
+        # When disabled, keep the historical minimal shape so the _NoopTracer
+        # contract asserted by tests/enrichment/test_base.py is unchanged.
+        if tracer.enabled:
+            span_input: dict[str, Any] = product.model_dump(mode="json")
+        else:
+            span_input = {"product_id": str(product.product_id)}
+        run_ctx = get_run_context()
+        with tracer.span(name=self.STRATEGY, input=span_input) as span:
             try:
                 output = self._invoke(product, ctx)
                 self._validate_output(output, product.product_id)
                 latency_ms = int((time.perf_counter() - start) * 1000)
                 cost_usd = ctx.get("_last_cost_usd")
-                span.update(
-                    output={"keys": sorted(output.attributes.keys())},
-                    metadata={"strategy": self.STRATEGY, "latency_ms": latency_ms},
-                )
+                if tracer.enabled:
+                    span_output: Any = output.model_dump(mode="json")
+                else:
+                    span_output = {"keys": sorted(output.attributes.keys())}
+                metadata: dict[str, Any] = {
+                    "strategy": self.STRATEGY,
+                    "latency_ms": latency_ms,
+                    "cost_usd": cost_usd,
+                }
+                if run_ctx is not None:
+                    metadata["run_id"] = run_ctx.run_id
+                    metadata["merchant_id"] = run_ctx.merchant_id
+                    metadata["kg_strategy"] = run_ctx.kg_strategy
+                span.update(output=span_output, metadata=metadata)
                 return AgentResult(
                     success=True,
                     output=output,
@@ -72,6 +91,8 @@ class BaseEnrichmentAgent:
                     trace_id=getattr(span, "id", None),
                     strategy=self.STRATEGY,
                     product_id=product.product_id,
+                    run_id=run_ctx.run_id if run_ctx else None,
+                    kg_strategy=run_ctx.kg_strategy if run_ctx else None,
                 )
             except Exception as exc:  # noqa: BLE001 - one agent's failure must not kill the run
                 latency_ms = int((time.perf_counter() - start) * 1000)
@@ -91,6 +112,8 @@ class BaseEnrichmentAgent:
                     trace_id=getattr(span, "id", None),
                     strategy=self.STRATEGY,
                     product_id=product.product_id,
+                    run_id=run_ctx.run_id if run_ctx else None,
+                    kg_strategy=run_ctx.kg_strategy if run_ctx else None,
                 )
 
     # ------------------------------------------------------------------
