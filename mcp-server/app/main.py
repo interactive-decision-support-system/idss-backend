@@ -1304,13 +1304,18 @@ def _get_or_hydrate_merchant(merchant_id: str, db: Session):
 
     The ``merchants`` dict is the per-process cache; ``merchants.registry``
     is the cross-process source of truth (issue #53). On a cache miss we
-    reconstruct the agent with the plain constructor — the per-merchant
-    FAISS index is already on disk and KG rows already live in Neo4j keyed
-    by ``(merchant_id, kg_strategy)``, so there's nothing to rebuild.
+    reconstruct the agent via ``MerchantAgent.open(...)``, which probes
+    Postgres for the per-merchant raw table — the per-merchant FAISS index
+    is already on disk and KG rows already live in Neo4j keyed by
+    ``(merchant_id, kg_strategy)``, so there's nothing else to rebuild.
 
-    Raises 404 if the merchant is absent from both the cache and the
-    registry — that's the real "unknown merchant" signal.
+    Failure modes, distinguished:
+      * registry miss → 404 ("unknown merchant").
+      * registry hit + table missing → 500 ("registry/DDL skew") — the
+        registry says this merchant exists, but Postgres disagrees. Hiding
+        that as a 404 would let an operator chase the wrong bug.
     """
+    from app.catalog import CatalogNotFound
     from app.merchant_agent import MerchantAgent
 
     agent = merchants.get(merchant_id)
@@ -1327,12 +1332,30 @@ def _get_or_hydrate_merchant(merchant_id: str, db: Session):
         raise HTTPException(
             status_code=404, detail=f"Merchant '{merchant_id}' not found"
         )
-    agent = MerchantAgent(
-        merchant_id=row["merchant_id"],
-        domain=row["domain"],
-        strategy=row["strategy"],
-        kg_strategy=row["kg_strategy"],
-    )
+    try:
+        agent = MerchantAgent.open(
+            merchant_id=row["merchant_id"],
+            db=db,
+            domain=row["domain"],
+            strategy=row["strategy"],
+            kg_strategy=row["kg_strategy"],
+        )
+    except CatalogNotFound as exc:
+        # Registry says the merchant exists; Postgres says the table doesn't.
+        # That's a deploy-skew bug (e.g. registry restored from backup,
+        # tables not). Surface as 500 with the missing table name so an
+        # operator can act on it directly.
+        logger.error(
+            "merchant_hydrate_skew merchant_id=%s missing_table=%s",
+            merchant_id, exc.missing_table,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"merchant '{merchant_id}' is registered but its catalog "
+                f"table {exc.missing_table} is missing"
+            ),
+        )
     merchants[merchant_id] = agent
     logger.info("merchant_hydrated id=%s domain=%s", merchant_id, row["domain"])
     return agent
@@ -1515,9 +1538,9 @@ def create_merchant(
                     "create_merchant_cleanup_failed id=%s err=%s",
                     merchant_id, cleanup_exc,
                 )
-            # Also evict any half-registered in-memory entry from_csv may
-            # have written before it raised.
-            merchants.pop(merchant_id, None)
+            # No in-memory cache eviction needed — from_csv no longer
+            # self-registers (issue #69). The dict is only written below
+            # after a successful provision.
             raise HTTPException(
                 status_code=500,
                 detail=f"merchant provisioning failed: {exc}",
@@ -1527,6 +1550,14 @@ def create_merchant(
             os.unlink(tmp_path)
         except OSError:
             pass
+
+    # Install into the per-process cache so the next request to
+    # /merchant/<id>/search hits the warm agent without going through
+    # _get_or_hydrate_merchant's registry SELECT + open_catalog probe.
+    # This used to live inside MerchantAgent.from_csv; it was moved out so
+    # offline scripts and any future async ingest worker don't have to
+    # poke at FastAPI module state. Issue #69.
+    merchants[agent.merchant_id] = agent
 
     return {
         "merchant_id": agent.merchant_id,

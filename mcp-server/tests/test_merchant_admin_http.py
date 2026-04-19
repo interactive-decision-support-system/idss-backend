@@ -395,7 +395,9 @@ def test_delete_with_env_var_removes_registry_row_dict_and_get_listing(
 
     create = _post_merchant(client, merchant_id=mid)
     assert create.status_code == 201
-    assert mid in app_main.merchants  # from_csv populated the dict
+    # POST /merchant installs the cache entry after from_csv returns.
+    # (Pre-#69, from_csv did the write itself; the route now owns it.)
+    assert mid in app_main.merchants
 
     monkeypatch.setenv("ALLOW_MERCHANT_DROP", "1")
 
