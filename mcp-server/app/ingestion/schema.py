@@ -9,10 +9,15 @@ Both are cloned from the default merchant's tables via ``LIKE ... INCLUDING
 ALL``. The FK from enriched → raw is re-added explicitly because LIKE does
 not copy foreign keys.
 
-Prerequisite: migrations 002 and 003 must have run — the clone reads from
-``merchants.products_default`` / ``merchants.products_enriched_default``
+Prerequisite: migrations 002, 003, and 006 must have run — the clone reads
+from ``merchants.raw_products_default`` / ``merchants.products_enriched_default``
 as the template, and ``create_merchant_catalog`` raises a bare Postgres
 "relation does not exist" if those tables aren't there yet.
+
+The raw template is the full unfiltered snapshot, not the quality-filtered
+``products_default`` view (see migration 006): a new merchant uploading its
+own catalog needs the base table schema, not a projection that's specific
+to the default snapshot's quirks.
 
 All identifiers that interpolate the merchant_id are built via
 ``psycopg2.sql.Identifier`` after ``validate_merchant_id`` has matched the
@@ -33,7 +38,9 @@ from app.merchant_agent import validate_merchant_id
 logger = logging.getLogger(__name__)
 
 _SCHEMA = "merchants"
-_TEMPLATE_RAW = "products_default"
+# Clone from the raw snapshot, not the products_default view. CREATE TABLE ... LIKE
+# errors against a view, and new merchants want the base schema regardless.
+_TEMPLATE_RAW = "raw_products_default"
 _TEMPLATE_ENRICHED = "products_enriched_default"
 
 
