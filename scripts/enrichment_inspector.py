@@ -573,7 +573,26 @@ def render_enriched_table(engine: Engine, merchant_id: str) -> None:
     )
     cols = raw_cols + enriched_cols
     table = [{c: r.get(c) for c in cols} for r in rows]
-    st.dataframe(table, hide_index=True, use_container_width=True)
+    st.caption(
+        "Enriched columns (prefixed with the strategy name) are tinted "
+        "green so you can see at a glance what the agents added on top "
+        "of the raw catalog."
+    )
+    try:
+        import pandas as pd
+
+        df = pd.DataFrame(table, columns=cols)
+        enriched_set = set(enriched_cols)
+
+        def _tint(col: pd.Series) -> list[str]:
+            if col.name in enriched_set:
+                return ["background-color: rgba(45, 180, 130, 0.18)"] * len(col)
+            return [""] * len(col)
+
+        styled = df.style.apply(_tint, axis=0)
+        st.dataframe(styled, hide_index=True, use_container_width=True)
+    except ImportError:
+        st.dataframe(table, hide_index=True, use_container_width=True)
     st.download_button(
         "Download as CSV",
         data=_rows_to_csv(table, cols),
@@ -741,6 +760,30 @@ def _load_trace_jsonl(run_id: str) -> list[dict[str, Any]] | None:
     return spans
 
 
+def _span_output(span: dict[str, Any]) -> Any:
+    """Final output for a span. ``tracing.py`` writes the result into the
+    last entry of ``updates[]``, not the span's top-level ``output``, so a
+    naive ``span.get('output')`` always returns ``None``. Walk updates in
+    reverse and return the most recent non-empty output."""
+    top = span.get("output")
+    if top:
+        return top
+    for upd in reversed(span.get("updates") or []):
+        if isinstance(upd, dict) and upd.get("output") not in (None, "", {}):
+            return upd["output"]
+    return None
+
+
+def _span_metadata(span: dict[str, Any]) -> dict[str, Any]:
+    """Aggregate metadata from all update events. Most LLM cost / token
+    info lives there, not on the top-level span."""
+    merged: dict[str, Any] = {}
+    for upd in span.get("updates") or []:
+        if isinstance(upd, dict) and isinstance(upd.get("metadata"), dict):
+            merged.update(upd["metadata"])
+    return merged
+
+
 def _span_product_id(span: dict[str, Any]) -> str | None:
     """Extract product_id from a span's input or tags, if present."""
     inp = span.get("input") or {}
@@ -875,11 +918,18 @@ def render_reasoning_trace(run: dict[str, Any]) -> None:
                 st.json(_jsonable(sp.get("input") or {}))
             with right:
                 st.markdown("**output**")
-                st.json(_jsonable(sp.get("output") or {}))
-            updates = sp.get("updates") or []
-            if updates:
-                st.markdown(f"**updates** ({len(updates)})")
-                st.json(_jsonable(updates))
+                st.json(_jsonable(_span_output(sp) or {}))
+            md = _span_metadata(sp)
+            if md:
+                meta_bits = []
+                if "cost_usd" in md:
+                    meta_bits.append(f"cost: ${md['cost_usd']:.6f}")
+                if "latency_ms" in md:
+                    meta_bits.append(f"latency: {md['latency_ms']} ms")
+                if "model" in md:
+                    meta_bits.append(f"model: `{md['model']}`")
+                if meta_bits:
+                    st.caption("  ·  ".join(meta_bits))
             llms = [
                 llm for llm in llm_by_strategy.get(strategy, [])
                 if _span_product_id(llm) in (None, pid) or pid is None
@@ -899,7 +949,15 @@ def render_reasoning_trace(run: dict[str, Any]) -> None:
                             st.json(_jsonable(llm.get("input") or {}))
                         with lo:
                             st.markdown("**response**")
-                            st.json(_jsonable(llm.get("output") or {}))
+                            st.json(_jsonable(_span_output(llm) or {}))
+                        lmd = _span_metadata(llm)
+                        if lmd:
+                            tok_in = lmd.get("input_tokens", "?")
+                            tok_out = lmd.get("output_tokens", "?")
+                            st.caption(
+                                f"tokens: {tok_in} in / {tok_out} out  ·  "
+                                f"cost: ${lmd.get('cost_usd', 0):.6f}"
+                            )
 
     if shown == 0:
         st.info("No strategy spans match the current filters.")
@@ -960,10 +1018,11 @@ def main() -> None:
         merchant_ids = [m["merchant_id"] for m in merchants]
         default_idx = merchant_ids.index("default") if "default" in merchant_ids else 0
         picked_id = st.selectbox(
-            "merchant",
+            "catalog",
             merchant_ids,
             index=default_idx,
             key="merchant_pick",
+            help="One catalog per merchant (one row in merchants.registry).",
         )
         picked = next(m for m in merchants if m["merchant_id"] == picked_id)
         st.caption(
