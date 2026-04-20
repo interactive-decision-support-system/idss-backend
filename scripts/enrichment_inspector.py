@@ -39,6 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 # Make the mcp-server package importable so we can reuse kg_projection /
@@ -303,13 +304,15 @@ def fetch_one_product(
             {"pid": product_id},
         ).mappings().all()
     if raw_row is not None:
-        # Translate raw column names → ORM-attribute / kg_projection logical
-        # names so render_per_product's IDENTITY_FIELDS lookup hits. Without
-        # this the "Projected :Product node" panel renders an empty identity
-        # block for every product.
+        # Add ORM-attribute / kg_projection logical names alongside the raw
+        # column names so render_per_product's IDENTITY_FIELDS lookup hits.
+        # We copy rather than rename (``raw_row[logical] = raw_row[col]``)
+        # so the Raw panel downstream still shows the original catalog keys
+        # (``id`` / ``title`` / ``imageurl``) the merchant uploaded — that's
+        # the whole point of the "raw" view.
         for col, logical in (("id", "product_id"), ("title", "name"), ("imageurl", "image_url")):
             if col in raw_row and logical not in raw_row:
-                raw_row[logical] = raw_row.pop(col)
+                raw_row[logical] = raw_row[col]
     enriched_by_strategy: dict[str, dict[str, Any]] = {
         r["strategy"]: (r["attributes"] or {}) for r in enriched_rows
     }
@@ -578,21 +581,16 @@ def render_enriched_table(engine: Engine, merchant_id: str) -> None:
         "green so you can see at a glance what the agents added on top "
         "of the raw catalog."
     )
-    try:
-        import pandas as pd
+    df = pd.DataFrame(table, columns=cols)
+    enriched_set = set(enriched_cols)
 
-        df = pd.DataFrame(table, columns=cols)
-        enriched_set = set(enriched_cols)
+    def _tint(col: pd.Series) -> list[str]:
+        if col.name in enriched_set:
+            return ["background-color: rgba(45, 180, 130, 0.18)"] * len(col)
+        return [""] * len(col)
 
-        def _tint(col: pd.Series) -> list[str]:
-            if col.name in enriched_set:
-                return ["background-color: rgba(45, 180, 130, 0.18)"] * len(col)
-            return [""] * len(col)
-
-        styled = df.style.apply(_tint, axis=0)
-        st.dataframe(styled, hide_index=True, use_container_width=True)
-    except ImportError:
-        st.dataframe(table, hide_index=True, use_container_width=True)
+    styled = df.style.apply(_tint, axis=0)
+    st.dataframe(styled, hide_index=True, use_container_width=True)
     st.download_button(
         "Download as CSV",
         data=_rows_to_csv(table, cols),
@@ -769,8 +767,13 @@ def _span_output(span: dict[str, Any]) -> Any:
     if top:
         return top
     for upd in reversed(span.get("updates") or []):
-        if isinstance(upd, dict) and upd.get("output") not in (None, "", {}):
-            return upd["output"]
+        if not isinstance(upd, dict):
+            continue
+        out = upd.get("output")
+        # Empty dict/list are legitimate outputs (e.g. a specialist that
+        # correctly decides "nothing to add"); only filter None and "".
+        if out is not None and out != "":
+            return out
     return None
 
 
@@ -930,6 +933,13 @@ def render_reasoning_trace(run: dict[str, Any]) -> None:
                     meta_bits.append(f"model: `{md['model']}`")
                 if meta_bits:
                     st.caption("  ·  ".join(meta_bits))
+            # Fallback debug view: the per-update payload for multi-step
+            # span chains. The summary above only surfaces the final output
+            # + aggregated metadata, which loses intermediate steps.
+            updates = sp.get("updates") or []
+            if updates:
+                with st.expander(f"raw updates ({len(updates)})", expanded=False):
+                    st.json(_jsonable(updates))
             llms = [
                 llm for llm in llm_by_strategy.get(strategy, [])
                 if _span_product_id(llm) in (None, pid) or pid is None
