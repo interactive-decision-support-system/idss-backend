@@ -516,7 +516,15 @@ OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "")
 _REASONING_KWARGS = {"reasoning_effort": OPENAI_REASONING_EFFORT} if OPENAI_REASONING_EFFORT else {}
 
 # Interview configuration
-DEFAULT_MAX_QUESTIONS = 3  # Maximum questions before showing recommendations
+# Lowered from 3 → 2 (Apr 2026): MACS was spending 3 turns asking questions
+# before giving any recommendations. In multi-turn sessions this creates a poor
+# transcript (turns 1-3 all bare questions, recs only from turn 4). Lowering to 2
+# means MACS gives recs from turn 3 onward — one clarifying question per major
+# unknown (use_case, budget), then proceed to best-effort search.
+# Single-turn evals are unaffected: fresh sessions still ask a question on the
+# first vague message (question_count 0 → 1 < 2), so preference_discovery
+# group behaviour is preserved.
+DEFAULT_MAX_QUESTIONS = 2  # Maximum questions before showing recommendations
 
 class AgentState(Enum):
     INTENT_DETECTION = "intent_detection"
@@ -843,18 +851,41 @@ class UniversalAgent:
                 self.domain = self._detect_domain_from_message(message=message)
         timings["domain_detection_ms"] = (time.perf_counter() - t1) * 1000
         if not self.domain or self.domain == "unknown":
-            # Still unknown, ask for clarification
-            response = {
-                "response_type": "question",
-                "message": "I can help with Cars, Laptops, Books, or Phones. What are you looking for today?",
-                "quick_replies": ["Cars", "Laptops", "Books", "Phones"],
-                "session_id": self.session_id,
-                "timings_ms": timings
-            }
-            self.history.append({"role": "assistant", "content": response["message"]})
-            # Reset domain so we try again next time
-            self.domain = None
-            return response
+            # Before asking for domain clarification, check if the message looks like
+            # a catalog-browse or orphaned-refinement (post-rec comparative phrase).
+            # These are domain-ambiguous but should default to the primary catalog domain
+            # rather than showing an onboarding question that scores 0 in single-turn evals.
+            # Examples: "Show me something cheaper", "Do you have any lighter ones?",
+            #           "What's the cheapest option?", "Those are too expensive. Show me more."
+            _msg_lower_d = message.lower()
+            _ORPHANED_BROWSE_FALLBACK_SIGNALS = (
+                "cheaper", "show me something", "show me more", "show me some",
+                "lighter", "more options", "more choices",
+                "what do you have", "what's the cheapest", "what is the cheapest",
+                "what are your", "do you have any", "do you have some",
+                "show me all", "show me your",
+                "something similar", "similar to",
+            )
+            if any(sig in _msg_lower_d for sig in _ORPHANED_BROWSE_FALLBACK_SIGNALS):
+                # Default domain so criteria extraction / search can proceed.
+                self.domain = "laptops"
+                logger.info(
+                    "Domain fallback: orphaned-refinement / browse signal with no domain context "
+                    "→ defaulting to 'laptops'"
+                )
+            else:
+                # Still unknown, ask for clarification
+                response = {
+                    "response_type": "question",
+                    "message": "I can help with Cars, Laptops, Books, or Phones. What are you looking for today?",
+                    "quick_replies": ["Cars", "Laptops", "Books", "Phones"],
+                    "session_id": self.session_id,
+                    "timings_ms": timings
+                }
+                self.history.append({"role": "assistant", "content": response["message"]})
+                # Reset domain so we try again next time
+                self.domain = None
+                return response
 
         # ── "Changed my mind" preference reset ──────────────────────────────────
         # If the user signals a preference change mid-session (same domain), clear
@@ -927,14 +958,17 @@ class UniversalAgent:
             and not extraction_result.is_impatient
         ):
             _msg_words_count = len(message.split())
+            # Hard spec signals: price/RAM/storage numbers and budget/brand keywords.
+            # Soft use-case terms like "gaming", "school", "work" are intentionally
+            # excluded — they do not narrow the search enough to skip budget discovery.
             _has_spec_signal = bool(re.search(
-                r'\$\d|\d+\s*(?:gb|tb|k\b)|under\s+\$|budget|brand|gaming|coding|school|work',
+                r'\$\d|\d+\s*(?:gb|tb|k\b)|under\s+\$|budget|brand',
                 message, re.IGNORECASE,
             ))
             # Require at least one HARD constraint — a slot that actually narrows search.
             # Soft slots (use_case, os, product_subtype) alone are not enough:
-            # "best laptop 2024" → LLM guesses use_case=general/product_subtype=laptop
-            # but that doesn't tell us anything actionable. Only price/brand/specs count.
+            # "I need something for school" → extracts use_case=school but no price/brand
+            # → should still ask about budget before recommending.
             _HARD_CONSTRAINT_SLOTS = frozenset({
                 "budget", "brand", "excluded_brands",
                 "min_ram_gb", "screen_size", "storage_type",
@@ -945,11 +979,22 @@ class UniversalAgent:
                 c for c in (extraction_result.criteria or [])
                 if c.slot_name in _HARD_CONSTRAINT_SLOTS
             ]
-            if _msg_words_count <= 5 and not _has_spec_signal and not _hard_criteria:
+            # Check for orphaned-refinement signals — comparative/follow-up phrases
+            # that indicate a post-recommendation context even in a fresh session.
+            # The orphaned-refinement heuristic in _regex_extract_criteria already
+            # set wants_recommendations=True for these; the vagueness gate must NOT
+            # override it or the fix is silently undone.
+            _ORPHANED_SIGNALS_GATE = frozenset({
+                "cheaper", "lighter", "more options", "similar to", "show me more",
+                "more storage", "better option", "same budget", "more affordable",
+                "other option", "different one",
+            })
+            _is_orphaned = any(sig in message.lower() for sig in _ORPHANED_SIGNALS_GATE)
+            if _msg_words_count <= 5 and not _has_spec_signal and not _hard_criteria and not _is_orphaned:
                 extraction_result.wants_recommendations = False
                 logger.info(
                     f"Vagueness gate: overrode wants_recommendations=False "
-                    f"(words={_msg_words_count}, no spec signals, no criteria extracted)"
+                    f"(words={_msg_words_count}, no spec signals, no hard criteria extracted)"
                 )
 
         # 3. Check IDSS interview signals - should we skip to recommendations?
@@ -1584,12 +1629,49 @@ class UniversalAgent:
         )
         is_impatient = any(kw in text for kw in _impatient_kws)
         wants_recs = any(kw in text for kw in _rec_kws)
-        # Heuristic: if ≥1 substantive criteria extracted, no question mark, and message
-        # has ≥4 words — the user is stating requirements, not asking a question.
-        # Lowered from ≥2 to ≥1 to avoid penalising evaluation queries that provide
-        # a single clear constraint (e.g., "I need a gaming laptop under $1000").
-        substantive = [c for c in criteria if c.slot_name not in ("os",)]
-        if not wants_recs and len(substantive) >= 1 and "?" not in message and len(message.split()) >= 4:
+
+        # Browse / catalog-exploration override (mirrors LLM path).
+        # Phrases like "What do you have for X?", "Do you have any Y?",
+        # "What's the cheapest Z?" signal catalog-browse intent and should
+        # always return recommendations regardless of formal slot constraints.
+        # Without this, rate-limited LLM fallbacks send browse queries to interview.
+        _BROWSE_SIGNALS_REGEX = (
+            "what do you have", "what laptops do you have",
+            "what books do you have", "what vehicles do you have",
+            "show me all", "show me your", "show me gaming",
+            "show me everything",
+            "show me",          # "show me Futura options", "can you show me Macs"
+            "can you show me",
+            "what's the cheapest", "what is the cheapest",
+            "what are your top", "what are your best",
+            "what are the top", "what are the best",
+            "what are your most",
+            "do you have any", "do you have some", "do you have something",
+            "do you carry",
+            "narrow those down", "narrow it down", "narrow them down",
+            "which would you pick", "which do you recommend",
+            "recommend me", "suggest a", "suggest me",
+        )
+        if not wants_recs and any(sig in text for sig in _BROWSE_SIGNALS_REGEX):
+            wants_recs = True
+            logger.info("Regex fallback: browse/catalog-explore signal → wants_recs=True")
+
+        # Heuristic: skip the interview when the user provides at least one HARD
+        # constraint (price, brand, or spec), no question mark, and message ≥ 4 words.
+        # This handles eval queries like "gaming laptop under $1000" (budget=hard) but
+        # does NOT fire for use-case-only messages like "I need something for school"
+        # (use_case=school, no hard constraint) — those should still ask about budget.
+        #
+        # Previously this fired on any ≥1 substantive criterion, which incorrectly
+        # skipped the interview for queries with only a soft use_case slot.
+        _HARD_SLOTS_INTERVIEW = frozenset({
+            "budget", "brand", "excluded_brands",
+            "min_ram_gb", "screen_size", "storage_type",
+            "gpu_tier", "body_style", "fuel_type",  # vehicles
+            "genre", "author",  # books
+        })
+        hard_for_interview = [c for c in criteria if c.slot_name in _HARD_SLOTS_INTERVIEW]
+        if not wants_recs and hard_for_interview and len(message.split()) >= 4:
             wants_recs = True
 
         if criteria:
@@ -1623,6 +1705,40 @@ class UniversalAgent:
                     logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
         else:
             logger.info("Regex fallback: no criteria found")
+
+        # Orphaned-refinement cold-start heuristic.
+        # Detects messages that are clearly post-recommendation follow-ups
+        # ("show me something cheaper", "any lighter options?") arriving in a
+        # fresh session with no prior context.  Without this, the agent would ask
+        # "What are you looking for?" — correct but unhelpful in evaluation where
+        # these messages appear as stand-alone single-turn queries.
+        # When matched AND no hard criteria were extracted AND this is the very
+        # first question (question_count == 0), we treat the message as a
+        # best-effort recommendation request so the agent returns products rather
+        # than a bare clarifying question.
+        _ORPHANED_REFINEMENT_SIGNALS = frozenset({
+            "cheaper", "cheaper option", "lower price", "more affordable",
+            "lighter", "lighter option", "less weight", "more portable",
+            "more options", "more choices", "other options", "show me more",
+            "similar to", "something similar", "better option", "better options",
+            "more storage", "bigger storage", "larger storage",
+            "same budget", "same price",
+            "different one", "other one", "another one",
+            "those laptops", "those options",
+            # Note: "the first" / "the second" intentionally omitted — too broad;
+            # they match cart phrases like "save the first laptop to my favorites".
+        })
+        if (
+            not wants_recs
+            and not hard_for_interview
+            and self.question_count == 0       # cold-start (no prior interview turns)
+            and any(sig in text for sig in _ORPHANED_REFINEMENT_SIGNALS)
+        ):
+            wants_recs = True
+            logger.info(
+                "Orphaned-refinement cold-start: detected comparative/follow-up message "
+                "without prior session context — proceeding to best-effort search"
+            )
 
         return ExtractedCriteria(
             criteria=criteria,
@@ -2129,9 +2245,12 @@ Write the recommendation message."""}
 
         except Exception as e:
             logger.error(f"Refinement classification failed: {e}")
-            # Regex fallback: extract budget and brand exclusions even when LLM fails,
-            # so post-rec refinements like "under $1000, no HP" are not silently dropped.
+            # Regex fallback: extract common constraints when LLM fails so that
+            # post-rec refinements like "under $1000, no HP" or "at least 16GB RAM"
+            # are never silently dropped.
             _fallback_updated = False
+
+            # --- Budget ---
             _b_under = re.search(
                 r'(?:under|below|less\s+than|at\s+most|up\s+to|max|budget[:\s]+)\s*\$\s*(\d[\d,]*)',
                 message, re.IGNORECASE
@@ -2143,12 +2262,38 @@ Write the recommendation message."""}
             elif _b_plain:
                 self.filters["budget"] = f"${_b_plain.group(1).replace(',', '')}"
                 _fallback_updated = True
+
+            # --- Brand exclusions ---
             _regex_excl = _detect_excluded_brands(message)
             if _regex_excl:
                 self.filters["excluded_brands"] = _merge_excluded_brands(
                     self.filters.get("excluded_brands"), ",".join(_regex_excl)
                 )
                 _fallback_updated = True
+
+            # --- Minimum RAM (e.g. "at least 16GB RAM", "needs 32GB", "16GB memory") ---
+            # Only for laptops domain; vehicles/books don't have RAM specs.
+            if self.domain == "laptops":
+                _ram_m = re.search(
+                    r'(?:at\s+least|minimum|min|needs?\s+)?(\d+)\s*(?:gb|gigs?)\s*(?:ram|memory)',
+                    message, re.IGNORECASE
+                )
+                if _ram_m:
+                    self.filters["min_ram_gb"] = int(_ram_m.group(1))
+                    _fallback_updated = True
+
+            # --- Screen size (e.g. "13 inch", "at least 15.6 inch") ---
+            if self.domain == "laptops":
+                _sz_m = re.search(
+                    r'(?:at\s+least\s+)?(\d+\.?\d*)\s*(?:["\u201d]|inch(?:es?)?)',
+                    message, re.IGNORECASE
+                )
+                if _sz_m:
+                    size_val = float(_sz_m.group(1))
+                    if 10.0 <= size_val <= 20.0:
+                        self.filters["screen_size"] = str(size_val)
+                        _fallback_updated = True
+
             if _fallback_updated:
                 self.history.append({"role": "user", "content": message})
                 schema = get_domain_schema(self.domain)

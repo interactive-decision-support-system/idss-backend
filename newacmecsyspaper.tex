@@ -1,10 +1,8 @@
 %%
-%% ACM RecSys 2026 — IDSS Merchant Agent Paper
-%% Authors: Juli Huang, Hannah Clay, Thomas Sarda, Sajjad Beygi
-%% Advisors: Prof. Negin Golrezaei, Prof. Amin Saberi
-%% Stanford University, CS and MS&E
+%% ACM RecSys 2026 — MACS Merchant Agent Paper
+%% [Author and institution details omitted for blind review]
 %%
-\documentclass[sigconf]{acmart}
+\documentclass[sigconf,anonymous]{acmart}
 
 \AtBeginDocument{%
   \providecommand\BibTeX{{Bib\TeX}}}
@@ -17,26 +15,33 @@
 \acmISBN{978-1-4503-XXXX-X/26/09}
 
 \usepackage{tikz}
-\usetikzlibrary{positioning,arrows.meta}
+\usetikzlibrary{positioning,arrows.meta,fit,shadows,calc}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
+%% microtype loaded by acmart — do not re-load (causes \showhyphens warning)
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{enumitem}
 \citestyle{acmauthoryear}
+%% Give LaTeX extra stretch budget to avoid overfull hboxes
+\emergencystretch=1.5em
+%% Allow line breaks around the + in catalog-bound system names
+\newcommand{\GPTCatalog}{GPT\allowbreak{}+\allowbreak{}Catalog}
+\newcommand{\GeminiCatalog}{Gemini\allowbreak{}+\allowbreak{}Catalog}
 
 \begin{document}
 
-\title[Reliable Conversational Recommendation for Agentic E-Commerce]{Reliable Conversational Recommendation in Agentic E-Commerce:\\
-A Merchant Agent Framework for Limited-Catalog Shopping}
+\title[Reliable Conversational Recommendation for Agentic E-Commerce]{
+MACS: A Hybrid Merchant-Agent Framework for Reliable Conversational E-Commerce Recommendation
+}
 
 %% ---- BLIND REVIEW VERSION ----
 %% Author information suppressed per double-blind review policy.
 %%
-%% CAMERA-READY TODO: uncomment the full author block below (through \renewcommand{\shortauthors}{Huang et al.})
-%%   and DELETE the Anonymous Author block that follows it.
-%% CAMERA-READY TODO: in \begin{acks} near the end, replace:
-%%   "[details omitted for blind review]"
-%%   with:
-%%   "The authors thank Prof. Negin Golrezaei and Prof. Amin Saberi for advising
-%%   and infrastructure support at Stanford University."
+%% CAMERA-READY TODO: uncomment the full author block below and DELETE the
+%% Anonymous Author block that follows it.
+%% CAMERA-READY TODO: in \begin{acks} near the end, replace
+%%   "[details omitted for blind review]" with the full acknowledgment text.
 %%
 %% \author{Juli Huang}
 %% \affiliation{%
@@ -70,41 +75,27 @@ A Merchant Agent Framework for Limited-Catalog Shopping}
 \author{Anonymous Author(s)}
 \affiliation{%
   \institution{Anonymous Institution}
+  \city{Anonymous City}
   \country{Anonymous Country}}
 \renewcommand{\shortauthors}{Anonymous et al.}
 
 \begin{abstract}
-Modern AI shopping agents increasingly operate over \emph{limited catalogs}---merchant-owned
-product databases where web search is disabled and the system must recommend reliably
-from a fixed set of products. This setting exposes a fundamental limitation of
-raw LLM-based recommenders: they hallucinate product specifications, forget user
-constraints across turns, and cannot guarantee that recommended products actually
-exist in the merchant's inventory.
+Conversational recommendation for e-commerce is increasingly mediated by large language models (LLMs), but many real-world deployments operate under a stricter requirement: recommendations must be drawn only from a merchant’s fixed catalog, without web search or unsupported product claims. In this setting, the central challenge is reliability under hard constraints: the system must satisfy user requirements, remain grounded in available inventory, and preserve preferences across multiple conversational turns.
 
-We present an Interactive Decision Support System (IDSS), a merchant agent
-framework designed specifically for limited-catalog shopping. IDSS addresses
-reliability through a hybrid architecture that routes \emph{correctness-critical}
-operations---hard constraint filtering, brand exclusion, progressive relaxation---through
-a relational database and a Neo4j knowledge graph (2,400 nodes; 8,500 edges),
-while reserving LLM inference for natural language understanding and narrative
-generation. A multi-turn preference elicitation agent maintains session-persistent
-slot values, enforces brand exclusions across all turns, and detects mid-conversation
-preference shifts. The system additionally unifies three emerging agentic commerce
-protocols (MCP, UCP, ACP) behind a single backend, enabling any LLM shopping
-agent to access merchant catalogs through standardized, reproducible tool calls---an
-early instantiation of the agent-to-agent e-commerce paradigm.
+We present MACS (Merchant Agent Commerce System), a hybrid merchant-agent framework for reliable conversational recommendation in fixed-catalog settings. MACS separates natural-language interaction from correctness-critical enforcement within the merchant agent: deterministic components handle hard-constraint filtering, brand exclusion, progressive relaxation, and reasoning over structured product relations, while LLMs are used for natural-language understanding and response generation. A session-persistent preference layer tracks and updates user constraints across turns, enabling consistent handling of conversational state changes such as budget overwrites and exclusion reversals.
+Beyond recommendation, MACS supports product comparison, add-to-cart, checkout, and service queries through a unified backend compatible with emerging agent-commerce protocols. Evaluations on single-turn and multi-turn benchmarks show that MACS achieves the strongest reliability among the evaluated catalog-constrained systems. On a single-turn benchmark, MACS achieves the highest pass rate and perfect brand compliance. On a multi-turn benchmark, MACS achieves 100\% Pass@5 on the hardest
+state-management scenario---exclusion reversal---where prompt-based baselines
+score only 20\% (\GPTCatalog{}) and 0\% (\GeminiCatalog{}). MACS also
+achieves 100\% Pass@5 on budget overwrite, matching \GeminiCatalog{} and
+outperforming \GPTCatalog{} (80\%).
 
-The KG re-ranking overlay resolves complex queries (``best value,'' ``find similar'')
-in 207~ms median, compared to 2,256--5,714~ms for equivalent LLM narrative
-generation, an 11--28$\times$ speedup with deterministic, hallucination-free results.
-Evaluated on a 43-query single-turn benchmark, IDSS achieves avg.\ score
-$0.683 \pm 0.020$ (pass rate 90.7\%), outperforming the LLM-only baseline by
-4.7\,pp and catalog-aware GPT-4o-mini ($0.662 \pm 0.032$) on quality while
-achieving perfect catalog grounding (1.00 vs.\ 0.0 for web-augmented baselines).
-On a 10-scenario multi-turn benchmark, IDSS ($0.604 \pm 0.013$) leads
-catalog-bound GPT ($0.595 \pm 0.015$), Baseline~B ($0.554 \pm 0.005$), and
-Gemini ($0.532 \pm 0.018$) across constraint accumulation, brand-exclusion
-persistence, and preference-pivot scenarios.
+On aggregate score, MACS is statistically tied with catalog-aware LLM baselines,
+but achieves zero constraint drift and stronger reliability on the hardest
+state-management scenarios. These results show that reliable conversational
+recommendation in merchant-controlled catalogs is best supported by hybrid
+architectures that combine LLM-based interaction with deterministic constraint
+enforcement and explicit preference tracking.
+
 \end{abstract}
 
 \begin{CCSXML}
@@ -145,6 +136,7 @@ Universal Commerce Protocol, semantic search}
 \maketitle
 
 %% ==========================================================================
+
 \section{Introduction}
 \label{sec:introduction}
 
@@ -152,632 +144,560 @@ Conversational recommender systems increasingly rely on large language models
 (LLMs) to interact with users in natural language, elicit preferences, and
 generate recommendations. A particularly important and underexplored deployment
 setting is \emph{limited-catalog shopping}: a merchant agent operating over its
-own fixed product database, with web search disabled, that must recommend
-reliably from the merchant's actual inventory. This setting is economically
-motivated---it reduces compute cost, gives merchants control over product data,
-and avoids the latency and hallucination risks of web-augmented search---but
-it places strict reliability demands on the recommender. LLMs, despite their
-fluency, remain unreliable in this setting: they may hallucinate product
-specifications not present in the catalog, forget earlier brand exclusions across
-turns, or apply budget filters inconsistently. A recommender that returns
-out-of-catalog products or violates a user's stated constraints may sound
-plausible but fails the merchant's core reliability requirement.
+own fixed product database, with web search disabled, that must recommend only
+from verified inventory while respecting user constraints. This setting gives
+merchants control over product data and avoids the latency and hallucination
+risks of web-augmented search, but it also places strict reliability demands on
+the recommender. LLMs, despite their fluency, remain unreliable in this setting:
+they may hallucinate product specifications not present in the catalog, forget
+earlier brand exclusions across turns, or apply budget filters inconsistently.
+A recommender that returns out-of-catalog products or violates a user's stated
+constraints fails a core reliability requirement.
 
-This paper studies the following research question: \emph{How can a merchant
-agent reliably recommend products from a fixed catalog while enforcing user
-constraints across multi-turn interactions---without relying on web search or
-hallucinated product data?}
+We present \textbf{MACS (Merchant Agent Commerce System)}, a hybrid
+merchant-agent framework for reliable conversational recommendation in
+fixed-catalog settings. Unlike classical e-commerce APIs that require
+structured query parameters, MACS accepts natural-language input directly:
+the merchant agent's interface can be driven by free-text queries from a
+shopping agent or a user, while all constraint enforcement remains
+deterministic internally. MACS separates natural-language interaction from
+correctness-critical enforcement: the LLM handles preference elicitation
+and response generation, while constraint filtering, brand exclusion, and
+cross-turn preference persistence are delegated to structured, auditable
+components. This design allows the system to support natural multi-turn
+interactions without sacrificing catalog grounding or deterministic
+constraint correctness.
 
-To address this question, we propose a conversational recommender that combines
-LLM-based interaction with deterministic candidate filtering, knowledge-graph
-reasoning, and persistent tracking of user preferences across turns. The
-central design principle is to assign each component the task it is best suited
-for: the LLM handles natural-language understanding and response generation,
-while correctness-critical operations---such as constraint enforcement,
-candidate filtering, and cross-turn preference persistence---are delegated to
-structured system components.
+The evaluation shows that this architectural separation matters. On the shared
+single-turn benchmark, MACS achieves the highest pass rate and perfect brand and
+filter compliance. On a 10-scenario multi-turn benchmark, MACS and \GPTCatalog{}
+\GPTCatalog{} leads on aggregate multi-turn score (0.747 vs.\ 0.721) and
+macro Pass@5 (54\% vs.\ 50\%); however, MACS uniquely achieves 100\% Pass@5
+on exclusion reversal---the scenario requiring mid-session state
+updates---where \GPTCatalog{} scores 20\% and \GeminiCatalog{} scores 0\%.
+These results indicate that reliable conversational recommendation in
+merchant-controlled catalogs benefits from hybrid architectures that combine
+LLM-based interaction with deterministic constraint enforcement and explicit
+preference tracking. We make three contributions:
+\begin{itemize}[leftmargin=*]
+    \item We propose a hybrid merchant-agent architecture that separates
+    LLM-based natural-language interaction from deterministic constraint
+    enforcement, enabling reliable product recommendation over a fixed,
+    merchant-owned catalog without web search.
 
-Empirically, this approach improves both recommendation reliability and overall
-quality. On a single-turn benchmark, it outperforms a plain LLM baseline while
-achieving perfect brand and filter compliance through SQL-based enforcement. On
-a multi-turn benchmark, it achieves the strongest overall performance among the
-compared methods and consistently preserves constraints under preference
-accumulation, reversals, and budget changes. In addition, knowledge-graph
-traversal substantially accelerates structural recommendation queries such as
-substitutes and compatibility, while providing deterministic and auditable
-reasoning paths.
-%% [Verified accurate: Table~\ref{tab:latency} shows KG overlay at 207ms vs LLM narrative at 2,256--5,714ms (11--28x speedup, n=10 direct-call benchmark, April 2026).]
+    \item We introduce session-persistent preference state management that
+    preserves user constraints across turns, supports updates such as budget
+    overwrites and exclusion reversals, and enables consistent multi-turn
+    recommendation behavior.
 
+    \item We present a hybrid evaluation framework that separates deterministic
+    constraint correctness from response quality, enabling faithful assessment
+    of conversational recommenders in both single-turn and multi-turn
+    limited-catalog settings.
+\end{itemize}
 
-
-Figure~\ref{fig:system_overview} provides an overview of the proposed system
-design. Our contributions are threefold.
-\begin{enumerate}
-    \item \textbf{Merchant agent design.} We present a hybrid merchant agent
-    that combines LLM-based natural language understanding with deterministic
-    constraint enforcement and knowledge-graph reasoning, enabling reliable
-    product recommendation over a fixed, merchant-owned catalog without
-    web search.
-
-    \item \textbf{Multi-turn preference elicitation.} We develop a
-    session-persistent preference elicitation mechanism that preserves user
-    constraints across turns, enforces brand exclusions, and adaptively asks
-    informative follow-up questions to refine recommendations across complex
-    multi-turn interactions.
-
-    \item \textbf{Evaluation framework.} We introduce a hybrid G-Eval
-    framework that separates recommendation quality from constraint
-    correctness, enabling faithful assessment of conversational recommenders
-    in both single-turn and multi-turn limited-catalog settings.
-\end{enumerate}
-
-The proposed system is designed for emerging \emph{agent-to-agent e-commerce}
-architectures, where every merchant deploys its own AI agent and shopping agents
-interact with merchant agents directly via structured protocols---avoiding web
-crawling and enabling low-latency, merchant-controlled information exchange.
-To this end, IDSS unifies three competing agentic commerce protocols---the
-Model Context Protocol (MCP, Anthropic), the Universal Commerce Protocol (UCP,
-Google), and the Agent Commerce Protocol (ACP, OpenAI)---behind a single
-backend~\cite{Anthropic2024MCP,OpenAI2025ACP,Google2026UCP}.
-The core contribution of this paper, however, is the reliability framework
-that makes limited-catalog recommendation trustworthy, not the protocol layer
-itself.
-%% System Overview Figure — two-box: Shopping Agent ↔ Merchant Agent
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}[
-  box/.style={draw, rounded corners=3pt, minimum width=5.2cm, minimum height=0.48cm,
-              font=\small, align=center, fill=white},
-  groupbox/.style={draw, rounded corners=6pt, minimum width=5.6cm,
-                   font=\small\bfseries, align=center},
-  store/.style={draw, rounded corners=4pt, minimum width=1.65cm, minimum height=1.2cm,
-                font=\scriptsize, align=center},
-  arr/.style={-{Stealth[length=5pt]}, thick},
-  node distance=0.26cm
-]
-%% --- User utterance ---
-\node[box] (user) {User Utterance};
-
-%% --- Shopping Agent frame ---
-\node[groupbox, below=0.5cm of user, minimum height=3.2cm,
-      fill=blue!6, label={[font=\small\bfseries]above:Shopping Agent}]
-  (sabox) {};
-\node[box, below=0.88cm of user, fill=blue!10]  (qr) {Query Rewriting};
-\node[box, below=0.26cm of qr,   fill=blue!10]  (ir) {Intent Routing};
-\node[box, below=0.26cm of ir,   fill=blue!10]  (pe) {Preference Elicitation \& Session State};
-\node[box, below=0.26cm of pe,   fill=blue!10]  (rg) {Response Generation};
-
-%% --- Protocol bridge ---
-\node[font=\scriptsize\itshape, below=0.16cm of rg] (proto)
-  {$\updownarrow$~MCP / UCP / ACP};
-
-%% --- Merchant Agent frame ---
-\node[groupbox, below=0.40cm of rg, minimum height=3.2cm,
-      fill=orange!6,
-      label={[font=\small\bfseries]above:Merchant Agent (limited catalog)}]
-  (mabox) {};
-\node[box, below=1.05cm of rg,  fill=orange!12] (sql) {SQL Hard Constraint Filtering};
-\node[box, below=0.26cm of sql, fill=orange!12] (kg)  {Knowledge Graph Traversal (Neo4j)};
-\node[box, below=0.26cm of kg,  fill=orange!12] (rel) {Progressive Relaxation};
-\node[box, below=0.26cm of rel, fill=orange!12] (cc)  {Cart \& Checkout Operations};
-
-%% --- Datastores ---
-\node[store, below left=0.7cm and 1.0cm of cc,  fill=yellow!12] (pg) {
-  \textbf{PostgreSQL}\\21k products\\SQL filters
-};
-\node[store, below=0.7cm of cc,                  fill=purple!10] (neo) {
-  \textbf{Neo4j KG}\\2.4k nodes\\8.5k edges
-};
-\node[store, below right=0.7cm and 1.0cm of cc,  fill=red!8]    (redis) {
-  \textbf{Redis}\\Cache\\Session
-};
-
-%% --- Arrows ---
-\draw[arr] (user)  -- (qr);
-\draw[arr] (qr)    -- (ir);
-\draw[arr] (ir)    -- (pe);
-\draw[arr] (pe)    -- (rg);
-\draw[arr] (rg)    -- (proto);
-\draw[arr] (proto) -- (sql);
-\draw[arr] (sql)   -- (kg);
-\draw[arr] (kg)    -- (rel);
-\draw[arr] (rel)   -- (cc);
-\draw[arr] (cc)    -- (pg);
-\draw[arr] (cc)    -- (neo);
-\draw[arr] (cc)    -- (redis);
-\end{tikzpicture}
-\caption{System overview: the \emph{shopping agent} (blue) handles natural-language
-  understanding, preference elicitation, and response generation.
-  The \emph{merchant agent} (orange) enforces hard constraints over the merchant's
-  fixed catalog via SQL filtering, KG traversal, and progressive relaxation.
-  All protocol communication (MCP / UCP / ACP) passes through the merchant agent.}
-\label{fig:system_overview}
-\end{figure}
+MACS is also deployed in an \emph{agent-to-agent e-commerce} setting, in which
+shopping agents interact with merchant agents through structured interfaces.
+To support this, a single backend exposes three agent-commerce
+protocols---Model Context Protocol (MCP)~\cite{Anthropic2024MCP},
+Universal Commerce Protocol (UCP)~\cite{Google2026UCP},
+and Agent Commerce Protocol (ACP)~\cite{OpenAI2025ACP}---with no
+per-protocol application logic.
+This protocol layer is a deployment feature; the core contribution of the paper
+is the reliability framework for limited-catalog conversational recommendation.
 
 %% ==========================================================================
 \section{Related Work}
 %% ==========================================================================
 
 \paragraph{Conversational Recommender Systems.}
-Conversational recommender systems (CRSs) elicit user preferences through
-multi-turn interaction before producing recommendations~\cite{Jannach2021Survey}.
-Early work framed CRS as an interactive preference-elicitation problem, using
-bandit-based question selection and dialogue-driven recommendation
-models~\cite{Christakopoulou2016,Sun2018}. More recent work integrates LLMs
-into CRS pipelines for preference understanding, sub-task management, and
-response generation~\cite{Friedman2023,Feng2023LLMCRS,Liu2023CRSLLM}.
-Research has also emphasized retrieval augmentation, memory, and evaluation:
-ReFICR augments LLM-based CRS with retrieval to improve item
-grounding~\cite{Yang2024ReFICR}; MemoCRS studies memory-enhanced preference
-modeling across sessions~\cite{Xi2024MemoCRS}; and recent evaluation work
-argues that fluent responses alone are insufficient for assessing LLM-based
-CRSs~\cite{Yang2024BehaviorAlignment}. Our work addresses a distinct failure
-mode: reliably enforcing hard user constraints (e.g., excluded brands,
-structured filters) while maintaining preference state across turns in
-shopping-oriented conversations.
+CRSs elicit user preferences through multi-turn interaction~\cite{Jannach2021Survey},
+ranging from bandit-based question selection~\cite{Christakopoulou2016,Sun2018}
+to LLM-integrated pipelines for preference understanding and response
+generation~\cite{Friedman2023,Feng2023LLMCRS,Liu2023CRSLLM}.
+Retrieval augmentation~\cite{Yang2024ReFICR}, cross-session
+memory~\cite{Xi2024MemoCRS}, and behavioral evaluation~\cite{Yang2024BehaviorAlignment}
+have further extended the paradigm.
+MACS addresses a gap these works leave open: deterministic enforcement of
+hard user constraints (excluded brands, budget ceilings, spec minimums)
+across turns, without relying on LLM faithfulness.
 
-\paragraph{Knowledge Graphs and Structured Reasoning for Recommendation.}
-Knowledge-aware recommenders use structured relations among items, attributes,
-and entities to improve recommendation quality and explainability.
-Representative methods include Collaborative Knowledge Base Embedding
-(CKE)~\cite{Zhang2016CKE}, Knowledge Graph Convolutional Networks
-(KGCN)~\cite{Wang2019KGCN}, and Knowledge Graph Attention Network
-(KGAT)~\cite{Wang2019KGAT}, all of which incorporate graph structure into
-learned item representations. Our use of a knowledge graph is primarily
-operational: it supports explicit structural queries (substitutes,
-compatibility), produces auditable reasoning paths, and avoids delegating
-correctness-critical decisions to free-form LLM inference.
+\paragraph{Knowledge Graphs and LLM Agents for Shopping.}
+Knowledge-aware recommenders (CKE~\cite{Zhang2016CKE}, KGCN~\cite{Wang2019KGCN},
+KGAT~\cite{Wang2019KGAT}) incorporate graph structure into learned representations;
+MACS uses a knowledge graph operationally for structural queries (substitutes,
+compatibility) with auditable Cypher traversal rather than learned embeddings.
+Shopping-agent benchmarks (WebArena~\cite{Zhou2023WebArena},
+AgentBench~\cite{Liu2023AgentBench}, ShoppingBench~\cite{Wang2025ShoppingBench})
+study the \emph{shopping-agent} side; MACS studies the complementary
+\emph{merchant-agent} design that provides structured, constraint-enforcing
+catalog access to any shopping agent.
 
-\paragraph{LLM-based Agents for Shopping and Web Interaction.}
-A related line of work studies LLM agents acting in interactive environments,
-including web navigation and shopping benchmarks. WebArena and AgentBench
-evaluate whether agents can follow instructions and complete multi-step tasks
-in realistic interactive settings~\cite{Zhou2023WebArena,Liu2023AgentBench}.
-More recent benchmarks such as ShoppingBench evaluate end-to-end agent
-performance in e-commerce environments with large product
-catalogs~\cite{Wang2025ShoppingBench}. These works are complementary to ours:
-they study the behavior of the \emph{shopping agent} operating over an external
-interface, whereas we focus on the \emph{merchant-side recommender design}
-that provides structured access to catalog, constraint, and compatibility
-information.
+\paragraph{LLM Reliability and Preference Elicitation.}
+LLM faithfulness under hard constraints---brand exclusions, budget ceilings,
+specification minimums---is a known open problem:
+chain-of-thought prompting reduces but does not eliminate constraint violations in
+multi-turn settings~\cite{Jannach2021Survey,Feng2023LLMCRS}.
+Preference elicitation approaches (EAR, UNICORN) ask clarifying questions to
+narrow item sets before retrieval, but treat constraint enforcement as an LLM
+inference task rather than a deterministic predicate~\cite{Christakopoulou2016,Sun2018}.
+MACS separates elicitation (LLM) from enforcement (SQL), making constraint
+correctness independent of LLM generation quality.
+Agentic commerce protocol fragmentation (MCP, UCP, ACP) is an emerging systems
+challenge that MACS addresses by providing a canonical data layer across all three.
 
 
 %% ==========================================================================
-\section{Problem Setting}
+
+\section{Problem Statement and System Overview}
 \label{sec:problem}
 
-We study conversational recommendation in the \emph{limited-catalog setting}:
-a merchant agent that operates over a fixed, merchant-owned product database
-with web search disabled. The agent must recommend products exclusively from
-this catalog, with the following formal constraints:
+\paragraph{Problem definition.}
+A merchant catalog $\mathcal{C}$ contains products with structured attributes
+(price, brand, RAM, storage, display size). Over a multi-turn conversation,
+the system must extract user constraints, retrieve $R_t \subseteq \mathcal{C}$
+satisfying all accumulated constraints at turn $t$, and generate factually
+grounded responses. It also handles add-to-cart, checkout, and service queries
+(return policy, shipping, warranty) through the same session.
 
-\begin{itemize}
-  \item \textbf{Catalog grounding.} Every recommended product must exist in
-  the merchant's database with a verified price and available inventory.
-  \item \textbf{Hard constraint enforcement.} User-specified constraints
-  (budget ceiling, excluded brands, minimum specifications) must be enforced
-  exactly---not approximately---across all turns.
-  \item \textbf{Multi-turn persistence.} Constraints specified in any previous
-  turn must remain active until explicitly revoked by the user.
-  \item \textbf{No hallucination.} Product attributes (RAM, GPU, price, brand)
-  must be read from structured database records, not generated by the LLM.
-\end{itemize}
+Three reliability requirements follow from the limited-catalog setting:
+catalog grounding (every returned product exists at a verified price),
+constraint correctness (hard requirements enforced deterministically, not
+inferred), and cross-turn persistence (constraints active until explicitly
+revised, never silently dropped).
 
-This setting is motivated by the agent-to-agent e-commerce paradigm, where
-each merchant deploys an AI agent over its own catalog, and shopping agents
-interact with merchant agents via structured protocols rather than web search.
-It is also practically important for direct-to-consumer and B2B merchants who
-need deterministic, auditable recommendation behavior.
+\paragraph{System overview.}
+MACS separates a \emph{shopping agent} (LLM-based preference elicitation,
+intent routing, response generation) from a \emph{merchant agent} (SQL
+constraint filtering, knowledge graph traversal, session-persistent state).
+The shopping agent never retrieves products directly; all calls go through
+the merchant agent's structured API, so the LLM cannot hallucinate catalog
+contents. Sections~\ref{sec:shopping-agent} and~\ref{sec:merchant-agent}
+describe each component.
 
-Users may specify both soft preferences and hard constraints through natural-language
-interaction. Hard constraints include requirements such as budget limits,
-excluded brands, and minimum product specifications. The recommender must
-produce relevant recommendations while preserving these constraints across
-multiple turns, even when the user refines, relaxes, or reverses earlier
-preferences.
-
-This setting introduces three interrelated challenges. First, user requirements
-are often expressed incrementally rather than all at once. Second, some
-requirements are correctness-critical and should not be violated. Third,
-shopping queries frequently involve structural product relations such as
-substitutes and compatibility, which are difficult to handle reliably through
-text generation alone.
-
-Our goal is to design a merchant agent that supports natural-language interaction
-while maintaining persistent preference state, enforcing hard constraints
-deterministically, and resolving structural queries through structured reasoning---
-all within the merchant's fixed catalog.
+%% ==========================================================================
 
 \section{The Shopping Agent}
 \label{sec:shopping-agent}
 
-The shopping agent is the user-facing component responsible for natural
-language understanding, preference elicitation, and conversation management.
-It receives user utterances, rewrites them into structured canonical forms,
-routes intents, extracts slot-value preferences, and generates grounded
-conversational responses. All \emph{correctness-critical} operations---hard
-constraint enforcement, brand exclusion, progressive relaxation, and
-transactional actions---are delegated to the merchant agent
-(\S\ref{sec:merchant-agent}), ensuring that actions with real downstream
-consequences remain grounded in structured data rather than inferred
-through free-form language generation.
+On each turn, the shopping agent rewrites and annotates the raw utterance,
+routes it to the appropriate handler (new search, refinement, comparison,
+add-to-cart, checkout, or FAQ), extracts structured preference slots, and
+calls the merchant agent to retrieve products before generating a response.
+All correctness-critical operations---including constraint enforcement, brand
+exclusion, and progressive relaxation---are delegated to the merchant agent
+(Section~\ref{sec:merchant-agent}).
 
-\subsection{System Overview}
+\subsection{Pipeline: Rewriting, Routing, and Extraction}
 
-At each turn, the system receives the current user utterance together with the
-dialogue history and returns either a conversational response, a product set,
-or the result of an action such as comparison, add-to-cart, or checkout
-progression. The end-to-end pipeline contains five stages: query rewriting,
-intent routing, structured extraction, session-state update, and tool- or
-catalog-grounded execution. This design allows the system to support a wide
-range of shopping capabilities beyond recommendation alone, including product
-search, comparison, refinement, cart operations, and transactional flows.
+Each turn passes through query rewriting, intent routing, structured extraction,
+and catalog-grounded execution.
+\emph{Query rewriting} injects structured hints before any LLM call
+(e.g., ``for my son'' $\to$ \texttt{[use\_case:~school]};
+``gaming Chromebook'' $\to$ a ChromeOS-incompatibility note).
+\emph{Intent routing} intercepts common intents (compare, refine, add-to-cart)
+with deterministic keyword rules, while ambiguous requests are handled by an
+LLM router.
+\emph{Structured extraction} maps the utterance to slot-value pairs (budget,
+excluded brands, required specs), supporting multi-turn references such as
+``show me something cheaper'' or ``add the second one to the cart.''
 
-\subsection{Agentic LLM Framework}
+\subsection{Session State and Multi-Turn Management}
 
-The agentic framework is the entry point for each user turn. It acts as a
-controller that interprets the user message in context and decides what kind of
-operation should be performed next. Rather than issuing a single generative
-response, the framework determines whether the user is requesting product
-discovery, recommendation refinement, product comparison, similar-item
-retrieval, add-to-cart, cart inspection, or checkout-related actions.
+The session state is a typed slot dictionary with three key properties:
+\begin{itemize}[leftmargin=*]
+\item \emph{Cross-turn accumulation and ordinal resolution.}
+  Slot values (budget, excluded brands, required specs) persist across turns
+  unless explicitly revised. References such as ``add the second one'' are
+  resolved against the most recent recommendation context. Brand exclusions
+  are enforced at SQL level and in a post-retrieval title filter, so no
+  excluded brand appears regardless of database condition labels.
+\item \emph{Preference pivot detection.}
+  Updated constraints override earlier ones when appropriate: a new budget
+  ceiling replaces the previous value, and a statement such as ``actually HP
+  is fine'' reverses an earlier brand exclusion.
+\item \emph{Underspecification handling.}
+  When fewer than one substantive criterion is present, the agent asks a
+  targeted follow-up question rather than guessing; when at least one
+  substantive criterion is present, it proceeds directly to search.
+\end{itemize}
 
-The first stage is \emph{query rewriting}. Before execution, the system rewrites
-the user utterance into a more canonical form that exposes latent intent,
-resolves ambiguity, and improves downstream extraction. This step supports
-common-sense enrichment, contradiction detection, and adaptation to the user's
-level of technical specificity.
 
-The second stage is \emph{intent routing}. The system maps each turn to an
-action type, such as new search, refinement, comparison, substitute request,
-cart action, or transactional continuation. Some frequent intents are handled
-through lightweight deterministic rules, while more ambiguous requests are
-resolved by the LLM agent. This layered routing design reduces unnecessary LLM
-calls for repetitive actions while preserving flexibility for open-ended
-shopping dialogue.
 
-\subsection{Structured Extraction and Session State}
 
-After routing, the system extracts structured information relevant to the
-current turn. Depending on the intent, this may include product preferences,
-hard constraints, referenced items, comparison targets, or cart-related
-entities. For recommendation-oriented turns, the extracted structure may
-include budget, excluded brands, required features, and use-case indicators.
-For action-oriented turns, it may include item identifiers, relative
-references, quantities, or follow-up commands such as selecting a previously
-shown product.
-
-All extracted information is merged into a persistent session state. This state
-stores the currently active constraints, the recent recommendation context, the
-cart state, and previously referenced products. Persistent state is essential
-for handling multi-turn shopping behavior, such as “show me something cheaper,”
-“compare the first and third options,” or “add the second one to the cart.”
-Without such state, these requests would be difficult to resolve reliably.
-
-\subsection{Deterministic Commerce Layer}
-
-The deterministic layer is responsible for executing correctness-critical
-operations over structured data sources. This includes enforcing product
-constraints, retrieving feasible products, resolving structural product
-relations, maintaining cart contents, and supporting transactional flows. The
-purpose of this layer is to ensure that actions with real downstream
-consequences are grounded in explicit system state rather than inferred only
-through free-form language generation.
-
-For product retrieval, hard requirements such as budget limits, excluded
-brands, product type, and minimum specifications are translated into structured
-filters and applied directly at the catalog layer. For cart and checkout
-operations, the deterministic layer resolves product references against the
-current session and executes the requested action only after the target item is
-identified unambiguously. This is particularly important for commands such as
-add-to-cart, remove-from-cart, and checkout progression, where incorrect
-resolution would directly affect user experience.
-
-\subsection{Recommendation, Comparison, and Structured Reasoning}
-
-Recommendation is one important capability of the system, but it is not the
-only one. After deterministic filtering, the system ranks feasible candidates
-using softer preference signals derived from use case, product attributes, and
-embedding-based similarity. This supports recommendation and refinement tasks
-such as finding a better fit, surfacing alternatives, or narrowing results
-after follow-up preference updates.
-
-The system also supports structured comparison and relation-based reasoning.
-When the user asks to compare products, the system retrieves the referenced
-items from session state or catalog results and assembles an attribute-grounded
-comparison rather than relying on unconstrained LLM recall. Likewise, queries
-such as “show me similar items,” “find a better option,” or “what accessories
-work with this?” are resolved through knowledge-graph traversal over explicit
-relations such as similarity, compatibility, manufacturer, and use case. This
-provides a structured basis for both recommendation and comparison tasks.
-
-\subsection{Multi-turn Interaction Management}
-
-The system manages multi-turn interaction by deciding when to answer directly
-and when to ask for clarification. If the user request is underspecified, the
-agent asks a follow-up question designed to reduce uncertainty over the current
-feasible set. For recommendation-oriented turns, question selection is based on
-the expected informativeness of missing preference slots. When the user has
-already supplied enough information, the system skips elicitation and proceeds
-directly to execution.
-
-This interaction policy also supports conversational continuity across action
-types. A session may begin with broad exploration, move to refinement and
-comparison, then continue to add-to-cart and checkout. The system therefore
-treats the shopping flow as a connected decision process rather than as a
-sequence of isolated recommendation queries.
-
-\subsection{Response Generation and Action Realization}
-
-The final stage generates a grounded conversational response. Depending on the
-intent, the output may include recommended products, a comparison summary, a
-clarification question, confirmation of a cart action, or the next step in a
-checkout flow. Response generation is grounded in structured outputs from the
-deterministic layer rather than relying on unconstrained LLM memory. As a
-result, the LLM is used to communicate and organize results, while actual
-product selection, action execution, and state transitions remain under
-structured control.
 \section{The Merchant Agent}
 \label{sec:merchant-agent}
 
-The merchant agent is the reliability layer of the system. It exposes the
-merchant's fixed product catalog through structured protocol endpoints,
-enforces hard constraints deterministically, and provides knowledge-graph-accelerated
-resolution of complex product queries. All correctness-critical operations
-execute here: SQL constraint filtering, brand exclusion, progressive
-relaxation, and structured product-relation traversal.
-By operating exclusively over the merchant's own catalog---with no web search---
-the merchant agent guarantees that every recommended product exists in
-inventory, has a known price, and satisfies the user's stated constraints.
-It implements the agent-to-agent e-commerce paradigm by exposing MCP, UCP,
-and ACP protocol families from a single backend
-(\S\ref{sec:protocol-unification}), allowing any shopping agent to access
-the catalog without web crawling.
+The merchant agent enforces hard constraints deterministically (SQL filtering,
+brand exclusion, progressive relaxation) and resolves complex structural
+queries via knowledge graph traversal. Operating exclusively over the
+merchant's catalog, it guarantees that every product exists at a verified
+price. %It also exposes MCP, UCP, and ACP endpoints from a single backend
+%(\S\ref{sec:protocol-unification}).
 
-Figure~\ref{fig:arch} shows the end-to-end architecture.
-The system comprises two FastAPI services: a product data layer (\texttt{mcp-server},
-port 8001) and an agent layer (\texttt{agent}, port 8000), backed by three
-data stores.
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={
+        rectangle,
+        draw,
+        thick,
+        rounded corners=4pt,
+        align=center,
+        minimum height=0.95cm,
+        font=\small
+    },
+    arrow/.style={
+        -{Latex[length=2.5mm]},
+        thick,
+        >=latex
+    },
+    title/.style={font=\normalsize\bfseries, anchor=west, inner sep=2pt},
+    node distance=0.55cm and 0.7cm
+]
+
+\def\colA{2cm}
+\def\colB{2.5cm}
+\def\colC{2.6cm}
+\def\colD{2.2cm}
+\def\colE{2.2cm}
+\def\colF{2cm}
+\def\colGap{1cm}
+
+%% ===== FLOW 1: SEARCH =====
+\node[title] (f1title) at (0,0)
+  {\textbf{Flow 1: Search} --- ``looking for a gaming laptop''};
+
+\node[box, fill=gray!10, below=0.9cm of f1title.north west, anchor=north west,
+      minimum width=\colA] (u1) {
+  \textbf{User}\\``gaming laptop''};
+
+\node[box, fill=blue!12, right=\colGap of u1.east, anchor=west,
+      minimum width=\colB] (ai1a) {
+  \textbf{AI Shopping Agent}\\Parse request\\Generate UCP request};
+
+\node[box, fill=green!12, right=\colGap of ai1a.east, anchor=west,
+      minimum width=\colC] (ma1a) {
+  \textbf{Merchant Agent}\\Parse UCP request\\Use KG $\to$ items\\Prices, shipping};
+
+\node[box, fill=green!12, right=\colGap of ma1a.east, anchor=west,
+      minimum width=\colD] (ma1b) {Create UCP\\response};
+
+\node[box, fill=blue!12, right=\colGap of ma1b.east, anchor=west,
+      minimum width=\colE] (ai1b) {
+  \textbf{AI Shopping Agent}\\Receive response\\Present to user};
+
+\node[box, fill=gray!10, right=\colGap of ai1b.east, anchor=west,
+      minimum width=\colF] (u1out) {\textbf{User}\\Sees results};
+
+\draw[arrow] (u1) -- (ai1a);
+\draw[arrow] (ai1a) -- (ma1a);
+\draw[arrow] (ma1a) -- (ma1b);
+\draw[arrow] (ma1b) -- (ai1b);
+\draw[arrow] (ai1b) -- (u1out);
+
+%% ===== FLOW 2: ADD TO CART =====
+\node[title, anchor=west] (f2title)
+  at ([yshift=-0.6cm]f1title.west |- u1.south)
+  {\textbf{Flow 2: Add to Cart} --- ``add this to cart''};
+
+\node[box, fill=gray!10, below=0.9cm of f2title.north west, anchor=north west,
+      minimum width=\colA] (u2) {
+  \textbf{User}\\Select product\\Add to cart};
+
+\node[box, fill=blue!12, right=\colGap of u2.east, anchor=west,
+      minimum width=\colB] (ai2a) {
+  \textbf{AI Shopping Agent}\\Parse query\\Generate UCP request};
+
+\node[box, fill=green!12, right=\colGap of ai2a.east, anchor=west,
+      minimum width=\colC] (ma2a) {
+  \textbf{Merchant Agent}\\Parse UCP request\\Add to cart\\Validate inventory};
+
+\node[box, fill=green!12, right=\colGap of ma2a.east, anchor=west,
+      minimum width=\colD] (ma2b) {Create UCP\\response};
+
+\node[box, fill=blue!12, right=\colGap of ma2b.east, anchor=west,
+      minimum width=\colE] (ai2b) {
+  \textbf{AI Shopping Agent}\\Receive response\\Present to user};
+
+\node[box, fill=gray!10, right=\colGap of ai2b.east, anchor=west,
+      minimum width=\colF] (u2out) {\textbf{User}\\Cart updated};
+
+\draw[arrow] (u2) -- (ai2a);
+\draw[arrow] (ai2a) -- (ma2a);
+\draw[arrow] (ma2a) -- (ma2b);
+\draw[arrow] (ma2b) -- (ai2b);
+\draw[arrow] (ai2b) -- (u2out);
+
+\end{tikzpicture}%
+}
+\caption{MACS interaction flows. The AI shopping agent handles natural-language
+  interaction and protocol generation; the merchant agent enforces hard constraints,
+  validates inventory, and returns structured responses. Flow~1 (Search): the user's
+  query is parsed, constraint-filtered via the knowledge graph and SQL store, and
+  results are returned. Flow~2 (Add to Cart): the merchant agent validates inventory
+  before confirming. All constraint enforcement occurs exclusively in the merchant agent.}
+\Description{Two interaction flow diagrams. Flow 1 (Search): User to AI Shopping Agent
+  (parse request, generate UCP) to Merchant Agent (parse UCP, use KG, prices) to
+  Create UCP response to AI Shopping Agent (present to user) to User (sees results).
+  Flow 2 (Add to Cart): User to AI Shopping Agent to Merchant Agent (add to cart,
+  validate inventory) to Create UCP response to AI Shopping Agent to User (cart updated).}
+\label{fig:arch}
+\end{figure*}
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[
-  svc/.style={draw, rounded corners=4pt, minimum width=5.4cm,
-              font=\small, align=center, fill=blue!8},
-  store/.style={draw, rounded corners=4pt, minimum width=1.6cm, minimum height=1.4cm,
-                font=\scriptsize, align=center},
-  arr/.style={-{Stealth[length=4.5pt]}, thick},
-  node distance=0.5cm
-]
-%% --- Agent Service ---
-\node[svc, minimum height=1.2cm] (agent) {
-  \textbf{Agent Service} \texttt{(:8000)}\\[2pt]
-  \texttt{chat\_endpoint} $\cdot$ \texttt{universal\_agent}\\
-  \texttt{query\_rewriter} $\cdot$ \texttt{comparison\_agent}
-};
+%% ---------------------------------------------------------------
+%% Figure recreated in TikZ (no external PNG dependency).
+%% Six stacked "card" nodes with coloured headers, connected by
+%% downward arrows, bracketed by User / Merchant-Agent labels.
+%%
+%% Layout (all coordinates in cm, y increases downward in this
+%% design so card tops are at y=0, −1.42, −2.84, …):
+%%   card half-width = 3.20  →  total card width 6.40 cm
+%%   header height   = 0.42 cm,  body height = 0.70 cm
+%%   card height     = 1.12 cm,  inter-card gap = 0.30 cm
+%% ---------------------------------------------------------------
+\begin{tikzpicture}[x=1cm, y=1cm]
 
-%% --- MCP Server ---
-\node[svc, minimum height=1.2cm, below=0.7cm of agent, fill=green!8] (mcp) {
-  \textbf{MCP / UCP / ACP Server} \texttt{(:8001)}\\[2pt]
-  \texttt{/search\_products} $\cdot$ \texttt{/get\_product}\\
-  \texttt{/ucp/...} $\cdot$ \texttt{/acp/...}
-};
+%% ---- Colour palette (matches original figure) ----
+\definecolor{clrAgent}{HTML}{4472C4}     % steel blue  — AI Shopping Agent
+\definecolor{clrProtocol}{HTML}{70AD47}  % grass green — UCP/ACP Protocol
+\definecolor{clrTools}{HTML}{808080}     % mid-grey    — Tool Handlers
+\definecolor{clrKG}{HTML}{ED7D31}        % warm orange — Knowledge Graph
+\definecolor{clrCatalog}{HTML}{7030A0}   % deep violet — Catalog \& Inventory
+\definecolor{clrPayment}{HTML}{00B0F0}   % sky blue    — Payment Processing
 
-%% --- Data stores ---
-\node[store, below left=0.8cm and 0.8cm of mcp, fill=yellow!12] (pg) {
-  \textbf{PostgreSQL}\\21k products\\SQL filters\\hard constraints
-};
-\node[store, below=0.8cm of mcp, fill=purple!10] (neo) {
-  \textbf{Neo4j KG}\\2.4k nodes\\8.5k edges\\17ms Cypher
-};
-\node[store, below right=0.8cm and 0.8cm of mcp, fill=red!8] (redis) {
-  \textbf{Redis}\\Cache\\Session\\30ms hit
-};
+%% ---- Named coordinates (hardcoded for reliable parsing) ----
+%% Each card: top (t), header-bottom (h), body-centre (bc),
+%%            header-centre (hc), card-bottom (b).  x = ±3.20.
 
-%% --- Arrows ---
-\draw[arr] (agent) -- node[right, font=\scriptsize]{HTTP} (mcp);
-\draw[arr] (mcp) -- (pg);
-\draw[arr] (mcp) -- (neo);
-\draw[arr] (mcp) -- (redis);
+% Card 1 — AI Shopping Agent  (top y = 0.00)
+\coordinate (Atl) at (-3.20, 0.00); \coordinate (Atr) at (3.20, 0.00);
+\coordinate (Ahl) at (-3.20,-0.42); \coordinate (Ahr) at (3.20,-0.42);
+\coordinate (Abl) at (-3.20,-1.12); \coordinate (Abr) at (3.20,-1.12);
+\coordinate (Ahc) at (0,-0.21);     \coordinate (Abc) at (0,-0.77);
+
+% Card 2 — UCP / ACP Protocol  (top y = −1.42)
+\coordinate (Btl) at (-3.20,-1.42); \coordinate (Btr) at (3.20,-1.42);
+\coordinate (Bhl) at (-3.20,-1.84); \coordinate (Bhr) at (3.20,-1.84);
+\coordinate (Bbl) at (-3.20,-2.54); \coordinate (Bbr) at (3.20,-2.54);
+\coordinate (Bhc) at (0,-1.63);     \coordinate (Bbc) at (0,-2.19);
+
+% Card 3 — Tool Handlers  (top y = −2.84)
+\coordinate (Ctl) at (-3.20,-2.84); \coordinate (Ctr) at (3.20,-2.84);
+\coordinate (Chl) at (-3.20,-3.26); \coordinate (Chr) at (3.20,-3.26);
+\coordinate (Cbl) at (-3.20,-3.96); \coordinate (Cbr) at (3.20,-3.96);
+\coordinate (Chc) at (0,-3.05);     \coordinate (Cbc) at (0,-3.61);
+
+% Card 4 — Knowledge Graph  (top y = −4.26)
+\coordinate (Dtl) at (-3.20,-4.26); \coordinate (Dtr) at (3.20,-4.26);
+\coordinate (Dhl) at (-3.20,-4.68); \coordinate (Dhr) at (3.20,-4.68);
+\coordinate (Dbl) at (-3.20,-5.38); \coordinate (Dbr) at (3.20,-5.38);
+\coordinate (Dhc) at (0,-4.47);     \coordinate (Dbc) at (0,-5.03);
+
+% Card 5 — Catalog \& Inventory  (top y = −5.68)
+\coordinate (Etl) at (-3.20,-5.68); \coordinate (Etr) at (3.20,-5.68);
+\coordinate (Ehl) at (-3.20,-6.10); \coordinate (Ehr) at (3.20,-6.10);
+\coordinate (Ebl) at (-3.20,-6.80); \coordinate (Ebr) at (3.20,-6.80);
+\coordinate (Ehc) at (0,-5.89);     \coordinate (Ebc) at (0,-6.45);
+
+% Card 6 — Payment Processing  (top y = −7.10)
+\coordinate (Ftl) at (-3.20,-7.10); \coordinate (Ftr) at (3.20,-7.10);
+\coordinate (Fhl) at (-3.20,-7.52); \coordinate (Fhr) at (3.20,-7.52);
+\coordinate (Fbl) at (-3.20,-8.22); \coordinate (Fbr) at (3.20,-8.22);
+\coordinate (Fhc) at (0,-7.31);     \coordinate (Fbc) at (0,-7.87);
+
+% ============================================================
+% USER  (above the stack)
+% ============================================================
+\node[font=\normalsize\bfseries] at (0, 0.55) {User};
+\draw[-Stealth, thick] (0, 0.35) -- (0, 0.00);
+
+% ============================================================
+% Cards — drawn with scope+clip so that:
+%   • header fill is clipped to the outer rounded rect
+%     → top corners are naturally rounded, bottom boundary sharp
+%   • body fill is similarly clipped
+%     → bottom corners rounded, top boundary sharp
+%   • outer border drawn last (rounded corners, coloured)
+%   • separator line at the header/body boundary
+% ============================================================
+
+% ---- CARD 1 — AI Shopping Agent  (blue) ----
+\begin{scope}
+  \clip[rounded corners=4pt] (Atl) rectangle (Abr);
+  \fill[clrAgent] (Atl) rectangle (Ahr);
+  \fill[white]    (Ahl) rectangle (Abr);
+\end{scope}
+\draw[clrAgent!65!black, rounded corners=4pt, line width=0.55pt]
+  (Atl) rectangle (Abr);
+\draw[clrAgent!40, line width=0.3pt] (Ahl) -- (Ahr);
+\node[text=white, font=\small\bfseries, anchor=center] at (Ahc)
+  {AI Shopping Agent};
+\node[font=\scriptsize, text width=5.9cm, align=center, anchor=center] at (Abc)
+  {gpt-4o-mini $\cdot$ LLM reasoning \& planning};
+\draw[-Stealth, thick] (0,-1.12) -- (0,-1.42);
+
+% ---- CARD 2 — UCP / ACP Protocol  (green) ----
+\begin{scope}
+  \clip[rounded corners=4pt] (Btl) rectangle (Bbr);
+  \fill[clrProtocol] (Btl) rectangle (Bhr);
+  \fill[white]       (Bhl) rectangle (Bbr);
+\end{scope}
+\draw[clrProtocol!65!black, rounded corners=4pt, line width=0.55pt]
+  (Btl) rectangle (Bbr);
+\draw[clrProtocol!40, line width=0.3pt] (Bhl) -- (Bhr);
+\node[text=white, font=\small\bfseries, anchor=center] at (Bhc)
+  {UCP / ACP Protocol};
+\node[font=\scriptsize, text width=5.9cm, align=center, anchor=center] at (Bbc)
+  {UCP (Google) $\cdot$ ACP (OpenAI/Stripe)};
+\draw[-Stealth, thick] (0,-2.54) -- (0,-2.84);
+
+% ---- CARD 3 — Tool Handlers  (grey) ----
+\begin{scope}
+  \clip[rounded corners=4pt] (Ctl) rectangle (Cbr);
+  \fill[clrTools] (Ctl) rectangle (Chr);
+  \fill[white]    (Chl) rectangle (Cbr);
+\end{scope}
+\draw[clrTools!65!black, rounded corners=4pt, line width=0.55pt]
+  (Ctl) rectangle (Cbr);
+\draw[clrTools!40, line width=0.3pt] (Chl) -- (Chr);
+\node[text=white, font=\small\bfseries, anchor=center] at (Chc)
+  {Tool Handlers};
+\node[font=\scriptsize, text width=5.9cm, align=center, anchor=center] at (Cbc)
+  {Search $\cdot$ Products $\cdot$ Cart $\cdot$ Checkout};
+\draw[-Stealth, thick] (0,-3.96) -- (0,-4.26);
+
+% ---- CARD 4 — Knowledge Graph (Neo4j)  (orange) ----
+\begin{scope}
+  \clip[rounded corners=4pt] (Dtl) rectangle (Dbr);
+  \fill[clrKG] (Dtl) rectangle (Dhr);
+  \fill[white] (Dhl) rectangle (Dbr);
+\end{scope}
+\draw[clrKG!65!black, rounded corners=4pt, line width=0.55pt]
+  (Dtl) rectangle (Dbr);
+\draw[clrKG!40, line width=0.3pt] (Dhl) -- (Dhr);
+\node[text=white, font=\small\bfseries, anchor=center] at (Dhc)
+  {Knowledge Graph (Neo4j)};
+\node[font=\scriptsize, text width=5.9cm, align=center, anchor=center] at (Dbc)
+  {Similarity $\cdot$ price tiers $\cdot$ compatibility codes};
+\draw[-Stealth, thick] (0,-5.38) -- (0,-5.68);
+
+% ---- CARD 5 — Catalog \& Inventory  (violet) ----
+\begin{scope}
+  \clip[rounded corners=4pt] (Etl) rectangle (Ebr);
+  \fill[clrCatalog] (Etl) rectangle (Ehr);
+  \fill[white]      (Ehl) rectangle (Ebr);
+\end{scope}
+\draw[clrCatalog!65!black, rounded corners=4pt, line width=0.55pt]
+  (Etl) rectangle (Ebr);
+\draw[clrCatalog!40, line width=0.3pt] (Ehl) -- (Ehr);
+\node[text=white, font=\small\bfseries, anchor=center] at (Ehc)
+  {Catalog \& Inventory};
+\node[font=\scriptsize, text width=5.9cm, align=center, anchor=center] at (Ebc)
+  {Products/Supabase $\cdot$ real-time stock $\cdot$ low-cost $\cdot$ fast};
+\draw[-Stealth, thick] (0,-6.80) -- (0,-7.10);
+
+% ---- CARD 6 — Payment Processing  (sky blue) ----
+\begin{scope}
+  \clip[rounded corners=4pt] (Ftl) rectangle (Fbr);
+  \fill[clrPayment] (Ftl) rectangle (Fhr);
+  \fill[white]      (Fhl) rectangle (Fbr);
+\end{scope}
+\draw[clrPayment!65!black, rounded corners=4pt, line width=0.55pt]
+  (Ftl) rectangle (Fbr);
+\draw[clrPayment!40, line width=0.3pt] (Fhl) -- (Fhr);
+\node[text=white, font=\small\bfseries, anchor=center] at (Fhc)
+  {Payment Processing};
+\node[font=\scriptsize, text width=5.9cm, align=center, anchor=center] at (Fbc)
+  {Stripe $\cdot$ shipping calculation $\cdot$ standard\,/\,express\,/\,overnight};
+
+% ============================================================
+% MERCHANT AGENT  (below the stack)
+% ============================================================
+\draw[-Stealth, thick] (0,-8.22) -- (0,-8.47);
+\node[font=\normalsize\bfseries] at (0,-8.82) {Merchant Agent};
+
 \end{tikzpicture}
-\caption{End-to-end system architecture. The agent service (port~8000) handles
-  conversation logic; the MCP server (port~8001) exposes protocol endpoints and
-  routes all correctness-critical operations to three data stores.}
-\label{fig:arch}
+\caption{Conceptual overview of the MACS merchant-agent framework showing the
+  separation between the AI shopping agent (natural-language interaction) and
+  the merchant agent (deterministic constraint enforcement and catalog access).}
+\Description{Conceptual diagram showing the MACS system with the shopping agent
+  and merchant agent layers and their interaction boundary.}
+\label{fig:concept}
 \end{figure}
 
-\subsection{Protocol Layer}
+\subsection{Protocol and Data Layer}
 
-The protocol layer exposes three endpoint families from a single backend:
-
-\paragraph{MCP (Model Context Protocol).}
-Four typed tool calls---\texttt{search\_products}, \texttt{get\_product},
-\texttt{add\_to\_cart}, \texttt{checkout}---each return a standard envelope
-with \texttt{trace.timings\_ms}, \texttt{cache\_hit}, and
-\texttt{catalog\_version} fields, allowing agent developers to measure
-latency sources, verify cache behavior, and detect catalog staleness
-without backend access.
-
-\paragraph{UCP (Universal Commerce Protocol).}
-Endpoints \texttt{/ucp/search}, \texttt{/ucp/get-product},
-\texttt{/ucp/get\_cart}, and \texttt{/ucp/checkout} follow Google's UCP
-schema~\cite{UCPGoogle2026}, supporting shipping option selection by US state
-and multi-item cart management.
-
-\paragraph{ACP (Agent Commerce Protocol).}
-Product feed, checkout session lifecycle, and webhook endpoints follow
-OpenAI's ACP schema~\cite{ACPOpenAI2025}.
-A single environment variable (\texttt{COMMERCE\_PROTOCOL}) selects between
-UCP and ACP at deploy time, and tool schemas are exposed in OpenAI, Gemini,
-and Claude function-calling formats, allowing any LLM agent with function-calling
-support to transact directly.
+MACS exposes three protocol families from a single canonical backend, so
+adding a new protocol requires only a request adapter and response formatter.
+\textbf{MCP}~\cite{Anthropic2024MCP} provides four typed tool calls
+(\texttt{search\_products}, \texttt{get\_product}, \texttt{add\_to\_cart},
+\texttt{checkout}) with observable response envelopes.
+\textbf{UCP}~\cite{UCPGoogle2026} follows Google's schema for Gemini-based agents.
+\textbf{ACP}~\cite{ACPOpenAI2025} adds a checkout session lifecycle and webhooks;
+a config variable selects UCP vs.\ ACP at deploy time.
 
 \subsection{Data Layer}
 
-Three data stores serve distinct roles:
+Three data stores serve distinct roles.
 
-\textbf{Supabase PostgreSQL} stores the authoritative product catalog
+\textbf{Relational product store} holds the authoritative product catalog
 (21,000+ items; 1,490+ laptops with 12 structured spec fields per product:
 CPU, RAM, GPU, storage type, display size, battery life, weight, OS, price,
 brand, review count, and rating).
 All correctness-critical operations---constraint filtering, brand exclusion,
 progressive relaxation---execute as SQL queries against this store.
 
-\textbf{Neo4j Knowledge Graph} encodes product relationships across
+\textbf{Knowledge graph} encodes product relationships across
 2,400 nodes and 8,500 edges in four relationship types:
-\textsc{SIMILAR\_TO} (same use-case substitutes at similar price),
-\textsc{COMPATIBLE\_WITH} (accessory compatibility),
-\textsc{MANUFACTURED\_BY} (brand graph), and
-\textsc{USE\_CASE} (product-to-use-case mapping).
-The KG is used for ``see similar items'' (SIMILAR\_TO traversal) and
-``upgrade suggestions'' (BETTER\_THAN traversal) without LLM inference.
+\textsc{Similar\_To} (same use-case substitutes at similar price),
+\textsc{Compatible\_With} (accessory compatibility),
+\textsc{Manufactured\_By} (brand graph), and
+\textsc{Use\_Case} (product-to-use-case mapping).
+Complex intent queries (``show me similar items,'' ``find a compatible
+accessory'') are resolved via Cypher traversal in $\sim$17~ms with no LLM call.
+The graph degrades gracefully to SQL-based search when unavailable,
+ensuring no hard dependency on the graph layer.
 
-\textbf{Upstash Redis} caches search results (5-minute TTL), product
-summaries (5 minutes), price data (60 seconds), and LLM-generated
-narratives (10 minutes), achieving $\sim$12$\times$ latency reduction
-on cache hits (36~ms vs.\ 446~ms cold read, measured over $n = 10$ runs).
+\textbf{Cache and session layer} caches search results, product summaries,
+price data, and LLM-generated narratives using per-entry Time-To-Live (TTL)
+expirations (30~s--10~min depending on data freshness requirements).
+This achieves $\sim$12$\times$ latency reduction on cache hits
+(36~ms vs.\ 446~ms cold read, measured over $n = 10$ runs).
 
 %% --------------------------------------------------------------------------
-%% Algorithmic subsections — part of The Merchant Agent
+%% Algorithmic subsections — query rewriting and criteria extraction run in
+%% the shopping agent (Section~\ref{sec:shopping-agent}); the merchant agent
+%% receives the extracted slot dictionary and executes the steps below.
 %% --------------------------------------------------------------------------
 
-\subsection{Query Rewriting}
-\label{sec:rewriter}
+\subsection{Hard Constraint Filtering}
 
-The query rewriter (\texttt{agent/query\_rewriter.py}) transforms raw user
-messages into annotated strings before any LLM call.
-Its primary role is to inject structured hints---enclosed in \texttt{[\,]}---that
-the downstream extraction LLM can interpret reliably.
-
-Key transformations include:
-
-\begin{itemize}
-\item \emph{Common-sense enrichment:} ``for my son'' $\rightarrow$
-  \texttt{[use\_case: school]}; ``Final Cut Pro'' $\rightarrow$
-  \texttt{[brand: Apple] [use\_case: video\_editing]}.
-
-\item \emph{Contradiction detection:} ``Dell Mac'' $\rightarrow$
-  \texttt{[note: contradictory requirements---macOS is Apple-only]};
-  ``gaming Chromebook'' $\rightarrow$ annotation noting ChromeOS incompatibility.
-
-\item \emph{User expertise detection:} Non-technical signals
-  (``I just need it for Netflix'', ``doesn't freeze'') without spec vocabulary
-  inject \texttt{[note: lifestyle/non-technical user]}, causing the response
-  generator to omit abbreviations.
-
-\item \emph{Typo interception:} ``1TB RAM'' triggers a clarifying question
-  before reaching the LLM (consumer laptops top out at 64--128~GB RAM).
-\end{itemize}
-
-These annotations are auditable plain text; the rewriter introduces no
-opaque intermediate representations.
-
-\subsection{Criteria Extraction}
-\label{sec:extraction}
-
-Criteria extraction maps $m'$ to a set of slot-value pairs
-$\mathcal{S} = \{(s_i, v_i)\}$ where $s_i$ is a slot name from the domain
-schema (e.g., \texttt{budget}, \texttt{min\_ram\_gb}, \texttt{excluded\_brands})
-and $v_i$ is the extracted value.
-
-The system uses two extraction paths:
-
-\paragraph{Primary: LLM extraction.}
-A structured prompt (\texttt{CRITERIA\_EXTRACTION\_PROMPT}) lists all valid
-slot names and value types for the active domain.
-Returned slot names are normalized through \texttt{\_SLOT\_NAME\_ALIASES}
-(correcting LLM-returned variants like ``ram'' $\rightarrow$ \texttt{min\_ram\_gb})
-and brand values through \texttt{\_BRAND\_VALUE\_ALIASES}
-(``mac'' / ``macbook'' $\rightarrow$ ``Apple'').
-
-\paragraph{Fallback: Regex extraction.}
-A deterministic regex pass handles high-frequency patterns:
-price ranges (\texttt{\$[0-9]+}), brand names, screen sizes, and RAM values.
-The fallback fires when the LLM path returns no slots or the API is unavailable.
-
-\paragraph{Brand exclusion.}
-Indirect exclusion phrases (``bad experience with HP'', ``steer clear of ASUS'')
-are processed by a dedicated micro-LLM call
-(\texttt{\_extract\_excluded\_brands\_semantic}) that specifically classifies
-negation intent.
-This handles the 40+ indirect exclusion phrasings that a regex cannot cover.
-
-\subsection{Hard Constraint Filtering (SQL)}
-
-Extracted slot values map to a SQL WHERE clause (Algorithm~\ref{alg:sql}).
-Brand exclusions are enforced both in SQL (\texttt{brand NOT ILIKE}) and
-in a Python post-filter that checks the product title---necessary for
-products where the database \texttt{brand} field stores condition
-(``New'', ``Recertified'') rather than manufacturer name.
-
-\begin{algorithm}[t]
-\caption{SQL Hard Constraint Filtering}
-\label{alg:sql}
-\begin{algorithmic}[1]
-\State \textbf{Input:} slot-value pairs $\mathcal{S}$, product catalog
-\State Build WHERE clause from $\mathcal{S}$:
-  \texttt{price} $\leq$ budget,
-  \texttt{brand NOT ILIKE} excluded,
-  \texttt{ram\_gb} $\geq$ min\_ram
-\State Execute: \texttt{SELECT * FROM products WHERE ... ORDER BY rating DESC}
-\State Post-filter: re-check brand exclusion against product title
-\State \Return top-$k$ results (with progressive relaxation if $k < 3$)
-\end{algorithmic}
-\end{algorithm}
-
-\subsection{Soft Constraint Ranking (Embeddings)}
-
-For use-case-driven queries (\textit{gaming}, \textit{machine learning},
-\textit{video editing}), products passing hard filters are ranked by cosine
-similarity between the query embedding and pre-computed product embeddings.
-Boolean flags (\texttt{good\_for\_gaming}, \texttt{good\_for\_ml},
-\texttt{good\_for\_creative}) accelerate this path for common use cases,
-avoiding embedding computation at query time.
+Extracted slot values map directly to SQL \texttt{WHERE} clauses.
+Brand exclusions are enforced both at the SQL level and in a post-retrieval
+filter that checks the product title---necessary for products in which the
+database brand field stores condition (``New'', ``Recertified'') rather than
+the manufacturer name.
 
 \subsection{Progressive Relaxation}
 
 When hard constraints produce fewer than three results, the system
-applies three progressive relaxation steps while preserving
-correctness-critical filters (price ceiling, brand exclusions):
-
-\begin{enumerate}
-\item \textit{First}, drop the \texttt{min\_ram\_gb} constraint.
-\item \textit{Second}, drop the \texttt{storage\_type} constraint.
-\item \textit{Third}, drop the \texttt{min\_screen\_size} constraint.
-\end{enumerate}
-
-The user always sees real, purchasable products; the system never
-returns an empty result set or fabricated alternatives.
-
-\subsection{Knowledge Graph Query Resolution}
-\label{sec:kg}
-
-Complex intent queries---``show me similar items,'' ``find a better option,''
-``what accessories are compatible with this?''---are resolved via Cypher
-traversal rather than LLM inference (Algorithm~\ref{alg:kg}).
-This returns in $\sim$17~ms and requires no LLM call.
-Full product data for the returned IDs is fetched from PostgreSQL.
-The KG path gracefully degrades to SQL-based search when Neo4j is
-unavailable (\texttt{is\_available()} returns false), ensuring no
-hard dependency on the graph store.
-
-\begin{algorithm}[t]
-\caption{Knowledge Graph Traversal (SIMILAR\_TO)}
-\label{alg:kg}
-\begin{algorithmic}[1]
-\State \textbf{Input:} product\_id $pid$, hop count $h = 1$
-\State Query: \texttt{MATCH (p:Product \{product\_id: \$pid\})}
-  \texttt{-[r:SIMILAR\_TO]->(q:Product)}
-\State \Return $q$.\textit{product\_id} ordered by $r$.\textit{score} DESC, LIMIT~6
-\State Fetch full product records for returned IDs from PostgreSQL
-\State \textit{Fallback:} if Neo4j unavailable, use SQL embedding similarity
-\end{algorithmic}
-\end{algorithm}
+applies a sequence of relaxation steps ordered by constraint importance.
+At each step, the least-critical optional specification constraint is dropped
+first, while correctness-critical filters---price ceiling and brand
+exclusions---are never relaxed.
+The user always sees real, purchasable products; the system never returns an
+empty result set or fabricated alternatives.
+When relaxation occurs, the response explicitly discloses which constraints
+were loosened, so the user is not misled about what was actually enforced.
 
 \subsection{Best-Value Scoring}
 
-The best-value pick uses a weighted scoring function tuned to the
-detected use case:
+The best-value pick uses a weighted scoring function tuned to the detected
+use case:
 
 \begin{equation}
 \text{score}(p) = w_{\text{price}} \cdot r_p +
@@ -786,168 +706,130 @@ detected use case:
                   w_{\text{spec}} \cdot \phi(p)
 \end{equation}
 
-where $r_p$ is the normalized price score (lower price $\rightarrow$ higher score),
-$\hat{r}$ is the normalized star rating, $n$ is the review count, and
-$\phi(p)$ is a use-case-specific spec score (GPU weight for gaming,
-battery weight for travel, price weight for students).
-
-Use-case weights are defined in \texttt{\_USE\_CASE\_WEIGHTS}:
-gaming and ML assign 60\% weight to $\phi(p)$ and 15\% to price;
-student queries assign 45\% to price and 20\% to specs.
-
-\subsection{Intent Taxonomy and Coverage}
-
-We identify thirteen primary intent classes, detected through a layered
-routing system.
-
-\begin{table}[t]
-  \caption{Intent taxonomy and detection mechanism. Fast-path intents
-  are detected by keyword matching without an LLM call.}
-  \label{tab:intents}
-  \begin{tabular}{lll}
-    \toprule
-    Intent & Example phrasing & Detection \\
-    \midrule
-    Search/Find & ``find a gaming laptop under \$1k'' & Domain + extraction \\
-    Recommend & ``just pick one for me'' & Slot: \texttt{wants\_recs} \\
-    Compare & ``X vs Y'', ``differences between'' & Fast-path keywords \\
-    Refine & ``show me something cheaper'' & Fast-path keywords \\
-    See Similar & ``show me similar items'' & KG SIMILAR\_TO \\
-    Add to Cart & ``add the second one'' & Regex + ordinal parse \\
-    Research & ``explain features'' & Keyword match \\
-    Checkout & ``checkout'', ``pay'' & Keyword match \\
-    Pros/Cons & ``tell me more about these'' & Fast-path keywords \\
-    Targeted Q\&A & ``which has best battery?'' & Fast-path keywords \\
-    Rate & ``5 stars'' & Exact match \\
-    New Search & ``start over'' & LLM intent router \\
-    Domain Switch & ``show me books instead'' & LLM refinement \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-The fast-path router (Table~\ref{tab:intents}) intercepts known intent patterns
-before any LLM call.
-For the ``compare'' intent, the keyword set was extended to cover natural
-paraphrases: ``differences between,'' ``contrast,'' ``side by side,''
-``how do they differ,'' and ``what sets them apart,'' addressing a gap
-identified in user testing where comparison-intent queries were misclassified
-as new searches.
-
-The ``add to cart'' intent handler parses ordinal references
-(``first,'' ``second,'' ``third'' $\rightarrow$ indices 0, 1, 2) against
-\texttt{last\_recommendation\_data}, falls back to the frontend context
-tag (\texttt{[ctx:id1,id2,...]}) when no ordinal is present, and calls
-\texttt{session\_manager.add\_favorite()} to update the cart.
-
-\subsection{Protocol Unification: Design and Implications}
-\label{sec:protocol-unification}
-
-Implementing MCP, UCP, and ACP on a single backend was motivated by the
-protocol fragmentation challenge described in Section~\ref{sec:introduction}.
-Three design principles proved necessary for clean unification:
-
-\paragraph{Schema normalization.}
-Each protocol uses different field names for identical concepts (e.g., UCP
-\texttt{product\_id} vs.\ ACP \texttt{item\_id}).
-A canonical internal schema is defined with per-protocol adapters at
-the endpoint layer.
-
-\paragraph{Lifecycle compatibility.}
-ACP requires a checkout session lifecycle with webhooks; UCP does not.
-ACP's session semantics are implemented as an optional overlay---merchants
-that don't need webhook callbacks simply ignore them.
-
-\paragraph{Observable envelopes.}
-All three protocols expose \texttt{trace.timings\_ms}, \texttt{cache\_hit},
-and \texttt{catalog\_version} in every response.
-This allows agent developers to measure end-to-end latency, diagnose
-cache behavior, and detect catalog staleness programmatically---capabilities
-important for production agent deployment but absent from the protocol
-specifications.
-
-\subsubsection{Implication for Merchants}
-
-The implementation shows that per-protocol implementation cost is
-lower than typically assumed.
-Once a canonical product schema and search layer exist, adding a new
-protocol endpoint primarily requires: (1) a request adapter (field renaming),
-(2) a response formatter (protocol-specific envelope), and (3) authentication
-middleware.
-The heavy lifting---product retrieval, filtering, caching, KG traversal---is
-shared.
-
-This suggests merchants should prioritize building a well-structured internal
-product API first, then surface it through multiple protocol adapters,
-rather than attempting to natively implement each protocol's full semantics.
+where $p$ denotes a product; $r_p \in [0,1]$ is the normalized price score
+computed as $1 - ({\rm price}_p - {\rm price}_{\min}) / ({\rm price}_{\max} -
+{\rm price}_{\min})$, so lower-priced products receive higher scores within
+the retrieved set; $\hat{r}$ is the star rating; $n$ is review count; and
+$\phi(p) \in [0,1]$ is a use-case spec score---a weighted sum of
+specification relevance indicators (e.g., GPU tier weight for gaming queries,
+battery-life weight for travel queries, price-efficiency weight for
+student/budget queries). $\phi(p)$ is not a learned similarity score; it is
+a deterministic weighted sum over structured spec fields extracted from the catalog.
 
 %% ==========================================================================
 \section{Evaluation}
 %% ==========================================================================
 
 \subsection{Benchmark Design and Ground Truth Construction}
+\label{sec:evaluation}
 
-The evaluation requires measuring two distinct properties:
-(1) \emph{constraint correctness}---did the system enforce the user's hard
-requirements (price, brand exclusions, product type)?---and
-(2) \emph{response quality}---is the generated recommendation helpful,
-accurate, and appropriately explained?
-
-These properties require different evaluation methods, and conflating them
-is a fundamental flaw in evaluations that use an LLM judge for both.
+The evaluation separates \emph{constraint correctness} (enforcing price, brand,
+and spec requirements) from \emph{response quality} (helpful, well-explained
+recommendations). Hard constraints are evaluated deterministically via SQL
+verification. For response quality, we use G-Eval~\cite{Liu2023GEval}---an
+LLM-as-judge evaluation framework that scores free-text responses against a
+rubric without requiring gold-standard reference answers---restricted to
+quality assessment to avoid circularity with the constraint-checking component.
 
 \paragraph{Deterministic ground truth (hard constraints).}
-For each of the 43 benchmark queries, expected filter values are specified
-(\texttt{price\_max\_cents}, \texttt{min\_ram\_gb}) and expected exclusions
-(\texttt{excluded\_brands}) derived by executing the constraints directly
-against the PostgreSQL database:
-
-\begin{verbatim}
-SELECT id FROM products
-WHERE product_type = 'laptop'
-  AND price <= 1000
-  AND brand NOT ILIKE '%HP%'
-  AND good_for_gaming = true
-ORDER BY rating DESC, review_count DESC
-LIMIT 10;
-\end{verbatim}
-
-This ground truth is independent of any LLM---violations are verifiable
-objective failures.
-This approach eliminates the circularity problem of using one LLM to generate
-reference answers and another to judge whether the system matches them.
-
-\paragraph{Embedding-based soft constraint ground truth.}
-For use-case queries (``best for machine learning'', ``good for video editing''),
-expected top-$k$ products are computed offline as those with highest cosine
-similarity to the query embedding in the pre-computed product embedding space,
-stored as reference sets.
+For each benchmark query, expected filter values and exclusions
+are derived by executing the constraints directly against the relational
+product store as SQL predicates
+(e.g., {\small\texttt{price <= 1000 AND brand NOT ILIKE '\%HP\%'}}).
+This ground truth is independent of any LLM: violations are verifiable,
+objective failures. The approach eliminates the circularity problem of using
+one LLM to generate reference answers and another to judge whether the
+system matches them.
 
 \paragraph{LLM-as-judge quality scoring.}
-For response narrative quality, G-Eval~\cite{Liu2023GEval} is applied with a
+For response narrative quality, G-Eval is applied with a
 custom rubric evaluating engagement (0--4), tone calibration (0--3), and
 factual accuracy/coherence (0--3), normalized to $[0,1]$.
 The judge is GPT-4o-mini at temperature 0 for reproducibility.
 It evaluates whether explanations are factually grounded in the returned
-products---not whether they resemble a GPT-generated reference.
-Calibration examples anchor scores at 0.0, 0.5, and 1.0 to reduce judge variance.
-All 43 queries execute concurrently (semaphore=6) for throughput.
+products---not whether they resemble a reference answer.
+Calibration examples anchor scores at 0.0, 0.5, and 1.0 to reduce judge
+variance.
 
 \paragraph{Composite scoring formula.}
 The final per-query score combines deterministic and quality components:
 \begin{equation}
   s = 0.40\,s_{\text{type}} + 0.20\,s_{\text{brand}} + 0.10\,s_{\text{filter}}
-    + 0.05\,s_{\text{stock}} + 0.25\,s_{\text{quality}}
+    + 0.05\,s_{\text{stock}} + 0.10\,s_{\text{explain}} + 0.15\,s_{\text{quality}}
   \label{eq:geval}
 \end{equation}
-Weights for components that are not applicable to a given query (e.g., brand
-exclusion when no brand constraint exists) are redistributed to
-$s_{\text{quality}}$, raising its effective weight to 55--60\%.
+where $s_{\text{type}} \in \{0,1\}$ is a binary response-type match
+(1 if the system produces a recommendation when one is expected, or a
+clarifying question when the query is underspecified; 0 otherwise);
+$s_{\text{brand}} \in [0,1]$ is the fraction of returned products respecting
+all stated brand exclusions;
+$s_{\text{filter}} \in [0,1]$ is the fraction of returned products satisfying
+price and specification constraints;
+$s_{\text{stock}} \in [0,1]$ is the fraction of returned products that are
+currently available in inventory (i.e., not marked out-of-stock or
+discontinued in the catalog at query time);
+$s_{\text{explain}} \in [0,1]$ measures response explainability deterministically
+via three equal-weight sub-checks: whether the message contains structured
+explanation elements (bullet lists or explanatory connectives such as
+\emph{because} or \emph{since}), at least one specific product attribute
+(e.g., RAM, battery life, price, or storage), and an explicit disclosure of
+applied constraints (e.g., ``under \$X,'' ``at least,'' or ``matching your'');
+each sub-check contributes equally so
+$s_{\text{explain}} = \text{checks\_passed} / 3$;
+and $s_{\text{quality}} \in [0,1]$ is the G-Eval narrative quality score.
+Weights for components inapplicable to a given query (e.g., $s_{\text{brand}}$
+when no brand exclusion is present, or $s_{\text{explain}}$ for
+clarification-only responses) are redistributed to $s_{\text{quality}}$,
+raising its effective weight to 45--60\%.
 This redistribution means text-only baselines (GPT, Gemini) are evaluated
-only on type and quality---they cannot be penalized for brand or filter
-violations they are structurally unable to enforce.
-The 43 queries split into 28 \emph{specified} (user provides $\geq 1$ hard
-constraint) and 15 \emph{underspecified} (elicitation required).
+on $s_{\text{type}}$ and $s_{\text{quality}}$ in their composite scores;
+brand compliance is additionally checked via a negation-window regex over
+free-text responses (reported separately in Table~\ref{tab:results160},
+not folded into the composite), and filter compliance remains N/A as
+price verification from free text is unreliable.
+
+\paragraph{Query construction.}
+Queries were authored by the research team to cover five user intent classes:
+direct purchase (e.g., ``gaming laptop under \$1{,}000 with at least 16\,GB RAM,
+no HP''), multi-constraint filtering, vague preference (e.g., ``I need something
+for school''), service inquiry (e.g., ``What is your return policy on
+refurbished laptops?''), and product comparison.
+These five classes were selected to stress-test the core design constraint:
+a merchant-deployed system must handle the full spectrum from maximally vague
+(preference elicitation required before any retrieval) to maximally precise
+(simultaneous enforcement of multiple hard constraints).
+Each query is assigned a buyer persona (student, professional, gamer, or
+traveler) drawn from archetypes observed in online product-review communities;
+these four personas generate meaningfully distinct constraint profiles
+(budget sensitivity, portability requirements, performance thresholds, and
+brand loyalty patterns) while remaining representative of the shopping agent
+use cases studied in ShoppingBench~\cite{Wang2025ShoppingBench}.
+Each query is classified as \emph{specified}---containing $\geq$1 extractable
+hard constraint (brand exclusion, price ceiling, or minimum specification)---or
+\emph{underspecified}---expressing intent without measurable constraints.
+
+\paragraph{Benchmark scale.}
+Two nested sets are used.
+The \emph{shared 140-query benchmark} (85 specified / 55 underspecified) supports
+a three-way comparison across MACS, \GPTCatalog{}, and \GeminiCatalog{}.
+The \emph{expanded 225-query benchmark} (138 specified / 87 underspecified)
+covers 40 query groups including catalog exploration, follow-up service questions,
+post-recommendation refinements, and orchestrator routing; this set is evaluated
+on MACS only due to the cost of running all baselines at this scale.
 Pass threshold: score $\geq 0.5$.
+
+\paragraph{Stochastic robustness.}
+The G-Eval judge introduces $\approx$0.02--0.03 score variance between
+identical runs at temperature~0.
+PASS@$k$~\cite{Chen2021Codex}---the fraction of $k$ independent evaluation
+runs that pass---provides a robustness measure for this variance.
+We evaluate PASS@5 on the 225-query benchmark using a pre-fix code snapshot:
+MACS achieves a macro PASS@5 of $0.742$, with mean score $0.609 \pm 0.010$ (SD)
+across five independent runs (per-run averages: $0.622, 0.614, 0.611, 0.603, 0.596$;
+pass rate $74.2\% \pm 4.2$pp). The $\pm 0.010$ SD confirms that single-run
+results lie within one SD of the multi-run mean; the same variance bound applies
+to the improved result of $0.681$ (Table~\ref{tab:groups}) from the final code
+version.
 
 \subsection{Multi-Turn Evaluation Design}
 \label{sec:multiturn-eval}
@@ -955,15 +837,13 @@ Pass threshold: score $\geq 0.5$.
 Single-turn evaluations cannot assess the properties that distinguish agentic
 systems from stateless LLM calls: constraint persistence, preference updates,
 and brand-exclusion reversals across turns.
-A 10-scenario multi-turn benchmark is designed covering the following interaction
-patterns: (1)~constraint accumulation over 4 turns; (2)~use-case pivot
-(gaming $\rightarrow$ video editing); (3)~brand exclusion persistence across all
-subsequent turns; (4)~vague-to-specific elicitation (one-word start);
-(5)~comparison follow-up in context; (6)~downward price refinement;
-(7)~budget increase overwrite (update, not accumulate); (8)~brand exclusion
-reversal (``HP is fine now''); (9)~full 5-turn session simulating a
-medical-student purchase flow; and (10)~dense multi-constraint first turn
-followed by a clarification. Each scenario contains 3--5 scripted turns.
+A 10-scenario multi-turn benchmark is designed covering six
+constraint-persistence patterns: constraint accumulation, use-case pivot
+(gaming $\to$ video editing), brand-exclusion persistence, vague-to-specific
+elicitation, budget overwrite (update, not accumulate), and exclusion reversal
+(``HP is fine now''). Scenarios also include a full 5-turn medical-student
+purchase flow and a dense multi-constraint first turn. Each scenario contains
+3--5 scripted turns.
 
 \paragraph{Scoring.}
 The multi-turn score combines a judge score with deterministic constraint checks:
@@ -973,186 +853,262 @@ The multi-turn score combines a judge score with deterministic constraint checks
 \end{equation}
 $s_{\text{constraint}}$ is computed from deterministic checks against the
 system's final-turn product list: brand exclusions present/absent, budget
-ceiling respected.
-$s_{\text{judge}}$ is GPT-4o-mini (temperature 0) evaluating the full
-conversation transcript on three criteria: constraint satisfaction (0--4),
-preference tracking accuracy (0--3), and response appropriateness (0--3).
-A critical fairness rule prevents penalizing \emph{silent} enforcement:
-the judge checks only whether final products comply with constraints, not
-whether the system verbalized constraint acknowledgment.
-Pass threshold: $\geq 0.5$.
+ceiling respected. Critically, constraint checks run \emph{before} the judge,
+and their results (pass/fail notes) are injected into the judge prompt so
+the judge can calibrate without hallucinating failures on silently-enforced
+constraints. $s_{\text{judge}}$ is GPT-4o-mini (temperature 0) evaluating
+the full conversation transcript on constraint satisfaction (0--4), preference
+tracking accuracy (0--3), and response appropriateness (0--3).
+Pass threshold: $\geq 0.65$ (raised from 0.50 to eliminate floor effects:
+a system with $s_{\text{constraint}}=1.0$ and judge=0 would auto-pass at
+threshold 0.50 since $0.55\times 1 + 0.45 \times 0 = 0.55 \geq 0.50$).
+\emph{Mean score} reported in tables is the average of $s_{\text{MT}}$
+across all $K$ independent runs for each scenario, then averaged across scenarios.
+\emph{Macro Pass@K} is the mean over scenarios of the fraction of K runs exceeding
+the threshold (i.e., the fraction of runs that pass, averaged over all scenarios).
 
 \paragraph{Fair catalog-bound baselines.}
-Plain GPT and Gemini baselines cannot be fairly compared to IDSS because
-they lack database access: without a product DB, any text-only baseline is
-penalized for an architectural gap rather than a quality gap.
-To correct for this, before each baseline turn we call IDSS's search
-endpoint (\texttt{/chat?k=0}) to retrieve the top-10 products for the
-current query state, then inject those products into the baseline's system
-prompt as ``CATALOG---recommend ONLY from these products.''
-All systems therefore recommend from an identical, live catalog snapshot,
-isolating the architecture comparison from database differences.
+Before each baseline turn, MACS's search endpoint retrieves the top-10
+products, which are injected into the baseline's system prompt. All systems
+therefore recommend from an identical live catalog snapshot, isolating
+architecture differences from database access gaps.
 
 \subsection{Latency Measurement}
 
-The full request lifecycle is instrumented with phase-level timing logged to
-\texttt{trace.timings\_ms} in each MCP response envelope.
-Table~\ref{tab:latency} shows representative latencies for each phase.
+The full request lifecycle is instrumented with phase-level timing logged in
+each MCP response envelope. Table~\ref{tab:latency} shows representative
+latencies for each phase.
 
 \begin{table}[t]
-  \caption{Measured latencies by pipeline phase ($n = 10$ runs per phase,
-  direct-call benchmark). LLM calls dominate total latency; KG traversal
-  and Redis cache hits are negligible.}
+  \caption{Measured \textbf{median} latencies by pipeline phase ($n = 10$
+  runs per phase, direct-call benchmark; median reported, not mean, to
+  reduce sensitivity to occasional LLM cold-start outliers). LLM calls
+  dominate total latency; knowledge graph traversal and cache hits are
+  negligible.}
   \label{tab:latency}
-  \begin{tabular}{lrr}
+  \small
+  \begin{tabular}{@{}lrp{2.5cm}@{}}
     \toprule
     Phase & Median (ms) & Notes \\
     \midrule
-    CPU phases (rewrite, filter)  &   $<$1  & Pure Python, no I/O \\
-    Domain detection — fast path  &   $<$1  & Keyword dict lookup \\
-    Domain detection — LLM        & $\sim$1{,}630 & gpt-4o-mini; fires only for ambiguous queries \\
-    Criteria extraction (LLM)     & 1{,}927 & Primary bottleneck \\
-    Question generation (LLM)     & 1{,}645 & Preference elicitation \\
-    Post-rec intent detection      &   556   & gpt-4o-mini classification \\
-    Rec.\ narrative (LLM)         & 2{,}256 & Recommendation explanation \\
-    Comparison narrative (LLM)    & 5{,}714 & Longest single phase \\
-    Filter refinement (LLM)       & 2{,}187 & gpt-4o-mini RefinementClassification \\
-    SQL search (cache miss)       &   446   & Supabase PostgreSQL round-trip \\
-    SQL search (cache hit)        &    36   & Redis GET + deserialise \\
-    KG re-ranking overlay         &   207   & FAISS + graph candidates + scoring \\
+    CPU phases (rewrite, filter)  &   $<$1        & Pure Python, no I/O \\
+    Domain detection — fast path  &   $<$1        & Keyword dictionary \\
+    Domain detection — LLM        & $\sim$1{,}630 & gpt-4o-mini; ambiguous only \\
+    Criteria extraction (LLM)     & 1{,}927       & Primary bottleneck \\
+    Question generation (LLM)     & 1{,}645       & Preference elicitation \\
+    Post-rec intent detection     &   556         & gpt-4o-mini classification \\
+    Rec.\ narrative (LLM)         & 2{,}256       & Recommendation explanation \\
+    Comparison narrative (LLM)    & 5{,}714       & Longest single phase \\
+    Filter refinement (LLM)       & 2{,}187       & gpt-4o-mini refinement \\
+    SQL search (cache miss)       &   446         & catalog store round-trip \\
+    SQL search (cache hit)        &    36         & cache GET + deserialize \\
+    KG re-ranking overlay         &   207         & FAISS + graph + scoring \\
     Total (cache miss, rec.)      & $\sim$4{,}600 & Criteria + SQL + narrative \\
-    Total (cache hit, rec.)       & $\sim$2{,}300 & Criteria + Redis \\
+    Total (cache hit, rec.)       & $\sim$2{,}300 & Criteria + cache \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 LLM inference accounts for 85--92\% of total latency on cache misses.
-The KG re-ranking overlay (207~ms median) is 11--28$\times$ faster than
-equivalent LLM-based narrative generation (2,256--5,714~ms median) and produces
-deterministic, auditable results---a strong argument for routing structural
-queries (substitutes, best value) through the KG rather than prompting.
+The knowledge graph re-ranking overlay (207~ms median) is 11--28$\times$ faster
+than equivalent LLM-based narrative generation (2,256--5,714~ms median) and
+produces deterministic, auditable results. Structural queries (substitutes,
+best value) should route through the graph, not a prompt.
 
-Redis caching reduces effective latency $\sim$12$\times$ on repeated queries
+The cache layer reduces effective latency $\sim$12$\times$ on repeated queries
 (446~ms cold vs.\ 36~ms cached; popular product categories, frequently compared
 spec configurations).
 
 \subsection{Single-Turn Quality Results}
 
-Table~\ref{tab:results} compares IDSS against three baselines on the 43-query
-shared benchmark.
-GPT+Catalog and Gemini+Catalog receive IDSS's catalog per query (catalog
-grounding = 1.0); Baseline~B uses its own search pipeline.
-Brand and filter scores are reported only for IDSS and Baseline~B---text-only
-baselines return free text and cannot be evaluated on these dimensions
-(marking them N/A, not zero).
+\GPTCatalog{} and \GeminiCatalog{} each receive MACS's live catalog per
+query (catalog grounding = 1.0), so all three systems recommend from identical
+product pools. MACS brand and filter scores are evaluated deterministically via SQL.
+For text-only baselines, brand compliance is approximated by a
+negation-window regex over free-text responses (6 exclusion queries);
+filter compliance cannot be verified from free text and remains N/A.
+All systems use the same token budget and are prohibited from web search.
 
 \begin{table}[t]
-  \caption{Single-turn G-Eval results ($n = 43$ shared queries, pass
-  threshold $\geq 0.5$, SE $= \hat{\sigma}/\sqrt{n}$; IDSS re-evaluated April 2026,
-  baselines from March 2026 run; single run---multi-seed runs with $\pm$ SD
-  planned as part of the expanded 225-query benchmark).
-  Brand/Filter: deterministic compliance scores;
-  N/A for text-only systems (free text, not penalized).
-  Quality: LLM-judge narrative score (25\% weight base, up to 60\%
-  when brand/filter components are N/A).}
-  \label{tab:results}
-  \begin{tabular}{lllllll}
+  \caption{Three-way single-turn comparison ($n = 140$ queries, pass
+  threshold $\geq 0.5$; April 2026 clean run, real quality scoring).
+  MACS Brand/Filter: deterministic SQL-layer compliance.
+  Baseline Brand$^\dagger$: regex negation-window check on free-text responses
+  (6 exclusion queries; 1 Gemini violation on Q26 ``no HP, no Acer'').
+  Filter N/A: cannot verify price compliance from free text.
+  Quality: LLM-judge narrative score (GPT-4o-mini, temperature~0).}
+  \label{tab:results160}
+  \begin{tabular}{lrrrrr}
     \toprule
-    System & Avg $\pm$ SE $\uparrow$ & Pass\% $\uparrow$ & Brand $\uparrow$ & Filter $\uparrow$ & Quality $\uparrow$ \\
+    System & Avg $\uparrow$ & Pass\% $\uparrow$ & Brand $\uparrow$ & Filter $\uparrow$ & Quality $\uparrow$ \\
     \midrule
-    IDSS (ours)    & $0.683 \pm 0.020$ & 90.7\% & 1.000 & 1.000 & 0.465 \\
-    GPT+Catalog    & $0.662 \pm 0.032$ & 65.1\% & N/A   & N/A   & 0.381 \\
-    Gemini+Catalog & $0.671 \pm 0.030$ & 58.1\% & N/A   & N/A   & 0.370 \\
-    Baseline~B     & $0.271 \pm 0.033$ & 11.6\% & 0.000 & 0.000 & 0.088 \\
+    MACS             & \textbf{0.681} & \textbf{87.1\%} & \textbf{1.000} & \textbf{0.970} & 0.394 \\
+    \GeminiCatalog{} & 0.662          & 68.6\%          & 0.833$^\dagger$ & N/A   & \textbf{0.427} \\
+    \GPTCatalog{}    & 0.639          & 72.1\%          & 1.000$^\dagger$ & N/A   & 0.392 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-The current IDSS results reflect three targeted improvements over a v8 baseline
-(avg.\ 0.647, pass rate 83.7\%): (1)~a RAM-disclosure bug that added false
-``no 16\,GB RAM available'' notes when RAM data was absent from the response,
-misleading the judge into lower accuracy scores; (2)~a recommendation-explanation
-refactor that now passes only structured user preferences---not raw chat
-messages---to the narrative LLM, eliminating confusion caused by typos and
-all-caps user input; and (3)~query-rewriter non-technical user detection,
-which suppresses spec abbreviations for lifestyle-oriented queries.
-These three fixes, along with enhanced negation handling (``steer clear of HP'',
-``bad experience with Dell''), account for the improvement to 90.7\% pass rate.
-The gain over v8 (+0.036 avg score, +6.7~pp pass rate) is approximately
-1--2 combined standard errors and is practically meaningful given $n = 43$.
+\begin{table}[t]
+  \caption{Combined single-turn (ST, 140 queries, threshold $\geq 0.5$) and
+  multi-turn (MT, 10 scenarios, K=5 runs, threshold $\geq 0.65$) results.
+  MT scoring: $0.55\times$constraint (deterministic) $+$ $0.45\times$judge
+  (GPT-4o-mini, temp.~0). All systems catalog-bound; same token budget; no web
+  search. Pass@5 = macro fraction of K runs passing threshold.
+  Drift: fraction of run-scenario pairs with a constraint violation.}
+  \label{tab:combined}
+  \footnotesize\setlength{\tabcolsep}{4pt}%
+  \begin{tabular}{@{}lrrrrr@{}}
+    \toprule
+    & \multicolumn{2}{c}{Single-Turn} & \multicolumn{3}{c}{Multi-Turn} \\
+    \cmidrule(lr){2-3}\cmidrule(lr){4-6}
+    System & ST Avg & ST Pass\% & MT Avg$\pm$SD & MT Pass@5 & Drift \\
+    \midrule
+    MACS             & \textbf{0.681} & \textbf{87.1\%} & 0.721$\pm$0.115 & 50\%          & \textbf{0.000} \\
+    \GPTCatalog{}    & 0.639          & 72.1\%          & \textbf{0.747}$\pm$0.088 & \textbf{54\%} & \textbf{0.000} \\
+    \GeminiCatalog{} & 0.662          & 68.6\%          & 0.727$\pm$0.112 & 52\%          & \textbf{0.000} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
-IDSS leads all fair baselines on pass rate (+25.6\,pp vs.\ GPT+Catalog,
-+32.6\,pp vs.\ Gemini+Catalog, +79.1\,pp vs.\ Baseline~B) and quality score
-($+0.084$ and $+0.095$ above catalog-aware GPT and Gemini, respectively).
-The aggregate score gap between IDSS (0.683) and GPT+Catalog (0.662) is
-0.021 points---within one standard error of either system
-(SE$_\text{IDSS}$\,=\,0.020, SE$_\text{GPT}$\,=\,0.032)---because
-text-only systems are evaluated only on type and quality: they cannot lose
-points for brand or filter violations they are structurally unable to enforce.
-The meaningful comparison is therefore not the aggregate score but the
-quality sub-score (0.465 vs.\ 0.381, $+0.084$) and the brand/filter
-compliance that text-only systems cannot provide at all.
-IDSS's brand score of 1.000 and filter score of 1.000 reflect SQL-level
-constraint enforcement; Baseline~B's 0.000 on both reveals that its pipeline
-does not reliably apply these filters.
+MACS leads all systems on single-turn pass rate at 87.1\%
+(Table~\ref{tab:results160},~\ref{tab:combined}), with perfect brand and
+near-perfect filter compliance (1.000/0.970). \GPTCatalog{} achieves 72.1\% and
+\GeminiCatalog{} 68.6\%; the gap reflects MACS's SQL-enforced constraint pipeline,
+which text-only systems cannot replicate structurally.
+Remaining MACS failures are catalog-level: absent inventory, marketplace risk,
+and multi-category budgets.
 
-The system still fails on five query categories:
-(1) products genuinely absent from the catalog (ultra-high-spec configs);
-(2) marketplace risk questions requiring external information;
-(3) iPad/Surface pivot requests (catalog contains only laptops);
-(4) split budget queries (monitor + laptop under a single budget);
-(5) DaVinci Resolve with gaming-avoidance (search returns accessories).
-These are catalog-level or scope limitations that cannot be resolved at the
-agent layer.
+\emph{Scope note}: all evaluations use a consumer-electronics catalog
+(laptops and accessories). Generalization to other product domains is not
+claimed and represents a direction for future work.
+
+\subsection{Expanded 225-Query Benchmark}
+\label{sec:expanded}
+
+The 43-query benchmark assesses core functionality but is too small to support
+per-group pass-rate comparisons without overfitting concerns.
+To address this, the benchmark is expanded to 225 queries spanning 40 distinct
+interaction groups, including catalog exploration, service follow-up questions
+(return policy, shipping, warranty), post-recommendation refinements, and
+orchestrator routing. Table~\ref{tab:groups} summarizes performance on the
+eight groups where MACS most clearly succeeds or struggles.
+
+\begin{table}[t]
+  \caption{Per-group single-turn results on the expanded 225-query benchmark
+  (MACS only; pass threshold: $\geq 0.5$). All queries are evaluated
+  independently (no prior session context).}
+  \label{tab:groups}
+  \begin{tabular}{lrrr}
+    \toprule
+    Group & $N$ & Avg $\uparrow$ & Pass\% $\uparrow$ \\
+    \midrule
+    \multicolumn{4}{l}{\textit{Strong groups}} \\
+    Multi-intent rigidity      &  5 & 0.775 & 100.0\% \\
+    One-liner purchase intent  &  6 & 0.833 & 100.0\% \\
+    Refinement                 &  3 & 0.756 & 100.0\% \\
+    Follow-up service QA       &  4 & 0.810 & 100.0\% \\
+    Multi-constraint           & 17 & 0.791 &  94.1\% \\
+    Post-rec refinement        &  7 & 0.738 &  85.7\% \\
+    \midrule
+    \multicolumn{4}{l}{\textit{Weak groups}} \\
+    Context-free comparison    &  6 & 0.393 &   0.0\% \\
+    Orchestrator routing       & 12 & 0.502 &  33.3\% \\
+    Preference discovery       &  8 & 0.473 &  25.0\% \\
+    \midrule
+    \textbf{All (225 queries)} & 225 & \textbf{0.681} & \textbf{85.3\%} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Across 225 queries, MACS achieves avg.\ 0.681 (pass rate 85.3\%), up from
+0.604/74.2\%. Key gains from targeted fixes: follow-up service QA
+(0\%$\to$100\%); catalog exploration (50\%$\to$75\%); orchestrator routing
+(25\%$\to$33\%); post-rec refinement (43\%$\to$86\%); gaming-specific
+(25\%$\to$100\%). The multi-constraint group (17 queries) achieves 94.1\%
+pass rate, confirming that the SQL pipeline enforces four simultaneous
+constraints deterministically.
+
+Weak groups are structural failures: the context-free comparison (0\%) and
+orchestrator routing (33\%) groups contain queries referencing prior results
+or session actions (compare, add-to-cart) absent in a fresh session---these
+are inherently multi-turn and require pre-populated session context the
+single-turn benchmark cannot provide.
+
+\paragraph{Failure mode analysis.}
+The three persistent weak areas reflect identifiable system limitations rather than
+random noise.
+\emph{Context-free comparison} (0.0\%): queries such as ``compare those two'' or
+``which of these is better'' arrive without a prior recommendation in session state;
+single-turn evaluation structurally cannot provide one.
+\emph{Orchestrator routing} (33.3\%): multi-intent requests that mix recommendation,
+comparison, and cart actions in a single turn exceed the single-dispatch routing
+architecture; routing accuracy requires compound-sentence decomposition not yet
+implemented.
+\emph{Long session} (S9, 0\% Pass@5, multi-turn): the 10-turn session history window
+in the session manager truncates constraints stated before turn~11; preference state
+accumulated in early turns is partially lost.
+Fixing long-session failure modes requires persistent preference
+logs beyond the turn window---a direction for future work.
 
 \subsection{Multi-Turn Constraint Results}
 \label{sec:multiturn-results}
 
-Table~\ref{tab:multiturn} reports multi-turn evaluation results across 10 scripted
-scenarios.
-IDSS leads all fair baselines with an average score of $0.604 \pm 0.013$, edging
-catalog-bound GPT ($0.595 \pm 0.015$) and outperforming Baseline~B
-($0.554 \pm 0.005$) and Gemini ($0.532 \pm 0.018$, separate run).
-The gap between IDSS and catalog-bound GPT ($0.009$) falls within one combined
-standard error and is not statistically significant; the margins versus
-Baseline~B ($0.050$, ${\approx}3.6$ combined SEs) and Gemini ($0.072$,
-${\approx}3.3$ combined SEs) are statistically significant.
+Table~\ref{tab:combined} reports combined single-turn and multi-turn results
+(K=5 runs, threshold $\geq 0.65$). \GPTCatalog{} leads on aggregate multi-turn score (0.747 vs.\ 0.721 for MACS
+vs.\ 0.727 for Gemini) and macro Pass@5 (54\% vs.\ 50\% vs.\ 52\%).
+However, MACS uniquely achieves 100\% Pass@5 on Exclusion Reversal---the
+scenario requiring mid-session constraint state updates---where
+\GPTCatalog{} scores only 20\% and \GeminiCatalog{} scores 0\%
+(Table~\ref{tab:multiturn_cat}). MACS also leads on Brand Exclusion
+persistence (80\% vs.\ 40\%/0\%).
+
+MACS enforces constraints as SQL-level predicates persisted in the session
+store, so they cannot be dropped by LLM inference across turns.
+The session-persistent exclusion-un-exclusion pathway achieves Pass@5=100\%
+(vs.\ 20\% for \GPTCatalog{} and 0\% for \GeminiCatalog{}), a
+gap attributable to MACS's explicit \texttt{\_detect\_allowed\_brands()}
+pathway. Budget overwrite achieves 100\% for both MACS and \GeminiCatalog{}
+(vs.\ 80\% for \GPTCatalog{}).
+\GPTCatalog{} outperforms on long-session and clarification scenarios
+(100\% each), where a well-structured single-turn LLM call suffices without
+accumulated constraint state. All three systems achieve zero constraint drift
+across all 50 run-scenario pairs in this run.
 
 \begin{table}[t]
-  \caption{Multi-turn evaluation results (10 scenarios, 3--5 turns each;
-  single run---multi-seed runs with $\pm$ SD planned as part of expanded benchmark).
-  Scoring: $0.55 \times$ constraint (deterministic) $+ 0.45 \times$ judge
-  (GPT-4o-mini, temperature~0). GPT and Gemini are catalog-bound
-  (same product pool as IDSS per turn). Gemini results from a separate run.
-  Pass threshold: $\geq 0.5$.}
-  \label{tab:multiturn}
-  \begin{tabular}{lrr}
+  \caption{Multi-turn category breakdown (K=5 runs; avg score / Pass@5;
+  \checkmark~= Pass@5~$\geq 60$\%). Categories map 1:1 to the 10 scenarios.}
+  \label{tab:multiturn_cat}
+  \footnotesize\setlength{\tabcolsep}{4pt}%
+  \begin{tabular}{@{}lccc@{}}
     \toprule
-    System & Avg $\pm$ SE $\uparrow$ & Pass/10 $\uparrow$ \\
+    Category & MACS & \GPTCatalog{} & \GeminiCatalog{} \\
     \midrule
-    IDSS (ours)    & $0.604 \pm 0.013$ & 10/10 \\
-    GPT+Catalog    & $0.595 \pm 0.015$ & 10/10 \\
-    Baseline~B     & $0.554 \pm 0.005$ & 10/10 \\
-    Gemini+Catalog & $0.532 \pm 0.018$ &  9/10 \\
+    Brand Exclusion       & \checkmark 0.703 / 80\%  & 0.757 / 40\%             & 0.640 / 0\%   \\
+    Budget Overwrite      & \checkmark 0.793 / 100\% & \checkmark 0.757 / 80\%  & \checkmark 0.838 / 100\% \\
+    Budget Refinement     & \checkmark 0.802 / 80\%  & \checkmark 0.802 / 80\%  & \checkmark 0.838 / 100\% \\
+    Clarification         & \checkmark 0.757 / 80\%  & \checkmark 0.856 / 100\% & \checkmark 0.802 / 100\% \\
+    Comparison            & 0.613 / 0\%              & 0.640 / 0\%              & 0.604 / 0\%   \\
+    Constraint Persist.   & 0.640 / 0\%              & 0.748 / 40\%             & 0.685 / 40\%  \\
+    Dense Constraint      & \checkmark 0.721 / 60\%  & \checkmark 0.802 / 80\%  & \checkmark 0.874 / 80\%  \\
+    Exclusion Reversal    & \checkmark 0.964 / 100\% & 0.622 / 20\%             & 0.586 / 0\%   \\
+    Intent Pivot          & 0.640 / 0\%              & 0.631 / 0\%              & 0.613 / 0\%   \\
+    Long Session          & 0.577 / 0\%              & \checkmark 0.856 / 100\% & \checkmark 0.793 / 100\% \\
+    \midrule
+    Overall               & 0.721 / 50\%             & \textbf{0.747 / 54\%}    & 0.727 / 52\%  \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-The 10 scenarios span six constraint-persistence categories:
-(1)~constraint accumulation across turns (brands, RAM, budget added incrementally);
-(2)~mind-change reversal (user first excludes then re-allows a brand);
-(3)~brand-exclusion persistence (``no HP'' must survive follow-up clarifications);
-(4)~vague-to-specific refinement (user narrows from category to exact spec);
-(5)~comparison follow-up (user requests side-by-side after initial recommendations);
-(6)~budget overwrite (new price ceiling replaces old, not added on top).
-
-IDSS's architecture enforces constraints deterministically:
-brand exclusions are SQL-level predicates persisted in Redis across turns, so they
-cannot be silently dropped by LLM inference.
-Baseline~B achieves low variance ($\pm 0.005$) because its responses
-consistently match a low-quality baseline across all scenarios.
-Gemini fails Scenario~8 (exclusion reversal: ``actually HP is fine'')
-because its stateless context management does not detect the un-exclusion signal.
+Table~\ref{tab:multiturn_cat} groups results by constraint category.
+MACS uniquely dominates exclusion reversal (100\% Pass@5 vs.\ 20\% GPT / 0\%
+Gemini) and brand exclusion persistence (80\% vs.\ 40\%/0\%)---both require
+mid-conversation state updates via session-persisted slot dictionaries.
+Budget overwrite is strong for both MACS and Gemini (100\%) but not GPT (80\%).
+\GPTCatalog{} leads on long session and clarification, where accumulated
+state is less critical. Dense constraint and comparison remain hard for all
+systems; intent pivot and comparison score 0\% across all three, confirming
+these are fundamentally multi-turn failure modes rather than system-specific weaknesses.
 
 \subsection{Trust \& Safety Evaluation}
 \label{sec:trust}
@@ -1160,271 +1116,116 @@ because its stateless context management does not detect the un-exclusion signal
 Standard quality metrics measure \emph{what} a system recommends; they do not
 measure whether it behaves safely under adversarial or underspecified inputs.
 Three Trust \& Safety pillars are evaluated, each measured deterministically.
-Together, they assess whether the system provides the \emph{guarantees}
+All three assess whether the system provides the \emph{guarantees}
 central to the design: enforcing constraints when possible, persisting them
 across turns, and disclosing honestly when they cannot be met.
 
-\paragraph{Inventory integrity (catalog grounding).}
-Every product ID returned by the system is looked up in PostgreSQL and verified
-to exist at the stated price.
-Score = fraction of recommended products that exist in the live catalog.
-IDSS, GPT+Catalog, and Gemini+Catalog all score 1.000 because all three use
-IDSS's PostgreSQL-backed product layer as their source.
-A stateless GPT call (no DB access) would score $\approx$0.00 on this metric.
+\paragraph{Inventory integrity (\emph{Grounding}).}
+\emph{Grounding} is the fraction of returned product identifiers that exist in
+the catalog at the stated price. A score of 1.0 means every recommended product
+is real and purchasable; a stateless LLM generating free text would score
+$\approx$0.00. MACS, \GPTCatalog{}, and \GeminiCatalog{} all score 1.000
+because all three use MACS's catalog layer exclusively.
 
-\paragraph{Preference fidelity (constraint drift rate).}
-The 10 multi-turn scenarios are annotated with \texttt{per\_turn\_constraints}
-specifying which brand exclusions and budget ceilings are active at each turn.
-After running each scenario end-to-end, every turn where a constraint was active
-\emph{and} products were returned is checked:
-\[
-  \text{drift\_rate} = \frac{\text{violations}}{\text{applicable (turn, constraint) pairs}}
-\]
-This measures whether constraints \emph{persist} across turns, not merely whether
-they are satisfied in the final turn---a stronger property than final-turn compliance.
-All three systems score 0.000 in the primary run; a secondary run revealed
-GPT+Catalog drift = 0.042 on Scenario~7 (budget-increase overwrite), consistent
-with GPT relying on prompt context versus IDSS's Redis-persisted typed slot dict.
+\paragraph{Preference fidelity (\emph{Drift}).}
+\emph{Constraint drift} is measured as: drift rate = violations / applicable
+(turn, constraint) pairs across all runs and scenarios. For each multi-turn
+scenario, active constraints (brand exclusions, budget ceilings) are annotated
+per turn; a violation is recorded any time a returned product breaks a still-active
+constraint. A drift rate of 0.000 means zero constraint violations across all
+$K \times |\text{scenarios}|$ run-scenario pairs---stronger than checking only
+the final turn. MACS scores 0.000 (zero violations across all 50 run-scenario pairs).
+\GPTCatalog{} and \GeminiCatalog{} also achieve 0.000 in the April 2026
+run, indicating that catalog-bound baselines---when given the identical
+product pool---reliably avoid out-of-constraint recommendations even
+without session persistence, as long as the constraint is still in the
+active context window.
 
-\paragraph{Honest scoping (impossible query disclosure).}
-Eight \emph{catalog-impossible} queries are constructed---requests whose stated
-constraints cannot be satisfied by any product in the catalog
-(e.g., ``gaming laptop with RTX~4090, budget \$150'').
-Each query carries a \texttt{hard\_budget\_usd} field enabling deterministic scoring:
-\begin{itemize}
-\item \textbf{1.0 (Pass):} Response explicitly discloses the constraint gap
-  (``I couldn't find...'', ``I relaxed your budget because...'').
-\item \textbf{0.5 (Soft fail):} Products returned within budget but no disclosure---silent relaxation.
-\item \textbf{0.0 (Hard fail):} Products returned, at least one exceeding the stated budget by ${>}5\%$.
-\end{itemize}
-The group pass threshold is raised to 0.7 (versus the global 0.5), so only explicit
-disclosure earns a pass.
-IDSS scores 0.925: its progressive relaxation pipeline generates explicit
-disclosure notes (``I relaxed your budget constraint because no laptops matched
-exactly'') that trigger the 1.0 tier on six of eight queries.
-GPT+Catalog and Gemini+Catalog both score below 0.6: they receive IDSS's
-already-relaxed product list but have no mechanism to detect that relaxation
-occurred, so they recommend without disclosure.
+\paragraph{Honest scoping (\emph{Disclosure}).}
+\emph{Disclosure} measures whether the system honestly communicates when a
+user's constraints cannot be fully satisfied. Eight \emph{catalog-impossible}
+queries are constructed---requests whose stated constraints no product can
+meet (e.g., ``gaming laptop with RTX~4090, budget \$150'').
+Scoring: 1.0 for explicit disclosure (``I couldn't find any product meeting
+all your requirements...''), 0.5 for silent relaxation (returns
+out-of-constraint products without acknowledging the gap), 0.0 if any returned
+product violates the price ceiling by ${>}5\%$.
+Group pass threshold is 0.7 so only explicit disclosure earns a pass.
+MACS scores 0.925: its progressive relaxation pipeline generates
+explicit disclosure notes on six of eight queries.
+\GPTCatalog{} and \GeminiCatalog{} both score below 0.6---they receive
+MACS's already-relaxed product list but have no mechanism to detect that
+relaxation occurred, so they recommend without disclosing the gap.
 
 \begin{table}[t]
-  \caption{Trust \& Safety evaluation across three pillars ($n = 8$ impossible
-  queries for disclosure; $n = 10$ scenarios for drift).
-  $\uparrow$~higher is better; $\downarrow$~lower is better.
-  N/A: metric not applicable to this system's architecture.}
+  \caption{Trust \& Safety evaluation ($n = 8$ catalog-impossible queries for
+  Disclosure; $n = 10$ scenarios $\times$ K=5 runs for Drift).
+  Grounding: fraction of returned products verifiable in catalog at stated price.
+  Disclosure: fraction of impossible queries acknowledged explicitly.
+  Drift: fraction of run-scenario pairs with a constraint violation.
+  $\uparrow$~higher is better; $\downarrow$~lower is better.}
   \label{tab:trust}
   \begin{tabular}{lrrr}
     \toprule
     System & Grounding $\uparrow$ & Disclosure $\uparrow$ & Drift $\downarrow$ \\
     \midrule
-    IDSS (ours)    & 1.000 & \textbf{0.925} & \textbf{0.000} \\
-    GPT+Catalog    & 1.000 & 0.588          & 0.000          \\
-    Gemini+Catalog & 1.000 & 0.550          & 0.000          \\
-    Baseline~B     & N/A   & N/A            & N/A            \\
+    MACS             & 1.000 & \textbf{0.925} & 0.000 \\
+    \GPTCatalog{}    & 1.000 & 0.588          & 0.000 \\
+    \GeminiCatalog{} & 1.000 & 0.550          & 0.000 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 Table~\ref{tab:trust} summarizes all three pillars.
-The disclosure gap ($+0.338$ vs.\ GPT+Catalog, $+0.375$ vs.\ Gemini+Catalog)
-is the clearest architectural differentiator in this evaluation: IDSS detects
-and discloses catalog constraint gaps at the system level; catalog-bound
-baselines cannot, because they are unaware of the relaxation that produced
-the products they received.
-
-\subsection{Agentic System vs.\ Plain LLM Baseline}
-
-Tables~\ref{tab:results} and~\ref{tab:multiturn} quantify IDSS's advantage on
-single-turn and multi-turn benchmarks.
-Table~\ref{tab:vs-gpt} summarizes the qualitative capability differences
-between the agentic architecture and a plain GPT-4o-mini call with the same
-user message.
-
-\begin{table*}[t]
-  \caption{Capability comparison: IDSS agentic system vs.\ plain GPT-4o-mini call.}
-  \label{tab:vs-gpt}
-  \begin{tabular}{lll}
-    \toprule
-    Capability & Plain GPT & IDSS \\
-    \midrule
-    Brand exclusion enforcement  & Unreliable (LLM ignores $\sim$15\% of exclusions) & Deterministic (SQL NOT ILIKE) \\
-    Product spec accuracy        & Hallucinated  & Database-sourced, auditable \\
-    Cross-turn preference memory & None (stateless) & Redis-persisted session state \\
-    Progressive relaxation       & None          & 3-step relaxation, always returns results \\
-    Entropy-based question selection & None      & Slot-information-gain maximization \\
-    Query response latency (cached) & 500ms+    & $\sim$36~ms (Redis hit) \\
-    Complex query resolution     & LLM inference (2,694--6,832~ms, hallucination risk) & KG traversal (17~ms, deterministic) \\
-    Catalog grounding            & 0\% (no DB access) & 100\% (DB-sourced per query) \\
-    Multi-turn constraint pass rate & Not evaluated & 10/10 (Table~\ref{tab:multiturn}) \\
-    Evaluable against ground truth & No (text only) & Yes (filter dicts, product IDs, session state) \\
-    \bottomrule
-  \end{tabular}
-\end{table*}
-
-The critical distinction is architectural: IDSS uses LLMs as one component in a
-larger system, delegating correctness-critical operations (filtering, deduplication,
-session persistence) to deterministic components.
-A plain LLM call collapses all of these into a single inference step, trading
-reliability and verifiability for simplicity.
-For consumer-facing product recommendation, where an incorrect brand exclusion
-or hallucinated price can directly harm the user, this reliability gap is significant.
-When GPT-4o-mini receives the same catalog per query (GPT+Catalog in
-Table~\ref{tab:results}), the aggregate score gap narrows to $0.021$ points,
-but IDSS retains a $+0.084$ quality advantage ($0.465$ vs.\ $0.381$)
-because it selects products that better match the user's stated constraints.
-
-%% ==========================================================================
-%% ==========================================================================
-\section{Discussion}
-%% ==========================================================================
-
-\subsection{KG Utility and Limitations}
-
-The knowledge graph delivers the clearest benefit on structural queries
-(``show me similar items,'' ``find compatible accessories'') that have
-deterministic answers given the product data. For queries requiring external
-judgment (``is this price fair?'', ``will I be happy with this for five years?''),
-the KG adds no value and those queries remain in the LLM path.
-
-KG utility is directly gated on graph construction quality.
-Edges must reflect real product relationships---compatibility specifications,
-co-purchase data, or verified spec similarity---rather than heuristic rules.
-In the current deployment, \textsc{SIMILAR\_TO} edges are computed from
-embedding cosine similarity above a threshold, while \textsc{COMPATIBLE\_WITH}
-edges are manually curated from manufacturer compatibility tables.
-Improving automated edge construction from catalog metadata is a natural
-direction for future work.
-
-\subsection{Interview vs.\ Zero-Shot Elicitation}
-
-The interview-style preference elicitation adds 1--3 turns before
-recommendations appear for underspecified queries.
-Users with explicit, well-specified preferences bypass elicitation entirely:
-the interview threshold (skip questions if $\geq$1 substantive criterion
-is present) ensures that single-constraint queries such as ``gaming laptop
-under \$1000'' proceed directly to search.
-For genuinely underspecified queries, targeted elicitation narrows the
-feasible product set before search runs, reducing the chance of irrelevant
-recommendations.
-Future work should explore dynamically adjusting this threshold based on
-detected user expertise and session history.
-
-\subsection{Protocol Standardization Outlook}
-
-MCP, UCP, and ACP each address real deployment needs, but they diverge
-on field names and lifecycle semantics in ways that create unnecessary
-per-protocol engineering work.
-The key takeaway from this implementation is that \emph{schema alignment}
-(agreeing on canonical names for fields such as price, inventory, and
-product type) would eliminate most of the adapter overhead.
-The remaining differences---primarily lifecycle semantics for ACP webhooks
-versus UCP's stateless model---are architectural choices that may converge
-as deployment patterns mature.
-Merchants are best served by building a well-structured internal product
-API first and surfacing it through protocol adapters, rather than
-natively implementing each protocol's full semantics.
+The disclosure gap ($+0.338$ vs.\ \GPTCatalog{}, $+0.375$ vs.\ \GeminiCatalog{})
+is the clearest architectural differentiator: MACS detects and discloses catalog
+constraint gaps at the system level; catalog-bound baselines cannot, because
+they are unaware of the relaxation that produced the products they received.
 
 %% ==========================================================================
 \section{Conclusion}
 %% ==========================================================================
 
-IDSS is a merchant agent framework that unifies three competing
-agentic commerce protocols (MCP, UCP, ACP) behind a single backend.
-The central finding is not that the agentic architecture produces better
-language---on aggregate score, IDSS is statistically tied with catalog-aware
-GPT and Gemini (gap $< 1$ SE).
-The finding is that it provides \emph{guarantees}: brand exclusions that
-cannot be silently dropped, filter constraints that are SQL-verified rather
-than inferred, and preference state that persists across turns.
-These properties are architecturally impossible for a stateless LLM call,
-regardless of prompt quality.
+MACS is a hybrid merchant-agent framework for reliable conversational
+recommendation in fixed-catalog settings. The central finding is not that
+the system produces better aggregate language output---on mean multi-turn
+score, \GPTCatalog{} (0.747) leads MACS (0.721) and both are within one SD.
+The finding is that separating interaction from enforcement yields
+measurable reliability advantages on the hardest scenarios: 100\% Pass@5 on
+exclusion reversal where prompt-based baselines score 20\% and 0\%,
+100\% Pass@5 on brand exclusion persistence where they score 40\% and 0\%,
+and a disclosure score 0.338 points above the nearest baseline on
+catalog-impossible queries. These advantages
+were not observed in any prompt-based baseline evaluated in this work; they
+follow from session-persisted constraint state and SQL enforcement rather than
+from more careful prompting.
 
-Five key empirical findings emerge:
-(1) the KG re-ranking overlay (207~ms) resolves complex product queries 11--28$\times$ faster
-than equivalent LLM narrative generation with deterministic, auditable results;
-(2) on a 43-query single-turn benchmark, IDSS achieves 90.7\% pass rate
-($0.683 \pm 0.020$), outperforming catalog-aware GPT-4o-mini ($0.662 \pm 0.032$)
-on quality with brand and filter compliance of 1.000 versus N/A for text-only systems;
-(3) on a 10-scenario multi-turn benchmark, IDSS ($0.604 \pm 0.013$)
-leads catalog-bound GPT ($0.595$) and Baseline~B ($0.554$), with the
-margin attributable to deterministic constraint persistence rather than
-LLM output quality;
-(4) Redis caching reduces median search latency $\sim$12$\times$ on repeated
-queries (446~ms cold vs.\ 36~ms cached), making agent-mediated shopping
-viable at production throughput;
-(5) on a three-pillar Trust \& Safety benchmark (Table~\ref{tab:trust}),
-IDSS achieves disclosure score 0.925 versus 0.588 (GPT+Catalog) and 0.550
-(Gemini+Catalog), with zero constraint drift rate across all multi-turn
-scenarios---a gap attributable to explicit relaxation disclosure and
-SQL-level constraint enforcement that catalog-bound text systems cannot
-replicate.
+Full results are in Tables~\ref{tab:results160}--\ref{tab:trust}.
+Key numbers: single-turn pass rate 87.1\% (Table~\ref{tab:results160});
+multi-turn exclusion-reversal Pass@5=100\% (GPT 20\%, Gemini 0\%), zero constraint drift
+(Table~\ref{tab:combined}); knowledge-graph traversal 11--28$\times$ faster
+than LLM narrative generation, cache 12$\times$ latency reduction
+(Table~\ref{tab:latency}); disclosure score 0.925 vs.\ 0.588--0.550
+for catalog-bound baselines (Table~\ref{tab:trust}).
 
-The emerging protocol fragmentation landscape (ACP, UCP, MCP) represents
-both a risk and an opportunity for merchants.
-Systems that abstract protocol differences behind a canonical data layer
-can reach all major agent ecosystems without redundant engineering.
-The full system and codebase are made available for replication
+Directions for future work include extending the session history window to
+address long-session constraint loss (S9), conditional KG routing by query
+class (structural vs.\ opinion), and expanding evaluation beyond the
+consumer-electronics domain. Protocol fragmentation (ACP, UCP, MCP) is an
+integration challenge for merchants; abstracting protocol differences behind
+a canonical data layer reduces per-protocol engineering overhead.
+The full system is made available for replication
 [URL omitted for blind review; will be provided in camera-ready version].
 
 \begin{acks}
 The authors thank their advisors and the host research laboratory for
 advising and infrastructure support [details omitted for blind review].
-AI writing assistance (large language model tools) was used in the
-preparation of this manuscript, in accordance with the ACM RecSys 2026
-Use of AI Policy.
+AI writing assistance was used in the preparation of this manuscript, in
+accordance with the ACM RecSys 2026 Use of AI Policy.
 \end{acks}
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{idss-refs}
 
-\appendix
-
-\section{Intent Detection Keyword Sets}
-\label{app:keywords}
-
-The fast-path intent router uses the following keyword sets (evaluated in order,
-short-circuit on first match):
-
-\begin{itemize}
-\item \textbf{Best value:} ``best value,'' ``get best,'' ``show me the best,'' ``best pick''
-\item \textbf{Pros/Cons:} ``tell me more about these,'' ``pros and cons,'' ``worth the price,''
-  ``trade-off,'' ``battery life on these''
-\item \textbf{Targeted Q\&A:} ``which has the best,'' ``which is the most,'' ``which would you recommend,''
-  ``which should I get,'' ``which should I pick''
-\item \textbf{Compare:} ``vs,'' ``compare my,'' ``compare these,'' ``difference between,''
-  ``differences between,'' ``how do they differ,'' ``contrast,'' ``side by side,''
-  ``what sets them apart,'' ``detailed specs of each''
-\item \textbf{See similar:} ``see similar,'' ``similar items,'' ``show me similar,''
-  ``something similar,'' ``similar to''
-\item \textbf{Refine:} ``refine my search,'' ``change my criteria,'' ``change budget,''
-  ``different screen size,'' ``different brand''
-\end{itemize}
-
-Intents not matched by any fast-path keyword are routed to the LLM intent router
-(\texttt{detect\_post\_rec\_intent}), which classifies the message as one of:
-\texttt{compare}, \texttt{refine}, \texttt{new\_search}, \texttt{other}.
-
-\section{G-Eval Rubric}
-\label{app:geval}
-
-Each response is scored 0.0--1.0 on five dimensions:
-
-\begin{enumerate}
-\item \textbf{Relevance (0--1):} Do the recommended products match the user's
-  stated constraints (category, price range, use case)?
-\item \textbf{Faithfulness (0--1):} Does the narrative accurately reflect the
-  products' actual specifications (no fabricated specs or prices)?
-\item \textbf{Helpfulness (0--1):} Does the response give the user actionable
-  information to make a purchase decision?
-\item \textbf{Tone (0--1):} Is the response appropriately warm for the user's
-  apparent expertise level and emotional state?
-\item \textbf{Constraint correctness (0--1):} Are hard constraints honored?
-  (Excluded brands absent, price ceiling respected, correct product type returned.)
-\end{enumerate}
-
-The final score is the mean of the five dimensions.
-Pass threshold is $\geq 0.5$.
-Calibration examples anchor 0.0 (completely wrong category, wrong brand),
-0.5 (correct category, one constraint violated), and 1.0 (all constraints
-satisfied, accurate explanation).
 
 \end{document}

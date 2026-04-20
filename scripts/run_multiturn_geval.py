@@ -82,7 +82,7 @@ GREEN = "\033[92m"; RED = "\033[91m"; YEL = "\033[93m"; CYN = "\033[96m"
 BOLD  = "\033[1m";  DIM = "\033[2m";  RST = "\033[0m"
 
 PASS_THRESHOLD = 0.5
-GEMINI_MODEL   = "gemini-2.0-flash"   # production stable; comparable to gpt-4o-mini tier
+GEMINI_MODEL   = "gemini-2.5-flash-lite"   # 4K RPM / Unlimited RPD on paid tier — higher throughput than 2.5-flash (1K RPM / 10K RPD)
 
 # ============================================================================
 # Scripted multi-turn scenarios
@@ -818,7 +818,7 @@ async def run_gemini_scenario(
                     break
                 except Exception as e:
                     if ("429" in str(e) or "quota" in str(e).lower()) and attempt < 2:
-                        await asyncio.sleep(15 * (attempt + 1))
+                        await asyncio.sleep(65)  # Gemini quota reset ~52s; 65s = 13s buffer
                         continue
                     reply = f"[ERROR: {e}]"
                     break
@@ -968,8 +968,12 @@ async def judge_transcript(
         ctx_lines = ["", "DETERMINISTIC CONSTRAINT CHECK RESULTS (pre-verified — use to calibrate score):"]
         for note in constraint_notes:
             ctx_lines.append(f"  {note}")
-        all_pass = all(n.startswith("✓") for n in constraint_notes)
-        if all_pass:
+        # A note starting with ✗ is an explicit failure.
+        # Notes like "no deterministic constraints to check" are NOT failures —
+        # they mean no checkable constraints exist (e.g. final turn is an FAQ answer
+        # with no product list).  Treat absence of ✗ as "all passed".
+        has_failure = any(n.startswith("✗") for n in constraint_notes)
+        if not has_failure:
             ctx_lines.append("ALL checks PASSED. Constraint Satisfaction MUST score ≥3 out of 4.")
         else:
             ctx_lines.append("Some checks FAILED (see ✗ above). Penalise constraint satisfaction accordingly.")
@@ -1220,7 +1224,7 @@ async def run_all_scenarios(
     oai        = AsyncOpenAI(api_key=openai_key)
     gpt_sem    = asyncio.Semaphore(4)
     pplx_sem   = asyncio.Semaphore(2)   # Perplexity free tier: ~3 req/min
-    gemini_sem = asyncio.Semaphore(3)   # Gemini free tier: ~15 RPM
+    gemini_sem = asyncio.Semaphore(8)   # Gemini paid tier: 4K RPM (flash-lite) — 8 concurrent is safe
 
     # Initialise Perplexity client if needed
     pplx = None

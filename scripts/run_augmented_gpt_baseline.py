@@ -234,6 +234,78 @@ def check_catalog_grounding(response_text: str, products: List[Dict]) -> Tuple[f
     return score, note
 
 
+# ── Brand exclusion check for free-text responses ─────────────────────────
+def check_brand_from_text(
+    response_text: str,
+    must_not_brands: List[str],
+) -> Tuple[Optional[float], str]:
+    """
+    Deterministic brand-exclusion check for text-only responses (GPT, Gemini).
+
+    Scans the response for excluded brand names appearing in a recommendation
+    context (i.e. NOT preceded by a negation like "no HP", "avoid HP",
+    "not HP", "without HP", "except HP", "excluding HP").
+
+    Returns:
+        (None,   note)  – no exclusions specified for this query
+        (0.0,    note)  – excluded brand found in recommendation context
+        (1.0,    note)  – no excluded-brand violations detected
+
+    Design notes:
+    - We look for the brand name as a whole word (\\b) so "HP" won't match "HDPI".
+    - Negation window: up to 4 tokens before the brand name.
+    - Case-insensitive throughout.
+    - When the same brand appears multiple times we stop at the first positive hit.
+    """
+    if not must_not_brands:
+        return None, "no exclusions to check"
+
+    text = response_text.lower()
+    violations: List[str] = []
+
+    # Tokens within 4 words before the brand name that signal "not recommending".
+    # Both present and past tense forms are included to catch "excluding HP" AND
+    # "excluded HP" (past tense when echoing back the user's constraint).
+    _NEGATION_WORDS = frozenset({
+        "no", "not", "avoid", "avoiding",
+        "without", "except",
+        "excluding", "excluded",    # present + past tense
+        "skip", "skipping", "skipped",
+        "omit", "omitting", "omitted",
+        "drop", "dropping", "dropped",
+        "never", "none",
+        "want",                     # "don't want HP"
+    })
+
+    for brand in must_not_brands:
+        brand_l = brand.lower()
+        # Find every match of the brand name in the text.
+        for m in re.finditer(rf'\b{re.escape(brand_l)}\b', text):
+            start = m.start()
+            # Check for "non-<brand>" pattern: hyphen immediately before the brand
+            # (e.g. "non-HP alternatives").  This is a negation, not a recommendation.
+            is_non_prefix = start > 0 and text[start - 1] == "-"
+            if is_non_prefix:
+                break  # treat "non-<brand>" as negated, stop scanning this brand
+
+            # Look at the preceding 40 characters for negation tokens.
+            window = text[max(0, start - 40): start]
+            window_tokens = window.split()[-5:]  # last 5 words (was 4; +1 for contractions)
+            # Expand contractions so "don't" → includes "don" with negation sense.
+            expanded = " ".join(window_tokens)
+            has_dont = bool(re.search(r"\bdon'?t\b", expanded))
+            is_negated = has_dont or any(tok in _NEGATION_WORDS for tok in window_tokens)
+            if not is_negated:
+                violations.append(brand)
+                break  # one positive violation per brand is enough
+
+    if violations:
+        return 0.0, f"✗ Excluded brand in recommendation context: {', '.join(violations)}"
+    return 1.0, (
+        f"✓ No excluded brands ({', '.join(must_not_brands)}) in recommendation context"
+    )
+
+
 # ── IDSS call ───────────────────────────────────────────────────────────────
 async def get_idss_products_async(
     client: httpx.AsyncClient,
@@ -440,6 +512,13 @@ async def run_augmented(
 
         grounding_score, grounding_note = check_catalog_grounding(gpt_text, products)
 
+        # Brand exclusion check — text-parsed for this free-text baseline.
+        # check_brand_from_text returns None when the query has no brand exclusions,
+        # so this is always safe to call; it won't penalise queries that don't
+        # specify brand constraints.
+        must_not = q.get("must_not_contain_brands", [])
+        brand_score_text, brand_note_text = check_brand_from_text(gpt_text, must_not)
+
         quality_score, reason, usage = await score_augmented_quality_async(
             oai, q, gpt_text, products, gpt_rtype
         )
@@ -451,9 +530,10 @@ async def run_augmented(
         _resp_for_disclosure = {"message": gpt_text, "recommendations": products}
         disclosure_score, disclosure_note = check_disclosure(q, _resp_for_disclosure)
 
-        # Final score: type 40% + grounding 15% + quality 45% (baseline formula).
-        # When disclosure_score is present (catalog_impossible group), replace 20%
-        # of quality weight with disclosure — mirrors the weight in compute_final_score.
+        # Composite score (text-only baseline formula — unchanged from before):
+        #   type 40% + grounding 15% + quality 45%
+        # brand_score_text is stored as a SEPARATE diagnostic field and does NOT
+        # alter the composite score, so historical results remain directly comparable.
         if disclosure_score is not None:
             final = 0.40 * type_score + 0.15 * grounding_score + 0.20 * disclosure_score + 0.25 * quality_score
         else:
@@ -467,6 +547,10 @@ async def run_augmented(
             "score":            round(final, 4),
             "type_score":       type_score,
             "grounding_score":  round(grounding_score, 4),
+            # brand_score_text: None means no brand exclusion in this query;
+            # 0.0 means excluded brand found in text; 1.0 means clean.
+            "brand_score_text": brand_score_text,
+            "brand_note_text":  brand_note_text,
             "quality_score":    quality_score,
             "disclosure_score": disclosure_score,
             "disclosure_note":  disclosure_note,
@@ -503,34 +587,43 @@ async def run_augmented(
         )
         print(f"       {r['type_note']}")
         print(f"       grounding: {r['grounding_note']}")
+        if r["brand_score_text"] is not None:
+            print(f"       brand(text): {r['brand_note_text']}")
         if verbose:
             print(f"       reason: {r['reason']}")
             print(f"       GPT: {r['gpt_text_preview'][:120].replace(chr(10), ' ')}")
     print(f"{'─'*76}\n")
 
     # ── Summary ────────────────────────────────────────────────────────────
-    def stats(subset: List[Dict]) -> Tuple[int, float, float, float, float]:
+    def stats(subset: List[Dict]) -> Tuple[int, float, float, float, float, float]:
+        """Return (n, avg_score, pass_pct, avg_quality, avg_grounding, avg_brand_text)."""
         if not subset:
-            return 0, 0.0, 0.0, 0.0, 0.0
+            return 0, 0.0, 0.0, 0.0, 0.0, 0.0
         n      = len(subset)
         avg    = sum(r["score"] for r in subset) / n
         pct    = 100.0 * sum(1 for r in subset if r["score"] >= PASS_THRESHOLD) / n
         qual   = sum(r["quality_score"] for r in subset) / n
         ground = sum(r["grounding_score"] for r in subset) / n
-        return n, avg, pct, qual, ground
+        # brand_score_text is None when query has no brand exclusion — exclude those
+        # from the average so we only report accuracy on brand-constrained queries.
+        brand_checks = [r["brand_score_text"] for r in subset if r["brand_score_text"] is not None]
+        brand_avg = sum(brand_checks) / len(brand_checks) if brand_checks else float("nan")
+        return n, avg, pct, qual, ground, brand_avg
 
     all_  = scored
     recs_ = [r for r in scored if r["idss_rtype"] == "recommendations"]
     na_   = [r for r in scored if r["idss_rtype"] != "recommendations"]
 
-    na, aa, pa, qa, ga  = stats(all_)
-    nr, ar, pr, qr, gr  = stats(recs_)
+    na, aa, pa, qa, ga, ba  = stats(all_)
+    nr, ar, pr, qr, gr, br  = stats(recs_)
 
     print(f"\n{BOLD}  Augmented GPT Baseline — Summary{RST}\n")
-    print(f"  {'Category':<35} {'N':>4}  {'AvgScore':>8}  {'Pass%':>7}  {'AvgQual':>8}  {'AvgGround':>9}")
-    print(f"  {'─'*73}")
-    print(f"  {'All queries':<35} {na:>4}  {aa:>8.3f}  {pa:>6.1f}%  {qa:>8.3f}  {ga:>9.3f}")
-    print(f"  {'Rec queries (IDSS gave products)':<35} {nr:>4}  {ar:>8.3f}  {pr:>6.1f}%  {qr:>8.3f}  {gr:>9.3f}")
+    print(f"  {'Category':<35} {'N':>4}  {'AvgScore':>8}  {'Pass%':>7}  {'AvgQual':>8}  {'AvgGround':>9}  {'BrandText':>9}")
+    print(f"  {'─'*82}")
+    brand_str = f"{ba:>9.3f}" if ba == ba else "       N/A"  # nan guard
+    print(f"  {'All queries':<35} {na:>4}  {aa:>8.3f}  {pa:>6.1f}%  {qa:>8.3f}  {ga:>9.3f}  {brand_str}")
+    brand_r_str = f"{br:>9.3f}" if br == br else "       N/A"
+    print(f"  {'Rec queries (IDSS gave products)':<35} {nr:>4}  {ar:>8.3f}  {pr:>6.1f}%  {qr:>8.3f}  {gr:>9.3f}  {brand_r_str}")
     if na_:
         print(f"  {'Interview queries (no products)':<35} {len(na_):>4}  (skipped — IDSS in interview mode)")
 
@@ -542,7 +635,7 @@ async def run_augmented(
     for g in groups:
         gs = [r for r in recs_ if r["group"] == g]
         if gs:
-            n, a, p, q_, gnd = stats(gs)
+            n, a, p, q_, gnd, br = stats(gs)
             print(f"  {g:<20} {n:>4}  {a:>8.3f}  {q_:>8.3f}  {gnd:>9.3f}")
 
     # Compare IDSS vs augmented GPT quality (rec queries)

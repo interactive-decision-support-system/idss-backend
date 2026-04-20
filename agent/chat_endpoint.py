@@ -1514,6 +1514,16 @@ async def _handle_post_recommendation(
         "work/business", "school/study", "creative work", "general use",
         "home use", "school", "business", "office",
         "gaming",  # use-case quick reply seen after recommendations — treat as refinement
+        # Spec-addition phrases: user is adding a new hardware/spec constraint to the
+        # current search.  Must route to process_refinement (refine_filters), NOT to
+        # targeted_qa (which only answers a question about shown products).
+        # Catching these in the fast path avoids an LLM intent call that occasionally
+        # misclassifies "also needs 16GB RAM" as targeted_qa.
+        "also needs", "also need", "also require", "also requires",
+        "also want", "also wants",
+        "need at least", "needs at least",
+        "need minimum", "needs minimum",
+        "must have at least", "require at least", "requires at least",
     )
     # Exact brand names that can come in as standalone quick-reply selections
     # (e.g. user chose "Acer" from the brand picker). Use exact equality —
