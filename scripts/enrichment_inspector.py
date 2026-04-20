@@ -209,14 +209,20 @@ def fetch_enriched_table(
         enr = merchant_enriched_table(merchant_id)
     except ValueError:
         return None
+    # The raw table's PK column is ``id`` and the title column is ``title``;
+    # the ORM model exposes them as ``product_id`` / ``name``. Hand-written
+    # SQL has to use the underlying column names. Enriched rows live in a
+    # per-merchant table by construction, and the enriched schema doesn't
+    # carry ``merchant_id`` at all, so the JOIN keys on ``id``/``product_id``
+    # only.
     sql = text(
         f"""
-        SELECT p.product_id, p.name, p.brand, p.category, p.price,
-               p.attributes AS raw_attributes,
+        SELECT p.id AS product_id, p.title AS name, p.brand, p.category,
+               p.price, p.attributes AS raw_attributes,
                e.strategy, e.attributes AS enriched_attributes
         FROM {raw} p
-        LEFT JOIN {enr} e USING (product_id, merchant_id)
-        ORDER BY p.product_id
+        LEFT JOIN {enr} e ON p.id = e.product_id
+        ORDER BY p.id
         LIMIT :lim
         """
     )
@@ -280,11 +286,15 @@ def fetch_one_product(
         return None, {}
     raw_row: dict[str, Any] | None
     with engine.connect() as conn:
+        # Raw table PK is ``id``; the ORM exposes it as ``product_id``. Use
+        # the underlying name in SQL, then translate the dict keys for the
+        # display + kg_projection.IDENTITY_FIELDS lookup downstream.
         rr = conn.execute(
-            text(f"SELECT * FROM {raw} WHERE product_id = :pid LIMIT 1"),
+            text(f"SELECT * FROM {raw} WHERE id = :pid LIMIT 1"),
             {"pid": product_id},
         ).mappings().one_or_none()
         raw_row = dict(rr) if rr else None
+        # Enriched table PK is literally ``product_id``; leave as-is.
         enriched_rows = conn.execute(
             text(
                 f"SELECT strategy, attributes FROM {enr} "
@@ -292,6 +302,14 @@ def fetch_one_product(
             ),
             {"pid": product_id},
         ).mappings().all()
+    if raw_row is not None:
+        # Translate raw column names → ORM-attribute / kg_projection logical
+        # names so render_per_product's IDENTITY_FIELDS lookup hits. Without
+        # this the "Projected :Product node" panel renders an empty identity
+        # block for every product.
+        for col, logical in (("id", "product_id"), ("title", "name"), ("imageurl", "image_url")):
+            if col in raw_row and logical not in raw_row:
+                raw_row[logical] = raw_row.pop(col)
     enriched_by_strategy: dict[str, dict[str, Any]] = {
         r["strategy"]: (r["attributes"] or {}) for r in enriched_rows
     }
