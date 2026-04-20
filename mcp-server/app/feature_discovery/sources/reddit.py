@@ -2,9 +2,14 @@
 
 Hits ``https://www.reddit.com/r/<sub>/search.json?q=...&restrict_sr=1``
 which Reddit serves without an OAuth token for low-volume read traffic.
-We keep the per-subreddit request count small (< a dozen) and route
-through the same robots-aware ScraperClient as the web_scraper agent so
-backoff, User-Agent, and domain allowlisting stay consistent.
+We keep the per-subreddit request count small (< a dozen).
+
+The default HTTP getter (``_default_http_get``) is a plain
+``urllib.request.urlopen`` call with a 10 s timeout and a static
+User-Agent header — it does NOT consult robots.txt, apply backoff, or
+throttle. That's acceptable for the current prototype volume; wire in
+the shared ``ScraperClient`` if we ever raise limits or broaden sources.
+Tests inject their own ``http_get`` to stay offline.
 
 The subreddit map below is the demand-discovery equivalent of
 ``enrichment/config/scraper_sources.yaml`` — deliberately small, expand
@@ -29,14 +34,14 @@ _SUBREDDITS_BY_TYPE: dict[str, list[str]] = {
     "laptop": ["SuggestALaptop", "laptops", "GamingLaptops"],
     "headphones": ["HeadphoneAdvice", "headphones"],
     "blender": ["Cooking", "BuyItForLife"],
-    "office-chair": ["OfficeChairs", "chairs"],
+    "office_chair": ["OfficeChairs", "chairs"],
 }
 
 _SEARCH_QUERIES_BY_TYPE: dict[str, list[str]] = {
     "laptop": ["recommend", "which laptop", "best for", "should I buy"],
     "headphones": ["recommend", "best for", "which headphones"],
     "blender": ["recommend blender", "best blender for"],
-    "office-chair": ["recommend chair", "best chair for"],
+    "office_chair": ["recommend chair", "best chair for"],
 }
 
 _MIN_BODY_CHARS = 200

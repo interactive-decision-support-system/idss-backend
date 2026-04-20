@@ -24,6 +24,18 @@ from app.feature_discovery.types import ExtractedFeatures, UserQuery
 logger = logging.getLogger(__name__)
 
 
+# Per-bucket cap. Referenced both in the prompt (so the LLM doesn't
+# overproduce) and in `_clean_list` (post-validation truncation). Keep
+# them in sync via this constant.
+_MAX_ITEMS = 12
+
+# Sentinel value written to ExtractedFeatures.model when JSON parsing of
+# the LLM response fails completely. Aggregators can filter on this to
+# avoid double-counting empty rows as real "no features mentioned"
+# observations.
+_PARSE_FAILED_MODEL = "parse_failed"
+
+
 _SYSTEM = (
     "You read a shopper's message about a product and extract the features "
     "they are reasoning about. Return JSON with these keys, all list[str]:\n"
@@ -43,7 +55,7 @@ _SYSTEM = (
     "Rules:\n"
     "  - Only emit items the text actually supports. Do not infer.\n"
     "  - Keys must be snake_case, ASCII, no spaces.\n"
-    "  - Cap each list at 12 items. Quality over quantity.\n"
+    f"  - Cap each list at {_MAX_ITEMS} items. Quality over quantity.\n"
     "  - If a field is not present, return an empty list for that key."
 )
 
@@ -68,6 +80,12 @@ class FeatureExtractor:
             temperature=0.1,
         )
         data = resp.parsed_json or _parse_json_lax(resp.text)
+        # If neither structured nor lax parsing yielded anything we'd
+        # otherwise emit an all-empty ExtractedFeatures and the aggregator
+        # would count it as a legitimate "shopper mentioned nothing"
+        # observation. Tag the row so downstream filters can distinguish
+        # parser failures from genuinely empty extractions.
+        tagged_model = model if data else _PARSE_FAILED_MODEL
         return ExtractedFeatures(
             source_id=query.source_id,
             product_type=query.product_type,
@@ -76,7 +94,7 @@ class FeatureExtractor:
             hard_constraints=_clean_list(data.get("hard_constraints")),
             soft_preferences=_clean_list(data.get("soft_preferences")),
             implicit_concerns=_clean_list(data.get("implicit_concerns")),
-            model=model,
+            model=tagged_model,
         )
 
 
@@ -96,7 +114,7 @@ def _clean_list(raw: Any) -> list[str]:
             continue
         seen.add(key)
         out.append(key)
-        if len(out) >= 12:
+        if len(out) >= _MAX_ITEMS:
             break
     return out
 

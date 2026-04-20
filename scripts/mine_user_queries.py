@@ -36,10 +36,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+_MERCHANT_ID_RE = re.compile(r"^[a-z0-9_]+$")
 
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "mcp-server"))
@@ -81,7 +84,15 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--merchant", default="default")
     p.add_argument("--catalog-sample-size", type=int, default=100)
-    p.add_argument("--strategy", default="composer_v1", help="Enrichment strategy to sample.")
+    p.add_argument(
+        "--strategy",
+        default="composer_v1",
+        help=(
+            "Enrichment strategy to sample. Note: each MerchantAgent is scoped to "
+            "(merchant_id, strategy); choosing the wrong strategy silently compares "
+            "against a different KG projection and will produce misleading coverage."
+        ),
+    )
     p.add_argument(
         "--fake-llm",
         action="store_true",
@@ -196,16 +207,24 @@ def _sample_enriched_attributes(*, merchant: str, strategy: str, sample_size: in
 
     Kept lazy so --fake-llm / --catalog-keys-file runs don't need DB deps.
     """
+    # Validate merchant identifier before it is interpolated into raw SQL.
+    # The suffix is baked into a table name so parameter binding cannot
+    # protect us here; restrict to the same charset the registry uses.
+    if not _MERCHANT_ID_RE.match(merchant or ""):
+        raise ValueError(
+            f"invalid merchant id {merchant!r}; must match {_MERCHANT_ID_RE.pattern}"
+        )
+
     from sqlalchemy import text  # type: ignore
 
-    from app.database import get_session  # type: ignore
+    from app.database import SessionLocal  # type: ignore
 
     table = f"merchants.products_enriched_{merchant}"
     sql = text(
         f"SELECT attributes FROM {table} WHERE strategy = :strategy LIMIT :n"
     )
     attrs: list[dict] = []
-    with get_session() as db:
+    with SessionLocal() as db:
         rows = db.execute(sql, {"strategy": strategy, "n": sample_size}).fetchall()
     for (row_attrs,) in rows:
         if isinstance(row_attrs, dict):

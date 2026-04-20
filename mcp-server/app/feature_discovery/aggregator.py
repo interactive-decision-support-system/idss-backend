@@ -9,10 +9,12 @@ Two steps:
                                    shopper talked about.
 
 The "catalog keys" input is a set[str] of attribute keys the existing
-enrichment pipeline currently emits. In live mode the CLI pulls these
-from ``products_enriched`` via ``enriched_reader.hydrate_batch`` (flatten
-each row's ``attributes`` dict and union the keys). Offline, the CLI
-loads them from a sample JSON.
+enrichment pipeline currently emits. In live mode the CLI
+(``scripts/mine_user_queries.py::_sample_enriched_attributes``) selects
+``attributes`` from ``merchants.products_enriched_<merchant>`` filtered
+by ``strategy``, then ``collect_catalog_keys`` flattens each row's
+``attributes`` dict (one level of nesting) and unions the keys.
+Offline, the CLI loads the same shape from a sample JSON.
 """
 
 from __future__ import annotations
@@ -81,11 +83,14 @@ def coverage(
     Missing: frequent shopper key with no catalog representation.
     Underused: catalog key that no shopper in the corpus mentioned.
 
-    "Close variant" is a cheap bidirectional token overlap — we split
-    on `_` and call it a match if either side's tokens is a subset of
-    the other. That covers unit-suffix drift (shopper 'battery_life'
-    vs catalog 'battery_life_hours') and value specialization (shopper
-    'brand_apple' vs catalog axis 'brand').
+    "Close variant" uses an axis-anchored one-way subset check. Split on
+    `_`; the shopper key's FIRST token (the axis, e.g. 'battery' in
+    'battery_life_hours') must appear in the catalog key's token set,
+    AND every shopper token must be present in the catalog tokens. This
+    covers unit-suffix drift (shopper 'battery_life' vs catalog
+    'battery_life_hours') without collapsing value specialization into
+    the axis itself (shopper 'brand_apple' must NOT match catalog
+    'brand', since 'apple' is absent from the catalog tokens).
     """
     covered: list[FeatureFrequency] = []
     missing: list[FeatureFrequency] = []
@@ -100,13 +105,19 @@ def coverage(
         else:
             missing.append(freq)
 
-    shopper_token_sets = [set(f.key.split("_")) for f in freqs]
+    shopper_token_lists = [f.key.split("_") for f in freqs]
     underused: list[str] = []
     for k in sorted(catalog_keys):
         k_tokens = set(k.split("_"))
-        if not any(
-            k_tokens.issubset(st) or st.issubset(k_tokens) for st in shopper_token_sets
-        ):
+        used = False
+        for s_tokens in shopper_token_lists:
+            if not s_tokens:
+                continue
+            s_set = set(s_tokens)
+            if s_tokens[0] in k_tokens and s_set.issubset(k_tokens):
+                used = True
+                break
+        if not used:
             underused.append(k)
 
     return CoverageReport(
@@ -120,11 +131,20 @@ def coverage(
 
 
 def _catalog_match(shopper_key: str, norm_catalog: dict[str, set[str]]) -> bool:
-    shopper_tokens = set(shopper_key.split("_"))
-    if not shopper_tokens:
+    # Axis-anchored one-way subset: the shopper key's first token (the
+    # axis) must appear in the catalog key's tokens, AND the full shopper
+    # token set must be a subset of the catalog tokens. Preserves exact
+    # matches (identical token sets satisfy both conditions) while
+    # rejecting cases where the shopper specialized a catalog axis with
+    # a value token the catalog doesn't carry (e.g. 'brand_apple' vs
+    # catalog 'brand').
+    shopper_tokens = shopper_key.split("_")
+    if not shopper_tokens or not shopper_tokens[0]:
         return False
+    shopper_set = set(shopper_tokens)
+    axis = shopper_tokens[0]
     for _, tokens in norm_catalog.items():
-        if shopper_tokens.issubset(tokens) or tokens.issubset(shopper_tokens):
+        if axis in tokens and shopper_set.issubset(tokens):
             return True
     return False
 
