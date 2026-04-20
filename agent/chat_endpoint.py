@@ -3610,7 +3610,10 @@ async def _search_and_respond_ecommerce(
     # Prepend a transparent notice so the user knows why results differ.
     _requested_brand = str(search_filters.get("brand") or "").strip()
     _brand_disclosure = ""
-    if _requested_brand and _requested_brand.lower() not in ("no preference", "any", "", "null"):
+    # Also skip disclosure for negated brand strings like "no HP", "no Dell" — those are
+    # exclusion constraints, not positive brand requests; they must never trigger this message.
+    _brand_is_negation = _requested_brand.lower().startswith(("no ", "not ", "without ", "avoid "))
+    if _requested_brand and not _brand_is_negation and _requested_brand.lower() not in ("no preference", "any", "", "null"):
         def _product_matches_brand(p: dict, brand_lower: str) -> bool:
             name = (p.get("name") or p.get("title") or "").lower()
             brand = (p.get("brand") or "").lower()

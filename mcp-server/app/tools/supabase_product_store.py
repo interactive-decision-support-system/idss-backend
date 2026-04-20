@@ -287,6 +287,14 @@ class SupabaseProductStore:
         if price_max is not None:
             params.append(("price", f"lte.{price_max:.2f}"))
 
+        # OS exclusion — never relaxed (same as brand exclusion).
+        _excl_os_list_rest = filters.get("excluded_os") or []
+        if isinstance(_excl_os_list_rest, str):
+            _excl_os_list_rest = [_excl_os_list_rest]
+        for _excl_os_rest in _excl_os_list_rest:
+            _kw_rest = _excl_os_rest.replace(" ", "").lower()  # "Chrome OS" → "chromeos"
+            params.append(("attributes->>os", f"not.ilike.*{_kw_rest}*"))
+
         if not drop_specs:
             # OS filter — only applied at step 1 (full constraints).
             # Moving it inside drop_specs ensures it is relaxed along with RAM/screen/battery
@@ -760,6 +768,22 @@ class _SQLAlchemyProductStore:
         if os_filter and not drop_os and str(os_filter).lower() not in ("no preference", "any", ""):
             conditions.append("(attributes->>'os' ILIKE :os_filter OR attributes->>'operating_system' ILIKE :os_filter)")
             params["os_filter"] = f"%{os_filter}%"
+
+        # OS exclusion filter — e.g. excluded_os=["Chrome OS"] → exclude all Chromebooks.
+        # Never relaxed: a user who said "no Chromebook" always means it.
+        _excl_os_list = filters.get("excluded_os") or []
+        if isinstance(_excl_os_list, str):
+            _excl_os_list = [_excl_os_list]
+        for _oi, _excl_os in enumerate(_excl_os_list):
+            _kw = _excl_os.replace(" ", "").lower()  # "Chrome OS" → "chromeos"
+            _p_os  = f"excl_os_{_oi}"
+            _p_os2 = f"excl_os2_{_oi}"
+            conditions.append(
+                f"(attributes->>'os' IS NULL OR attributes->>'os' NOT ILIKE :{_p_os})"
+                f" AND (attributes->>'operating_system' IS NULL OR attributes->>'operating_system' NOT ILIKE :{_p_os2})"
+            )
+            params[_p_os]  = f"%{_kw}%"
+            params[_p_os2] = f"%{_kw}%"
 
         if price_min is not None:
             conditions.append("price >= :price_min")

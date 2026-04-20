@@ -770,6 +770,16 @@ class UniversalAgent:
             elif slot_name == "os":
                 search_filters["os"] = value
 
+            elif slot_name == "excluded_os":
+                # OS/platform exclusion — e.g. "Chrome OS" means no Chromebooks.
+                # Stored as a list to support future multi-exclusion.
+                existing = search_filters.get("excluded_os") or []
+                if isinstance(existing, str):
+                    existing = [existing]
+                if value not in existing:
+                    existing.append(value)
+                search_filters["excluded_os"] = existing
+
             elif slot_name == "product_subtype":
                 # Override product_type with the more-specific user-stated subtype.
                 # e.g. "laptop_bag" → search for bags, not laptops.
@@ -1511,7 +1521,26 @@ class UniversalAgent:
         if excl_brands:
             criteria.append(SlotValue(slot_name="excluded_brands", value=",".join(excl_brands)))
 
-        # ── OS ───────────────────────────────────────────────────────────────
+        # ── OS exclusion (Chromebook / ChromeOS) ─────────────────────────────
+        # Detect "no Chromebook", "not a Chromebook", "Windows or macOS", "real OS", etc.
+        # These mean "exclude ChromeOS" — NOT a positive ChromeOS request.
+        _CHROMEBOOK_EXCLUSION_RE = re.compile(
+            r"(?:no|not\s+a?|don'?t\s+want|avoid|without)\s+chromebook"
+            r"|chromebook[s]?\s+(?:are\s+)?(?:not|won'?t)\s+work"
+            r"|\breal\s+os\b"                          # "I need a real OS"
+            r"|\bwindows\s+or\s+ma?c"                  # "Windows or Mac/macOS"
+            r"|\bma?c\s+or\s+windows\b",               # "Mac or Windows"
+            re.IGNORECASE,
+        )
+        _exclude_chromeos = bool(_CHROMEBOOK_EXCLUSION_RE.search(message))
+        if _exclude_chromeos:
+            criteria.append(SlotValue(slot_name="excluded_os", value="Chrome OS"))
+
+        # ── OS positive preference ────────────────────────────────────────────
+        # Only run if the message doesn't just express ChromeOS exclusion.
+        # "Windows or macOS" = excluded_os only (no positive filter); handle ChromeOS
+        # as an exclusion (above) rather than a positive match when negated.
+        _skip_chromeos_positive = _exclude_chromeos  # don't add os=Chrome OS when user said "no Chromebook"
         _os_map = [
             (re.compile(r'\bwindows\s*10\b', re.I), "Windows 10"),
             (re.compile(r'\bwindows\s*11\b', re.I), "Windows 11"),
@@ -1522,6 +1551,12 @@ class UniversalAgent:
         ]
         for _pat, _os_val in _os_map:
             if _pat.search(message):
+                if _os_val == "Chrome OS" and _skip_chromeos_positive:
+                    break  # exclusion already added above; don't add positive filter
+                # Also skip positive Windows/macOS match when phrase is "Windows or macOS"
+                # (that phrase means "not Chromebook", not a restriction to one OS)
+                if re.search(r'\bwindows\s+or\s+ma?c|\bma?c\s+or\s+windows\b', message, re.I):
+                    break  # handled by excluded_os above
                 criteria.append(SlotValue(slot_name="os", value=_os_val))
                 break
 
@@ -1778,7 +1813,7 @@ class UniversalAgent:
 
     # Slots that are EXTRACT-ONLY — never ask the user about them.
     # They are populated only when the user explicitly states them.
-    _EXTRACT_ONLY_SLOTS = frozenset({"excluded_brands", "os", "product_subtype"})
+    _EXTRACT_ONLY_SLOTS = frozenset({"excluded_brands", "excluded_os", "os", "product_subtype"})
 
     def _get_next_missing_slot(self, schema: DomainSchema) -> Optional[PreferenceSlot]:
         """
@@ -2171,6 +2206,51 @@ Write the recommendation message."""}
                     else:
                         self.filters[canonical] = item.value
                     logger.info(f"Refinement updated filter: {canonical}={self.filters.get(canonical)}")
+                # ── Deterministic spec supplement ─────────────────────────────
+                # Same principle as brand exclusion below: run regex extraction for
+                # numeric spec constraints (RAM, storage, budget) that the LLM
+                # frequently omits from updated_criteria even when they are the main
+                # point of the message (e.g. "Also needs at least 16GB RAM").
+                # Only promotes a slot if LLM left it empty or the new value is stricter.
+                _det_ram = re.search(
+                    r'(?:at\s+least\s+)?(\d{1,3})\s*(?:gb|g)\s*(?:of\s+)?(?:ram|memory)',
+                    message, re.IGNORECASE,
+                ) or re.search(
+                    r'(\d{1,3})\s*(?:gigs?)\s*(?:of\s+)?(?:ram|memory)?',
+                    message, re.IGNORECASE,
+                )
+                if _det_ram:
+                    _det_ram_val = int(_det_ram.group(1))
+                    if 2 <= _det_ram_val <= 256:
+                        _cur_ram = self.filters.get("min_ram_gb")
+                        try:
+                            _cur_ram_int = int(str(_cur_ram).split(".")[0]) if _cur_ram else 0
+                        except (ValueError, TypeError):
+                            _cur_ram_int = 0
+                        if _det_ram_val > _cur_ram_int:
+                            self.filters["min_ram_gb"] = str(_det_ram_val)
+                            logger.info(f"Refinement det-spec supplement: min_ram_gb={_det_ram_val}")
+
+                _det_storage = re.search(
+                    r'(?:at\s+least\s+)?(\d{1,4})\s*(?:gb|tb|g)\s*(?:of\s+)?(?:storage|ssd|hdd|disk|drive)',
+                    message, re.IGNORECASE,
+                )
+                if _det_storage:
+                    _raw_val = int(_det_storage.group(1))
+                    # Convert TB to GB
+                    _is_tb = bool(re.search(r'\btb\b', _det_storage.group(0), re.I))
+                    _det_storage_gb = _raw_val * 1024 if _is_tb else _raw_val
+                    if 16 <= _det_storage_gb <= 8192:
+                        _cur_sto = self.filters.get("min_storage_gb")
+                        try:
+                            _cur_sto_int = int(str(_cur_sto).split(".")[0]) if _cur_sto else 0
+                        except (ValueError, TypeError):
+                            _cur_sto_int = 0
+                        if _det_storage_gb > _cur_sto_int:
+                            self.filters["min_storage_gb"] = str(_det_storage_gb)
+                            logger.info(f"Refinement det-spec supplement: min_storage_gb={_det_storage_gb}")
+
+                # ── Deterministic brand exclusion supplement ───────────────────
                 # Always supplement with deterministic brand exclusion detection so that
                 # "no HP", "please no HP laptops" etc. are never missed even if the LLM
                 # doesn't include them in updated_criteria.
