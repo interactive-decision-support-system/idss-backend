@@ -16,7 +16,7 @@ import logging
 from collections import Counter
 from typing import Any
 
-from app.enrichment.tools.llm_client import LLMClient, default_model
+from app.enrichment.tools.llm_client import LLMClient, utility_model
 from app.enrichment.types import AssessorOutput, ProductInput
 
 logger = logging.getLogger(__name__)
@@ -24,12 +24,15 @@ logger = logging.getLogger(__name__)
 
 # Strategies the assessor can recommend. Kept here so the assessor can reason
 # about them without circular imports of the agent classes themselves.
+# composer_v1 always runs (single writer of the canonical row — #83); the
+# orchestrator appends it last regardless of assessor filtering.
 _AVAILABLE_STRATEGIES = (
     "taxonomy_v1",
     "parser_v1",
     "specialist_v1",
     "scraper_v1",
     "soft_tagger_v1",
+    "composer_v1",
 )
 
 
@@ -104,7 +107,7 @@ class Assessor:
             resp = self._llm.complete(
                 system=_SYSTEM,
                 user="Sample:\n" + json.dumps(sample, ensure_ascii=False),
-                model=model or default_model(large=True),
+                model=model or utility_model(),
                 json_mode=True,
                 max_tokens=400,
                 temperature=0.1,

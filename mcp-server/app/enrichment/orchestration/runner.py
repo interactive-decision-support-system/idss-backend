@@ -459,6 +459,7 @@ def _short(strategy: str) -> str:
         "specialist_v1": "specialist",
         "scraper_v1": "scraped",
         "soft_tagger_v1": "soft_tagger",
+        "composer_v1": "composer",
     }
     return mapping.get(strategy, strategy)
 

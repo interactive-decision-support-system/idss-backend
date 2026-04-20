@@ -8,6 +8,7 @@ collisions visible.
 
 from app.enrichment.agents import (  # noqa: F401 - import side effects
     assessor,
+    composer,
     parser,
     soft_tagger,
     specialist,

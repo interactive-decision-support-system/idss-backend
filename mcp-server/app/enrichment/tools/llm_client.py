@@ -1,7 +1,11 @@
 """OpenAI wrapper used by every enrichment agent.
 
 Centralizes:
-  - model selection (default gpt-4o-mini; gpt-4o opt-in via ENRICHMENT_LARGE_MODEL)
+  - tiered model selection (see #83):
+      * per-product strategies   -> gpt-5-mini   (ENRICHMENT_DEFAULT_MODEL)
+      * composer / assessor      -> gpt-5        (ENRICHMENT_LARGE_MODEL,
+                                                  ENRICHMENT_COMPOSER_MODEL)
+      * utility / pre-pass calls -> gpt-5-nano   (ENRICHMENT_UTILITY_MODEL)
   - retry on transient errors (rate limits, timeouts)
   - cost metering (per-call usage and a process-level running total)
   - JSON-mode parsing convenience
@@ -27,6 +31,10 @@ _PRICING: dict[str, tuple[float, float]] = {
     # model: (input_per_1k, output_per_1k)
     "gpt-4o-mini": (0.00015, 0.00060),
     "gpt-4o": (0.00250, 0.01000),
+    # GPT-5 family — public list pricing at time of adoption (issue #83).
+    "gpt-5-nano": (0.00005, 0.00040),
+    "gpt-5-mini": (0.00025, 0.00200),
+    "gpt-5": (0.00125, 0.01000),
 }
 
 
@@ -69,8 +77,24 @@ def get_ledger() -> CostLedger:
 
 def default_model(*, large: bool = False) -> str:
     if large:
-        return os.getenv("ENRICHMENT_LARGE_MODEL", "gpt-4o")
-    return os.getenv("ENRICHMENT_DEFAULT_MODEL", "gpt-4o-mini")
+        return os.getenv("ENRICHMENT_LARGE_MODEL", "gpt-5")
+    return os.getenv("ENRICHMENT_DEFAULT_MODEL", "gpt-5-mini")
+
+
+def composer_model() -> str:
+    """Top-tier model for the composer agent (cross-agent synthesis +
+    no-hallucination policy enforcement). Falls back to ENRICHMENT_LARGE_MODEL
+    so sites that haven't set the composer knob still land on gpt-5."""
+    return os.getenv(
+        "ENRICHMENT_COMPOSER_MODEL",
+        os.getenv("ENRICHMENT_LARGE_MODEL", "gpt-5"),
+    )
+
+
+def utility_model() -> str:
+    """Cheapest tier for utility / pre-pass calls (e.g. the assessor's
+    product-type discovery) where high reasoning isn't needed."""
+    return os.getenv("ENRICHMENT_UTILITY_MODEL", "gpt-5-nano")
 
 
 def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
