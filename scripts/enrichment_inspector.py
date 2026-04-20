@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.parse
 from datetime import datetime, timezone
@@ -579,16 +580,29 @@ def render_raw_enriched_kg(
 # ---------------------------------------------------------------------------
 
 
-# Upstream strategies composer_v1 may cite as source_strategy. Matches
-# _SHORT_TO_STRATEGY.values() in app/enrichment/agents/composer.py — kept
-# in sync manually to avoid a UI-time import of agent internals.
-_KNOWN_UPSTREAM_STRATEGIES: tuple[str, ...] = (
+# Upstream strategies composer_v1 may cite as source_strategy. Pulled
+# from composer._SHORT_TO_STRATEGY at import time so the inspector
+# never drifts from the writer's known-source set (review fix #5,
+# PR #86). The hardcoded fallback matches that set as of PR #84's head
+# and is only used if the import chain is broken (e.g. stripped-down
+# test env where the app package isn't on sys.path).
+_FALLBACK_UPSTREAM_STRATEGIES: tuple[str, ...] = (
     "taxonomy_v1",
     "parser_v1",
     "specialist_v1",
     "scraper_v1",
     "soft_tagger_v1",
 )
+try:
+    from app.enrichment.agents.composer import (
+        _SHORT_TO_STRATEGY as _COMPOSER_SHORT_TO_STRATEGY,
+    )
+
+    _KNOWN_UPSTREAM_STRATEGIES: tuple[str, ...] = tuple(
+        sorted(_COMPOSER_SHORT_TO_STRATEGY.values())
+    )
+except Exception:  # noqa: BLE001 - UI must render even if the agent import fails
+    _KNOWN_UPSTREAM_STRATEGIES = _FALLBACK_UPSTREAM_STRATEGIES
 
 
 @st.cache_data(show_spinner=False)
@@ -600,18 +614,31 @@ def _index_trace_by_product(
     The ``_mtime`` argument is the cache-bust lever: Streamlit's
     ``@st.cache_data`` keys on every argument, so passing the file's
     modification time means a re-run overwrites the cache on file
-    change without the caller having to reason about it.
+    change without the caller having to reason about it. We also trust
+    that ``run_id`` is globally unique — it is a 32-char hex UUID
+    generated in ``orchestration/runner.py`` — so caching on the file
+    path alone (no explicit run_id hash) is safe across merchants.
 
     Returns ``{pid: {"strategy_spans": {strategy: span}, "llm_by_strategy":
     {strategy: [span, ...]}, "composer": span | None, "decisions_by_key":
     {canonical_key: decision}}}``. Missing pids return an empty shell
     lazily, so callers don't need ``KeyError`` guards.
+
+    LLM spans don't carry a product_id on their own input and the
+    tracer doesn't auto-tag them with ``product:<pid>`` (see
+    ``tracing._current_tags``), so attribution is done by time-window
+    containment: an LLM span at ``[start, end]`` belongs to the
+    strategy span whose ``[start, end]`` fully contains it. This is
+    robust against JSONL write order (LLM spans close and flush
+    *before* their parent strategy span, so "most recently seen
+    strategy name" would always mis-attribute) and against any future
+    interleaving — review fixes #2 and #3, PR #86.
     """
     path = Path(jsonl_path_str)
     if not path.exists():
         return {}
-    by_pid: dict[str, dict[str, Any]] = {}
-    current_strategy_by_pid: dict[str, str | None] = {}
+    strategy_records: list[dict[str, Any]] = []
+    llm_records: list[dict[str, Any]] = []
     with open(path, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -621,53 +648,100 @@ def _index_trace_by_product(
                 span = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            name = span.get("name") or ""
+            if name.startswith("llm:"):
+                llm_records.append(span)
+                continue
             pid = _span_product_id(span)
             if not pid:
-                # LLM spans sometimes lack product_id on their own input,
-                # so fall back to the most recently seen strategy's pid.
-                # We track that via current_strategy_by_pid keys.
-                pid = None
-            name = span.get("name") or ""
-            # Every span opened under a strategy's span inherits the same
-            # product_id tag, so the ``product:<pid>`` tag is the reliable
-            # bucket key even for nested LLM spans.
-            if pid is None:
-                for tag in span.get("tags") or []:
-                    if isinstance(tag, str) and tag.startswith("product:"):
-                        pid = tag.split(":", 1)[1]
-                        break
-            if pid is None:
                 continue
-            bucket = by_pid.setdefault(
-                pid,
-                {
-                    "strategy_spans": {},
-                    "llm_by_strategy": {},
-                    "composer": None,
-                    "decisions_by_key": {},
-                    "dropped_by_key": {},
-                },
-            )
-            if name.startswith("llm:"):
-                owner = current_strategy_by_pid.get(pid)
-                bucket["llm_by_strategy"].setdefault(owner or "(unassigned)", []).append(span)
-                continue
-            # Strategy spans and the composer span both pass here.
-            if name == "composer_v1":
-                bucket["composer"] = span
-                decisions = _composer_decisions_from_span(span)
-                for d in decisions:
-                    key = d.get("key")
-                    if isinstance(key, str) and key:
-                        bucket["decisions_by_key"][key] = d
-            elif name in _KNOWN_UPSTREAM_STRATEGIES:
-                bucket["strategy_spans"][name] = span
-            else:
-                # Unknown span name (e.g. a one-off diagnostic) — store
-                # under its name anyway so the agent graph can render it.
-                bucket["strategy_spans"][name] = span
-            current_strategy_by_pid[pid] = name
+            strategy_records.append({"pid": str(pid), "name": name, "span": span})
+
+    by_pid: dict[str, dict[str, Any]] = {}
+    for rec in strategy_records:
+        pid = rec["pid"]
+        name = rec["name"]
+        span = rec["span"]
+        bucket = by_pid.setdefault(
+            pid,
+            {
+                "strategy_spans": {},
+                "llm_by_strategy": {},
+                "composer": None,
+                "decisions_by_key": {},
+            },
+        )
+        if name == "composer_v1":
+            bucket["composer"] = span
+            for decision in _composer_decisions_from_span(span):
+                key = decision.get("key")
+                if isinstance(key, str) and key:
+                    bucket["decisions_by_key"][key] = decision
+        else:
+            # Known upstream + any unknown span with a product_id both
+            # land here so the agent graph can render diagnostic spans
+            # if someone adds them. Namespace-routing on the UI side
+            # only dispatches to the known set.
+            bucket["strategy_spans"][name] = span
+
+    # Time-window attribution for LLM spans. Build a flat list of
+    # (start, end, pid, owner_name) covering every strategy + composer
+    # span; for each LLM span, pick the tightest (smallest duration)
+    # enclosing strategy as its owner. Ties (shouldn't happen in
+    # practice — strategies for a single product run serially) are
+    # broken by insertion order, which matches JSONL write order.
+    intervals: list[tuple[float, float, str, str]] = []
+    for rec in strategy_records:
+        span = rec["span"]
+        start = _span_started_at(span)
+        end = _span_ended_at(span)
+        if start is None or end is None:
+            continue
+        intervals.append((start, end, rec["pid"], rec["name"]))
+    # composer_v1 is already captured in strategy_records above (it has
+    # a product_id on its input), so it's an attribution target too —
+    # that's how the composer's LLM call gets bucketed under composer_v1.
+    for llm in llm_records:
+        lstart = _span_started_at(llm)
+        lend = _span_ended_at(llm)
+        if lstart is None or lend is None:
+            continue
+        owner: tuple[str, str] | None = None
+        best_duration = float("inf")
+        for (s_start, s_end, s_pid, s_name) in intervals:
+            if s_start <= lstart and lend <= s_end:
+                duration = s_end - s_start
+                if duration < best_duration:
+                    owner = (s_pid, s_name)
+                    best_duration = duration
+        if owner is None:
+            continue
+        pid, owner_name = owner
+        bucket = by_pid.setdefault(
+            pid,
+            {
+                "strategy_spans": {},
+                "llm_by_strategy": {},
+                "composer": None,
+                "decisions_by_key": {},
+            },
+        )
+        bucket["llm_by_strategy"].setdefault(owner_name, []).append(llm)
     return by_pid
+
+
+def _span_started_at(span: dict[str, Any]) -> float | None:
+    val = span.get("started_at")
+    if isinstance(val, (int, float)):
+        return float(val)
+    return None
+
+
+def _span_ended_at(span: dict[str, Any]) -> float | None:
+    val = span.get("ended_at")
+    if isinstance(val, (int, float)):
+        return float(val)
+    return None
 
 
 def _composer_decisions_from_span(span: dict[str, Any]) -> list[dict[str, Any]]:
@@ -827,13 +901,24 @@ def _render_cell_panel_raw(col: str) -> None:
     st.caption(f"`{col}` is a raw catalog cell — no agent produced it.")
 
 
+def _short_pid(pid: str) -> str:
+    """Compact product_id for captions: show the 8-char prefix + ellipsis
+    for UUID-length strings, otherwise show the id verbatim so numeric /
+    short merchant-defined ids (e.g. ``sku-12``) don't render as
+    ``sku-12…`` cosmetic nonsense (review fix #8, PR #86)."""
+    s = str(pid)
+    if len(s) <= 12:
+        return s
+    return f"{s[:8]}…"
+
+
 def _render_cell_panel_canonical(
     bucket: dict[str, Any],
     pid: str,
     canonical_key: str,
 ) -> None:
     st.markdown("### Cell lineage")
-    st.caption(f"`canonical.{canonical_key}`  ·  product `{pid[:8]}…`")
+    st.caption(f"`canonical.{canonical_key}`  ·  product `{_short_pid(pid)}`")
     composer_span = bucket.get("composer")
     if composer_span is None:
         st.warning(
@@ -941,9 +1026,17 @@ def _dashed_sources_for_decision(
             else:
                 flat_values.append(v)
         for dv in dropped_alts:
-            if dv in flat_values:
-                sources.add(strategy)
-                break
+            # ``in`` uses ``==``, which is mostly safe but can raise
+            # ``TypeError`` when comparing mixed unorderable types
+            # (e.g. a numpy scalar against a plain dict) — swallow
+            # those and move on so one weird dropped_alt entry can't
+            # take the whole side panel down (review fix #4, PR #86).
+            try:
+                if dv in flat_values:
+                    sources.add(strategy)
+                    break
+            except TypeError:
+                continue
     return tuple(sorted(sources))
 
 
@@ -955,7 +1048,9 @@ def _render_cell_panel_finding(
     value: Any,
 ) -> None:
     st.markdown("### Cell lineage")
-    st.caption(f"`{strategy}.{key}`  ·  product `{pid[:8]}…`  ·  pre-composer finding")
+    st.caption(
+        f"`{strategy}.{key}`  ·  product `{_short_pid(pid)}`  ·  pre-composer finding"
+    )
     st.info(
         "This is a pre-composer finding — the raw output of one agent "
         "before the composer synthesized the canonical row. It may or "
@@ -967,7 +1062,14 @@ def _render_cell_panel_finding(
     if composer_span is not None:
         for canonical_key, decision in bucket.get("decisions_by_key", {}).items():
             dropped = decision.get("dropped_alternatives") or []
-            if value in dropped:
+            # Same ``in``-triggers-TypeError guard as
+            # _dashed_sources_for_decision; a single unorderable
+            # dropped_alt entry must not break the panel.
+            try:
+                shadowed = value in dropped
+            except TypeError:
+                shadowed = False
+            if shadowed:
                 st.caption(
                     f"_Shadowed by `canonical.{canonical_key}` "
                     f"(composer chose `{decision.get('source_strategy')}` instead)._"
@@ -1064,22 +1166,27 @@ def render_enriched_table(run: dict[str, Any], engine: Engine, merchant_id: str)
                 return [""] * len(col)
 
             styled = df.style.apply(_tint, axis=0)
+            # Scope the selection key by merchant so switching merchants
+            # doesn't carry over a cell selection that pointed at a
+            # different column layout (review fix #1, PR #86).
+            grid_key = f"enriched_grid_{merchant_id}"
             event = st.dataframe(
                 styled,
                 hide_index=True,
                 use_container_width=True,
                 on_select="rerun",
                 selection_mode=["single-row", "single-column"],
-                key="enriched_grid",
+                key=grid_key,
             )
         except ImportError:
+            grid_key = f"enriched_grid_{merchant_id}"
             event = st.dataframe(
                 table,
                 hide_index=True,
                 use_container_width=True,
                 on_select="rerun",
                 selection_mode=["single-row", "single-column"],
-                key="enriched_grid",
+                key=grid_key,
             )
         st.download_button(
             "Download as CSV",
@@ -1155,6 +1262,15 @@ def _render_side_panel(
     _render_cell_panel_raw(col_name)
 
 
+# run_id comes from ``summary.run_id`` which the orchestrator generates
+# via ``uuid4().hex`` — 32 lowercase hex chars. We pin the regex to that
+# shape before building a filesystem path so a malformed artifact (or
+# one edited by hand) can't resolve into something like ``../../etc``
+# (review fix: security note, PR #86). Anything else is treated as
+# trace-missing.
+_RUN_ID_SAFE_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
 def _load_trace_bucket(
     run: dict[str, Any], pid_str: str
 ) -> dict[str, Any] | None:
@@ -1162,7 +1278,7 @@ def _load_trace_bucket(
     the JSONL isn't present. Separate helper keeps the call-site routing
     compact and gives us a single place to apply the mtime-keyed cache."""
     run_id = (run.get("summary") or {}).get("run_id")
-    if not run_id:
+    if not run_id or not _RUN_ID_SAFE_RE.match(str(run_id)):
         return None
     path = TRACES_DIR / f"{run_id}.jsonl"
     if not path.exists():
@@ -1185,7 +1301,7 @@ def _render_cell_panel_trace_missing(
 ) -> None:
     run_id = (run.get("summary") or {}).get("run_id") or "?"
     st.markdown("### Cell lineage")
-    st.caption(f"`{col_name}`  ·  product `{pid_str[:8]}…`")
+    st.caption(f"`{col_name}`  ·  product `{_short_pid(pid_str)}`")
     st.warning(
         f"No JSONL trace found at `logs/enrichment_traces/{run_id}.jsonl`. "
         "Re-run with `ENRICHMENT_TRACE_JSONL=1` to enable cell lineage."
