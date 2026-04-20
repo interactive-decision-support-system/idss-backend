@@ -5,14 +5,25 @@ Each merchant gets a pair of tables inside the shared `merchants` schema:
     merchants.products_<id>           (raw catalog)
     merchants.products_enriched_<id>  (derived attributes per strategy)
 
-Both are cloned from the default merchant's tables via ``LIKE ... INCLUDING
+Both are cloned from the archival reference pool via ``LIKE ... INCLUDING
 ALL``. The FK from enriched → raw is re-added explicitly because LIKE does
 not copy foreign keys.
 
-Prerequisite: migrations 002 and 003 must have run — the clone reads from
-``merchants.products_default`` / ``merchants.products_enriched_default``
-as the template, and ``create_merchant_catalog`` raises a bare Postgres
-"relation does not exist" if those tables aren't there yet.
+Schema template source (migration 006):
+  * Raw catalog column layout is cloned from ``merchants.raw_products_default``
+    — the platform-operator archive, NOT a merchant. Using the archive as
+    the template means no merchant's table is structurally load-bearing for
+    new-merchant provisioning; every merchant, including 'default', is
+    dropable without breaking anyone else.
+  * Enriched column layout is cloned from ``merchants.products_enriched_default``.
+    The default merchant's enriched table is used as a template here purely
+    because its schema is fixed by migration 003; this is a column-shape
+    dependency, not a data dependency, and the 'default' merchant has no
+    runtime privilege from it.
+
+Prerequisite: migrations 002, 003, and 006 must have run — the clone reads
+from the template tables named above, and ``create_merchant_catalog`` raises
+a bare Postgres "relation does not exist" if they aren't there yet.
 
 All identifiers that interpolate the merchant_id are built via
 ``psycopg2.sql.Identifier`` after ``validate_merchant_id`` has matched the
@@ -33,7 +44,11 @@ from app.merchant_agent import validate_merchant_id
 logger = logging.getLogger(__name__)
 
 _SCHEMA = "merchants"
-_TEMPLATE_RAW = "products_default"
+# Raw template: archival reference pool, not a merchant's table (migration 006).
+# Using the archive as the template decouples new-merchant provisioning from
+# any particular merchant's lifecycle.
+_TEMPLATE_RAW = "raw_products_default"
+# Enriched template: column-shape source only. No runtime privilege.
 _TEMPLATE_ENRICHED = "products_enriched_default"
 
 
@@ -52,8 +67,10 @@ def _fk_name(merchant_id: str) -> str:
 def create_merchant_catalog(merchant_id: str, conn: Any) -> None:
     """Create ``merchants.products_<id>`` and ``merchants.products_enriched_<id>``.
 
-    Clones both from the default merchant's tables via LIKE INCLUDING ALL and
-    re-adds the enriched → raw FK (LIKE does not copy foreign keys). Idempotent
+    Clones the raw column layout from ``merchants.raw_products_default`` (the
+    archival reference pool, not a merchant) and the enriched column layout
+    from ``merchants.products_enriched_default``, via ``LIKE ... INCLUDING ALL``.
+    Re-adds the enriched → raw FK (LIKE does not copy foreign keys). Idempotent
     — safe to re-run on an already-bootstrapped merchant.
 
     ``conn`` is a psycopg2 connection. Callers holding a SQLAlchemy engine can
@@ -114,10 +131,11 @@ def drop_merchant_catalog(merchant_id: str, conn: Any, *, _force: bool = False) 
             "drop_merchant_catalog disabled. Set ALLOW_MERCHANT_DROP=1 to enable."
         )
     merchant_id = validate_merchant_id(merchant_id)
-    if merchant_id == "default":
-        # The default merchant is the clone template. Dropping it would break
-        # create_merchant_catalog for every future merchant.
-        raise ValueError("refusing to drop the default merchant's catalog")
+    # No 'default'-specific guard: since migration 006 the clone template is
+    # merchants.raw_products_default (the archive), not this merchant's table.
+    # 'default' is dropable like any other merchant; ALLOW_MERCHANT_DROP is
+    # the sole safety mechanism. If 'default' is dropped, it can be rebuilt
+    # by re-running migration 006 (which resamples from raw).
 
     raw = sql.Identifier(_SCHEMA, _raw_table(merchant_id))
     enriched = sql.Identifier(_SCHEMA, _enriched_table(merchant_id))

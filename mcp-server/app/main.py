@@ -1596,9 +1596,15 @@ def list_merchants(db: Session = Depends(get_db)):
 def delete_merchant(merchant_id: str, db: Session = Depends(get_db)):
     """Deregister a merchant: delete registry row, drop tables, evict cache.
 
-    Refuses ``default`` (it is the clone template for every new merchant).
-    Gated on ``ALLOW_MERCHANT_DROP=1`` — surfaced as 403 when the env var
-    is not set. Unknown ``merchant_id`` → 404.
+    Every merchant is dropable, including ``default`` — since migration 006
+    the clone template is ``merchants.raw_products_default`` (the archive,
+    not a merchant), so dropping a merchant no longer breaks new-merchant
+    provisioning. ``ALLOW_MERCHANT_DROP=1`` is the sole safety mechanism —
+    surfaced as 403 when the env var is not set. Unknown ``merchant_id`` → 404.
+
+    If ``default`` is dropped, it can be rebuilt by re-running migration 006
+    (which resamples from raw_products_default) plus re-registering the
+    registry row.
 
     Registry row is removed first, then tables: a mid-flight failure after
     the commit leaves no route pointing at the orphan tables, so the
@@ -1612,12 +1618,6 @@ def delete_merchant(merchant_id: str, db: Session = Depends(get_db)):
         validate_merchant_id(merchant_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-
-    if merchant_id == "default":
-        raise HTTPException(
-            status_code=400,
-            detail="refusing to delete the default merchant",
-        )
 
     existing = db.execute(
         _sa_text("SELECT 1 FROM merchants.registry WHERE merchant_id = :mid"),
