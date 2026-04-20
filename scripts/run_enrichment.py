@@ -8,9 +8,9 @@ Examples:
   python scripts/run_enrichment.py --mode fixed --strategies parser_v1,soft_tagger_v1 --dry-run
   python scripts/run_enrichment.py --ab-eval --limit 25 --eval-output runs/ab.json
 
-v1 scope: runs only against the default merchant. Reads merchants.products_default
-and writes merchants.products_enriched_default. Per-merchant enrichment is
-tracked in issue #47.
+Defaults to merchant_id='default' if --merchant is omitted. Reads
+merchants.products_<merchant> and writes merchants.products_enriched_<merchant>.
+The merchant must already be registered in merchants.registry.
 """
 
 from __future__ import annotations
@@ -35,6 +35,12 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Run multi-agent catalog enrichment.")
     p.add_argument("--mode", choices=["fixed", "orchestrated"], default="fixed")
     p.add_argument("--limit", type=int, default=10, help="Max products to process.")
+    p.add_argument(
+        "--merchant",
+        default=_V1_MERCHANT_ID,
+        help=f"Merchant slug to enrich (default {_V1_MERCHANT_ID!r}). "
+             "Must be registered in merchants.registry.",
+    )
     p.add_argument(
         "--strategies",
         type=str,
@@ -87,7 +93,7 @@ def main() -> int:
         result = run_enrichment(
             db,
             mode=args.mode,
-            merchant_id=_V1_MERCHANT_ID,
+            merchant_id=args.merchant,
             limit=args.limit,
             strategies_filter=strategies_filter,
             dry_run=args.dry_run,
@@ -117,7 +123,7 @@ def _run_ab_eval(db, args, strategies_filter) -> int:
     fixed_result = run_enrichment(
         db,
         mode="fixed",
-        merchant_id=_V1_MERCHANT_ID,
+        merchant_id=args.merchant,
         limit=args.limit,
         strategies_filter=strategies_filter,
         dry_run=True,  # eval mode never writes
@@ -126,7 +132,7 @@ def _run_ab_eval(db, args, strategies_filter) -> int:
     orch_result = run_enrichment(
         db,
         mode="orchestrated",
-        merchant_id=_V1_MERCHANT_ID,
+        merchant_id=args.merchant,
         limit=args.limit,
         strategies_filter=strategies_filter,
         dry_run=True,

@@ -182,8 +182,14 @@ def _run_inner(
     dry_run: bool,
     audit: bool,
 ) -> RunResult:
+    catalog = Catalog.for_merchant(merchant_id)
+
     # 1) load products
-    products = load_products(db, merchant_id=merchant_id, limit=limit)
+    products = load_products(
+        db,
+        product_model=catalog.product_model,
+        limit=limit,
+    )
     per_product_dump: dict[str, list[dict[str, Any]]] = defaultdict(list)
     if not products:
         summary.notes.append("no_products_loaded")
@@ -262,7 +268,12 @@ def _run_inner(
             validator_mod.make_audit_output(product_id=pid, verdicts=verdicts)
             for pid, verdicts in verdicts_by_pid.items()
         )
-    db_writer.upsert_many(db, all_outputs, dry_run=dry_run)
+    db_writer.upsert_many(
+        db,
+        all_outputs,
+        enriched_model=catalog.enriched_model,
+        dry_run=dry_run,
+    )
 
     # 7) catalog schema + propose extensions
     schema = _build_catalog_schema(merchant_id, successful_outputs_by_pid, products)
