@@ -10,8 +10,11 @@ inspector's user-visible note moves with it instead of silently lying.
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -94,14 +97,6 @@ def test_kg_property_catalog_only_soft_tagger_rows_get_threshold_note(
 # ---------------------------------------------------------------------------
 
 
-import json
-import os
-import tempfile
-from uuid import uuid4
-
-import pytest
-
-
 def _write_jsonl(tmp_path, records):
     path = tmp_path / f"{uuid4().hex}.jsonl"
     with open(path, "w", encoding="utf-8") as fh:
@@ -126,10 +121,13 @@ def _strategy_span(strategy: str, pid: str, *, start: float, end: float,
     }
 
 
-def _llm_span(model: str, *, start: float, end: float):
+def _llm_span(model: str, *, start: float, end: float, pid: str | None = None):
+    inp: dict = {"system": "s", "user": "u"}
+    if pid is not None:
+        inp["product_id"] = pid
     return {
         "name": f"llm:{model}",
-        "input": {"system": "s", "user": "u"},
+        "input": inp,
         "updates": [{"output": {"text": "ok"}, "metadata": {"input_tokens": 1,
                                                              "output_tokens": 1}}],
         "started_at": start,
@@ -362,3 +360,123 @@ def test_run_id_regex_rejects_path_traversal(inspector_module):
         assert not inspector_module._RUN_ID_SAFE_RE.match(evil), (
             f"regex accepted unsafe run_id: {evil!r}"
         )
+
+
+def test_index_trace_constrains_llm_attribution_by_pid_when_present(
+    inspector_module, tmp_path
+):
+    """Review feedback #1: when an LLM span carries a product_id (via
+    input.product_id or a product:<pid> tag), the indexer must require
+    the enclosing strategy to share it — otherwise parallel execution
+    would let an LLM call leak into another product's bucket.
+
+    Two products' strategies run with overlapping time windows; each
+    product's LLM span falls inside *both* intervals. Without the
+    pid constraint the tighter-window match can pick the wrong
+    product; with it, pid wins regardless of window tightness."""
+    pid_a = "11111111-1111-1111-1111-111111111111"
+    pid_b = "22222222-2222-2222-2222-222222222222"
+    records = [
+        # Product A's strategy: wide window.
+        _strategy_span("parser_v1", pid_a, start=100.0, end=200.0,
+                       attributes={"parsed_specs": {}}),
+        # Product B's strategy: tighter window — without pid constraint,
+        # it would capture pid_a's LLM by time-window tightness alone.
+        _strategy_span("parser_v1", pid_b, start=120.0, end=160.0,
+                       attributes={"parsed_specs": {}}),
+        # LLM from product A, tagged with A's pid, inside both windows.
+        _llm_span("gpt-4o-mini", start=130.0, end=140.0, pid=pid_a),
+        # LLM from product B, tagged with B's pid, also inside both.
+        _llm_span("gpt-4o-mini", start=135.0, end=145.0, pid=pid_b),
+    ]
+    path = _write_jsonl(tmp_path, records)
+    index = inspector_module._index_trace_by_product(path, _mtime(path))
+    # Each product got exactly its own LLM, not the other's.
+    assert len(index[pid_a]["llm_by_strategy"].get("parser_v1", [])) == 1
+    assert len(index[pid_b]["llm_by_strategy"].get("parser_v1", [])) == 1
+    a_llm = index[pid_a]["llm_by_strategy"]["parser_v1"][0]
+    b_llm = index[pid_b]["llm_by_strategy"]["parser_v1"][0]
+    assert a_llm["input"]["product_id"] == pid_a
+    assert b_llm["input"]["product_id"] == pid_b
+
+
+def test_index_trace_falls_back_to_time_window_when_llm_has_no_pid(
+    inspector_module, tmp_path
+):
+    """The pid constraint kicks in *only when* the LLM span carries a
+    pid. Today's tracer typically doesn't tag LLM spans with product_id,
+    so the pid-less case must still match by time window alone —
+    otherwise every LLM call in the existing pipeline would suddenly
+    become orphaned."""
+    pid = str(uuid4())
+    records = [
+        _strategy_span("parser_v1", pid, start=100.0, end=102.0,
+                       attributes={"parsed_specs": {}}),
+        _llm_span("gpt-4o-mini", start=100.5, end=101.5),  # no pid
+    ]
+    path = _write_jsonl(tmp_path, records)
+    index = inspector_module._index_trace_by_product(path, _mtime(path))
+    assert len(index[pid]["llm_by_strategy"].get("parser_v1", [])) == 1
+
+
+def test_load_trace_bucket_flags_pid_not_in_run(
+    inspector_module, tmp_path, monkeypatch
+):
+    """Review feedback #3: when the JSONL exists but the pid simply
+    isn't in this run, ``_load_trace_bucket`` must flag the returned
+    bucket with ``_pid_not_in_run`` so the side panel can tell the user
+    "pick a newer run" rather than "composer didn't run"."""
+    run_id = "e4c283a7d97b4e4a8def71d0f9d98d91"  # 32 hex chars, regex-safe
+    run_pid = str(uuid4())
+    missing_pid = str(uuid4())
+    records = [
+        _strategy_span("parser_v1", run_pid, start=1.0, end=2.0,
+                       attributes={"parsed_specs": {}}),
+    ]
+    # Emulate the inspector's on-disk layout: TRACES_DIR / "{run_id}.jsonl".
+    traces_dir = tmp_path / "traces"
+    traces_dir.mkdir()
+    jsonl_path = traces_dir / f"{run_id}.jsonl"
+    with open(jsonl_path, "w", encoding="utf-8") as fh:
+        for r in records:
+            fh.write(json.dumps(r) + "\n")
+    monkeypatch.setattr(inspector_module, "TRACES_DIR", traces_dir)
+    # Clear the cache so _index_trace_by_product re-reads from disk.
+    inspector_module._index_trace_by_product.clear()
+
+    run = {"summary": {"run_id": run_id}}
+    known = inspector_module._load_trace_bucket(run, run_pid)
+    assert known is not None
+    assert not known.get("_pid_not_in_run"), (
+        "known pid should not be flagged as missing from run"
+    )
+    assert "parser_v1" in known["strategy_spans"]
+
+    unknown = inspector_module._load_trace_bucket(run, missing_pid)
+    assert unknown is not None
+    assert unknown.get("_pid_not_in_run") is True, (
+        "unknown pid should be flagged so the side panel can show the "
+        "'pick a newer run' message instead of 'composer didn't run'"
+    )
+    assert unknown["composer"] is None
+    assert unknown["strategy_spans"] == {}
+
+
+def test_composer_notes_preserves_explicit_empty_string(inspector_module):
+    """Review nit #2: ``_composer_notes`` must compare with ``is None``
+    rather than truthiness, so a future marker like ``notes=''`` (or any
+    other explicitly empty string from the composer) round-trips rather
+    than being silently swapped for ``None``. Downstream callouts still
+    filter empty — but new markers land here verbatim."""
+    span = {
+        "name": "composer_v1",
+        "input": {"product_id": "p"},
+        "updates": [{"output": {"notes": ""}, "metadata": {}}],
+    }
+    assert inspector_module._composer_notes(span) == ""
+    span_none = {
+        "name": "composer_v1",
+        "input": {"product_id": "p"},
+        "updates": [{"output": {"notes": None}, "metadata": {}}],
+    }
+    assert inspector_module._composer_notes(span_none) is None
