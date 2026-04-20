@@ -318,16 +318,16 @@ def test_rest_store_rejects_non_default_merchant_id():
     here would silently leak the default catalog's rows. The guard fails
     loudly so the operator configures DATABASE_URL.
     """
-    from app.tools.supabase_product_store import _reject_non_default_merchant
+    from app.tools.supabase_product_store import _reject_rest_path_for_per_merchant_catalogs
 
     # Default and missing merchant_id: no-op.
-    _reject_non_default_merchant({"merchant_id": "default"}, "search_products")
-    _reject_non_default_merchant({}, "search_products")
-    _reject_non_default_merchant(None, "search_products")
+    _reject_rest_path_for_per_merchant_catalogs({"merchant_id": "default"}, "search_products")
+    _reject_rest_path_for_per_merchant_catalogs({}, "search_products")
+    _reject_rest_path_for_per_merchant_catalogs(None, "search_products")
 
     # Non-default: raise.
     with pytest.raises(NotImplementedError, match="cannot serve merchant_id"):
-        _reject_non_default_merchant(
+        _reject_rest_path_for_per_merchant_catalogs(
             {"merchant_id": "acme_books"}, "search_products"
         )
 

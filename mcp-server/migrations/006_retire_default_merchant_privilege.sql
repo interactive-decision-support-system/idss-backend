@@ -62,12 +62,23 @@
 BEGIN;
 
 -- Step 1: rename the existing table to become the archive.
--- IF EXISTS guards a re-run where the rename has already happened.
-ALTER TABLE IF EXISTS merchants.products_default
-  RENAME TO raw_products_default;
-
-ALTER INDEX IF EXISTS merchants.idx_merchants_products_default_merchant_id
-  RENAME TO idx_merchants_raw_products_default_merchant_id;
+-- Must guard on the TARGET name, not the source — on a second run, the
+-- source (products_default) has been recreated as the sampled table by
+-- step 2, so ALTER TABLE IF EXISTS would still try to rename it and
+-- collide with the existing raw_products_default. The DO block renames
+-- only if the archive does not already exist.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_tables
+    WHERE schemaname = 'merchants' AND tablename = 'raw_products_default'
+  ) THEN
+    ALTER TABLE merchants.products_default RENAME TO raw_products_default;
+    ALTER INDEX merchants.idx_merchants_products_default_merchant_id
+      RENAME TO idx_merchants_raw_products_default_merchant_id;
+  END IF;
+END
+$$;
 
 -- Step 2: create the new products_default table from raw's schema.
 -- LIKE INCLUDING ALL copies columns, types, defaults, PK, indexes, NOT NULLs.

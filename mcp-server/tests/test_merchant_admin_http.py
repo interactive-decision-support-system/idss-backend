@@ -423,6 +423,38 @@ def test_delete_with_env_var_removes_registry_row_dict_and_get_listing(
     assert mid not in {e["merchant_id"] for e in listing}
 
 
+def test_drop_merchant_catalog_accepts_default(monkeypatch):
+    """Unit: drop_merchant_catalog('default') no longer short-circuits.
+
+    Before migration 006 this helper raised
+    ``ValueError("refusing to drop the default merchant's catalog")`` because
+    the default merchant's table was the clone template for every new merchant.
+    After migration 006 the clone template is ``merchants.raw_products_default``
+    (archive, not a merchant), so dropping any merchant — including 'default' —
+    is structurally safe. ``ALLOW_MERCHANT_DROP=1`` is now the sole safety gate.
+
+    We assert the absence of the refusal at the HELPER level with a mocked
+    psycopg2 connection, because exercising the HTTP DELETE against 'default'
+    against the real database would wipe shared test state that other tests
+    in this module depend on. The HTTP-level symmetry is covered by
+    ``test_delete_with_env_var_removes_registry_row_dict_and_get_listing``
+    using a temp merchant.
+    """
+    from unittest.mock import MagicMock
+    from app.ingestion.schema import drop_merchant_catalog
+
+    monkeypatch.setenv("ALLOW_MERCHANT_DROP", "1")
+    conn = MagicMock()
+    # cursor() must be usable as a context manager; MagicMock already supports
+    # __enter__/__exit__, and execute()/commit() are no-ops on a MagicMock.
+    drop_merchant_catalog("default", conn)
+
+    # Two DROP TABLE statements (enriched, then raw) plus a commit — verifies
+    # the function proceeded past the removed 'default' refusal.
+    assert conn.cursor.called
+    assert conn.commit.called
+
+
 def test_default_is_listable_like_any_other_merchant(
     client, monkeypatch
 ):

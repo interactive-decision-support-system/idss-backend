@@ -116,11 +116,6 @@ def _reject_rest_path_for_per_merchant_catalogs(
         )
 
 
-# Backward-compatible alias for the old name, in case external code imports it.
-# Prefer the new name in new code.
-_reject_non_default_merchant = _reject_rest_path_for_per_merchant_catalogs
-
-
 class SupabaseProductStore:
     """
     Search the Supabase `products` table via its REST API.
@@ -166,7 +161,7 @@ class SupabaseProductStore:
           4. Drop brand if still empty
           5. Bare category/product_type only
         """
-        _reject_non_default_merchant(filters, "search_products")
+        _reject_rest_path_for_per_merchant_catalogs(filters, "search_products")
         steps = [
             dict(drop_specs=False, drop_price_min=False, drop_brand=False),
             dict(drop_specs=True,  drop_price_min=False, drop_brand=False),
@@ -193,7 +188,7 @@ class SupabaseProductStore:
         ``"default"`` raises ``NotImplementedError`` rather than silently
         returning a row from the legacy ``public.products`` table.
         """
-        _reject_non_default_merchant({"merchant_id": merchant_id}, "get_by_id")
+        _reject_rest_path_for_per_merchant_catalogs({"merchant_id": merchant_id}, "get_by_id")
         try:
             resp = self._client.get(
                 "/rest/v1/products",

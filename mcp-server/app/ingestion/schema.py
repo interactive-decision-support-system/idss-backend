@@ -67,8 +67,10 @@ def _fk_name(merchant_id: str) -> str:
 def create_merchant_catalog(merchant_id: str, conn: Any) -> None:
     """Create ``merchants.products_<id>`` and ``merchants.products_enriched_<id>``.
 
-    Clones both from the default merchant's tables via LIKE INCLUDING ALL and
-    re-adds the enriched → raw FK (LIKE does not copy foreign keys). Idempotent
+    Clones the raw column layout from ``merchants.raw_products_default`` (the
+    archival reference pool, not a merchant) and the enriched column layout
+    from ``merchants.products_enriched_default``, via ``LIKE ... INCLUDING ALL``.
+    Re-adds the enriched → raw FK (LIKE does not copy foreign keys). Idempotent
     — safe to re-run on an already-bootstrapped merchant.
 
     ``conn`` is a psycopg2 connection. Callers holding a SQLAlchemy engine can
