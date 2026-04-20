@@ -247,6 +247,20 @@ def _run_inner(
                 summary.strategies_failed[strategy] = (
                     summary.strategies_failed.get(strategy, 0) + 1
                 )
+                # Feed the rejection into ctx so the composer (runs last)
+                # knows which strategies' output was dropped and why, rather
+                # than treating a missing finding as "strategy wasn't asked
+                # to run" (issue #83 review, item 3).
+                ctx.setdefault("_validator_notes", []).append(
+                    {
+                        "strategy": strategy,
+                        "failure_mode": "validator_rejected"
+                        if result.success
+                        else "agent_errored",
+                        "reasons": list(verdict.reasons),
+                        "error": result.error,
+                    }
+                )
                 if verdict.reasons:
                     logger.info(
                         "validator_rejected",

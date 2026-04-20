@@ -94,6 +94,10 @@ class StrategyKeyCollision(ValueError):
 
 _REGISTRY: dict[str, Type] = {}
 _REGISTERED_KEYS: dict[str, frozenset[str]] = dict(EXTERNAL_STRATEGY_KEYS)
+# Union of every registered agent's NARRATIVE_KEYS. Composer reads this to
+# strip narrative output from the canonical row without hard-coding which
+# agent owns which key (issue #83 review, item 4).
+_NARRATIVE_KEYS: set[str] = set()
 
 
 def register(agent_cls: Type) -> Type:
@@ -127,8 +131,19 @@ def register(agent_cls: Type) -> Type:
                 f"strategy {strategy!r} OUTPUT_KEYS overlap {other_strategy!r}: {sorted(cross)}"
             )
 
+    narrative = getattr(agent_cls, "NARRATIVE_KEYS", frozenset()) or frozenset()
+    # narrative keys must be a subset of output keys — otherwise the agent is
+    # claiming to own a key it doesn't emit.
+    narrative_outside_output = set(narrative) - set(keys)
+    if narrative_outside_output:
+        raise StrategyKeyCollision(
+            f"strategy {strategy!r} NARRATIVE_KEYS must be a subset of OUTPUT_KEYS; "
+            f"extra keys: {sorted(narrative_outside_output)}"
+        )
+
     _REGISTRY[strategy] = agent_cls
     _REGISTERED_KEYS[strategy] = keys
+    _NARRATIVE_KEYS.update(narrative)
     return agent_cls
 
 
@@ -181,8 +196,15 @@ def all_known_keys() -> dict[str, frozenset[str]]:
     return dict(_REGISTERED_KEYS)
 
 
+def narrative_keys() -> frozenset[str]:
+    """Union of every registered agent's self-declared NARRATIVE_KEYS. The
+    composer strips these from the canonical row — see ComposerAgent."""
+    return frozenset(_NARRATIVE_KEYS)
+
+
 def _reset_for_tests() -> None:
     """Test helper — wipes in-module strategies, keeps EXTERNAL_STRATEGY_KEYS."""
     _REGISTRY.clear()
     _REGISTERED_KEYS.clear()
     _REGISTERED_KEYS.update(EXTERNAL_STRATEGY_KEYS)
+    _NARRATIVE_KEYS.clear()

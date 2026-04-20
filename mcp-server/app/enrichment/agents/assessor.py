@@ -5,8 +5,11 @@ density, sparse JSONB keys, discovered product types, and a recommended
 strategy plan. Output is per-catalog (not per-product) so it lives in JSON,
 not in products_enriched.
 
-The assessor uses the LLM only to summarize discovered product types; the
-counting work is deterministic Python.
+Today the assessor uses the LLM only to summarize discovered product types
+(cheap utility-tier call — gpt-5-nano by default, see
+``tools.llm_client.utility_model``); the counting work is deterministic
+Python. Future revisions may route strategy-planning reasoning through the
+composer-tier model, at which point this docstring should be updated.
 """
 
 from __future__ import annotations

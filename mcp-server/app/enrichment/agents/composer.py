@@ -18,35 +18,61 @@ v1 scope (this commit)
   - Reads every upstream strategy's output from the runner's ``context``
     dict (populated in orchestration/runner.py: ``ctx[_short(strategy)] =
     output.attributes``).
+  - Also reads ``ctx["_validator_notes"]`` so the composer knows which
+    strategies the validator rejected (e.g. ram_gb out of bounds) and can
+    reason about the resulting gap rather than silently ignore it.
   - Runs one LLM call (gpt-5 by default — see ``composer_model()``) with
     the full findings + raw row + policy:
         * no-hallucination: drop values not grounded in raw / parsed /
           scraped evidence
-        * overlap resolution: when two strategies claim the same key,
-          pick one (prefer parser > scraper > specialist > soft_tagger >
-          taxonomy, or apply the LLM's judgment)
-        * echo suppression: drop values identical to an already-present
-          raw field
-        * specialist-question reframe: treat specialist_buyer_questions
-          as a planning artifact — it is NOT a catalog field, so the
-          composer ignores it as output but may surface decisions keyed
-          by it in ``composer_decisions``
+        * per-key precedence (see _PRECEDENCE_NOTE below): taxonomy owns
+          product_type; parser/scraper own specs (scraper wins on tie
+          because it's from the manufacturer page); soft_tagger owns
+          good_for_* tags; specialist contributes only structured
+          use-case-fit, never prose
+        * echo applies to FINDINGS not the canonical row: a grounded
+          value still belongs in composed_fields even if raw_attributes
+          also has it — downstream readers should be able to read the
+          canonical row without re-joining raw
+        * type discipline: scalars stay scalar; flatten parsed_specs /
+          scraped_specs one level up; drop narrative keys (via the
+          registry's self-declared NARRATIVE_KEYS, not a hardcoded list)
+  - Deterministic fallback: if the LLM errors or returns unparseable
+    JSON, the composer still writes a row built from upstream findings
+    (flatten parsed/scraped specs, union soft_tags, take product_type
+    from taxonomy) with ``notes='deterministic_fallback'``. One product
+    never loses its canonical row to a transient API blip.
   - Writes:
         composed_fields       flat dict {key: value} the composer decided
                               belongs on the canonical row
-        composer_decisions    list[{key, chosen_value, source_strategy,
-                              reason, dropped_alternatives}] — audit log
-                              for the cell-lineage UX in #81
+        composer_decisions    list[ComposerDecision] — audit log for the
+                              cell-lineage UX in #81
         composed_at           ISO timestamp
+
+# _TODO(closed_loop) — #85 attach points
+# ---------------------------------------
+# This composer is a single-shot LLM synthesizer. #85 (agentic pipeline
+# gaps) calls out that real agentic behavior needs feedback loops. When
+# we graduate to composer_v2, the hooks land in specific places below:
+#
+#   - _gather_findings(): point where a "request more evidence" edge
+#     would fire back at scraper/parser for keys that are specialist-
+#     asked-about but unground (#85 points 1, 12)
+#   - post-LLM composed block: point where self-critique + revise loop
+#     would run ("compose -> critique -> maybe re-compose") (#85 pt 4, 8)
+#   - low-confidence merges: point where human escalation hook would
+#     surface a clarification request (#85 pt 11)
+#
+# None of these land in this PR — but noting the attach points so the
+# next iteration doesn't have to rediscover them.
 
 v2+ (follow-ups, deliberately out of scope)
 -------------------------------------------
   - Retire the per-strategy rows into a ``products_findings_<m>`` table
     and promote composer output into a flat-schema catalog. Tracked in
     #83's "Findings surface shape" open question.
-  - Closed-loop refinement (composer kicks agents back with ungrounded
-    questions). Tracked in #83's "Out of scope" list.
-  - Confidence-weighted merges (today we prefer a single source per key).
+  - Closed-loop refinement (see attach points above) (#85).
+  - Confidence-weighted merges across duplicate sources.
 """
 
 from __future__ import annotations
@@ -56,10 +82,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.enrichment import registry
 from app.enrichment.base import BaseEnrichmentAgent
 from app.enrichment.tools.llm_client import LLMClient, composer_model
-from app.enrichment.types import ProductInput, StrategyOutput
+from app.enrichment.types import ComposerDecision, ProductInput, StrategyOutput
 
 logger = logging.getLogger(__name__)
 
@@ -77,33 +105,77 @@ _UPSTREAM_CONTEXT_KEYS: tuple[str, ...] = (
 )
 
 
+# Map the short context keys the runner uses back to the full strategy
+# labels (taxonomy -> taxonomy_v1, etc). Only used for annotating the
+# prompt / fallback decisions so the audit log is readable.
+_SHORT_TO_STRATEGY: dict[str, str] = {
+    "taxonomy": "taxonomy_v1",
+    "parsed": "parser_v1",
+    "specialist": "specialist_v1",
+    "scraped": "scraper_v1",
+    "soft_tagger": "soft_tagger_v1",
+}
+
+
+# Per-key precedence rationale baked into the prompt. The reviewer (issue
+# #83 review, item 2) flagged that a flat "parser > scraper > specialist >
+# soft_tagger > taxonomy" ordering is wrong — taxonomy IS the canonical
+# source for product_type; scraper (manufacturer page) usually beats parser
+# (LLM extraction over possibly noisy text) for specs. The prompt spells
+# this out rather than hard-coding it in Python so the LLM can still use
+# judgment on confidence conflicts.
+_PRECEDENCE_NOTE = (
+    "Per-key precedence:\n"
+    "  - product_type / taxonomy_path -> taxonomy_v1 (canonical classifier)\n"
+    "  - numeric/categorical specs (ram_gb, weight_kg, etc.) -> scraper_v1 "
+    "beats parser_v1 when both are present (scraper reads the manufacturer "
+    "page, parser is LLM extraction); parser_v1 beats all others\n"
+    "  - good_for_* tags -> soft_tagger_v1\n"
+    "  - specialist_use_case_fit (structured {use_case: confidence}) may "
+    "be included; specialist narrative is never canonical\n"
+    "If two sources conflict, pick one and record the dropped alternative "
+    "in composer_decisions[*].dropped_alternatives."
+)
+
+
 _SYSTEM = (
     "You are the composer agent: the single writer of one product's canonical "
     "catalog row. You read the raw product, the findings emitted by every "
-    "upstream agent, and decide which keys belong on the canonical row.\n"
+    "upstream agent that actually ran, and decide which keys belong on the "
+    "canonical row.\n"
     "\n"
     "Policy:\n"
     "  1. No hallucination. Only include a key if its value is grounded in "
-    "the raw row, the parsed specs, or the scraped findings. If the "
-    "specialist asked a buyer question (specialist_buyer_questions) whose "
-    "answer is not in any of those sources, DO NOT fabricate it — omit it.\n"
-    "  2. Overlap resolution. When two agents claim the same key, pick one "
-    "source (prefer parser > scraper > specialist > soft_tagger > taxonomy) "
-    "OR merge explicitly. Record the chosen source in composer_decisions.\n"
-    "  3. Echo suppression. If a finding is identical to a field already on "
-    "the raw row (same value, same key), drop it.\n"
+    "the raw row, the parsed specs, or the scraped findings. If a buyer "
+    "question (specialist_buyer_questions) has no grounded answer in those "
+    "sources, DO NOT fabricate one — omit the key.\n"
+    "  2. Overlap resolution. Apply the per-key precedence below. Record "
+    "the chosen source in composer_decisions; put the dropped value in "
+    "dropped_alternatives.\n"
+    "  3. Echo discipline. A grounded value STILL belongs on the canonical "
+    "row even if raw_attributes already has it — downstream readers must "
+    "not have to re-join raw to reconstruct canonical state. Echo only "
+    "matters for measuring agent value-add, and goes in composer_decisions"
+    "[*].reason='echoes_raw', not into dropped keys.\n"
     "  4. Type discipline. Scalars stay scalars; never wrap a number in an "
-    "object. For spec dicts (e.g. parsed_specs), flatten their inner keys "
-    "up into composed_fields one level.\n"
-    "  5. Narrative text (specialist_capabilities, specialist_audience) does "
-    "NOT belong on the canonical row. Drop it here — it lives elsewhere.\n"
+    "object. For spec dicts (parsed_specs, scraped_specs), flatten their "
+    "inner keys up into composed_fields one level.\n"
+    "  5. Narrative text (prose bullets, audience blurbs, buyer questions) "
+    "does NOT belong on the canonical row — the Python post-check will "
+    "drop any narrative key regardless.\n"
+    "  6. Only reference strategies listed in the 'available_findings' "
+    "section of the user prompt. If a strategy didn't run, do not invent "
+    "a source_strategy for it.\n"
     "\n"
+    + _PRECEDENCE_NOTE
+    + "\n\n"
     "Return JSON with two keys:\n"
     "  composed_fields     object {key: value} — the canonical row content\n"
     "  composer_decisions  list of objects {key, chosen_value, "
-    "source_strategy, reason, dropped_alternatives} — one entry per key "
-    "you considered (kept or dropped). Use dropped_alternatives=[] when "
-    "there was no conflict."
+    "source_strategy, reason, dropped_alternatives}. Every key in "
+    "composed_fields MUST have a matching decision whose chosen_value "
+    "equals the composed_fields value; the Python post-check will drop "
+    "any decision that lies about its own key."
 )
 
 
@@ -119,6 +191,7 @@ class ComposerAgent(BaseEnrichmentAgent):
 
     def _invoke(self, product: ProductInput, context: dict[str, Any]) -> StrategyOutput:
         findings = _gather_findings(context)
+        validator_notes = _gather_validator_notes(context)
         now_iso = datetime.now(timezone.utc).isoformat()
 
         # If nothing upstream ran successfully, the composer has no material
@@ -138,27 +211,53 @@ class ComposerAgent(BaseEnrichmentAgent):
                 notes="no_upstream_findings",
             )
 
-        user = _format_user(product, findings)
-        resp = self._llm.complete(
-            system=_SYSTEM,
-            user=user,
-            model=context.get("composer_model") or context.get("model") or composer_model(),
-            json_mode=True,
-            max_tokens=1200,
-            temperature=0.1,
-        )
-        context["_last_cost_usd"] = resp.cost_usd
-        data = resp.parsed_json or {}
+        user = _format_user(product, findings, validator_notes)
 
-        composed = _coerce_composed_fields(data.get("composed_fields"))
-        decisions = _coerce_decisions(data.get("composer_decisions"))
+        # LLM call + parse. If anything goes sideways (network blip, JSON
+        # truncation, schema lies), fall back deterministically — one product
+        # never loses its canonical row to a transient error.
+        try:
+            resp = self._llm.complete(
+                system=_SYSTEM,
+                user=user,
+                model=(
+                    context.get("composer_model")
+                    or context.get("model")
+                    or composer_model()
+                ),
+                json_mode=True,
+                max_tokens=2500,
+                temperature=0.1,
+            )
+            context["_last_cost_usd"] = resp.cost_usd
+            data = resp.parsed_json or {}
+            composed = _coerce_composed_fields(data.get("composed_fields"))
+            decisions = _coerce_decisions(data.get("composer_decisions"))
+        except Exception as exc:  # noqa: BLE001 - any LLM-side failure lands here
+            logger.warning(
+                "composer_llm_failed_falling_back",
+                extra={"product_id": str(product.product_id), "error": str(exc)},
+            )
+            composed, decisions = _deterministic_fallback(findings)
+            composed = registry_strip_narrative(composed)
+            composed, decisions = _cross_check_decisions(composed, decisions)
+            return StrategyOutput(
+                product_id=product.product_id,
+                strategy=self.STRATEGY,
+                model=None,
+                attributes={
+                    "composed_fields": composed,
+                    "composer_decisions": decisions,
+                    "composed_at": now_iso,
+                },
+                notes="deterministic_fallback",
+            )
 
-        # Belt-and-braces policy enforcement: drop anything the LLM emitted
-        # that matches a raw-attribute value (echo) or that is structurally
-        # a narrative key we said to strip. Keeping this in Python means a
-        # chatty model can't silently violate the contract.
-        composed = _strip_echoes(composed, product)
-        composed = _strip_narrative_keys(composed)
+        # Python post-check: strip narrative keys regardless of what the LLM
+        # did (belt-and-braces), and drop decisions that lie about their own
+        # key (chosen_value != composed_fields[key]).
+        composed = registry_strip_narrative(composed)
+        composed, decisions = _cross_check_decisions(composed, decisions)
 
         return StrategyOutput(
             product_id=product.product_id,
@@ -177,18 +276,6 @@ class ComposerAgent(BaseEnrichmentAgent):
 # ---------------------------------------------------------------------------
 
 
-# Narrative / planning-artifact keys the issue explicitly calls out as NOT
-# belonging on the canonical catalog row. The composer may receive them from
-# upstream (specialist emits them today) but must never surface them.
-_NARRATIVE_KEYS: frozenset[str] = frozenset(
-    {
-        "specialist_capabilities",
-        "specialist_audience",
-        "specialist_buyer_questions",
-    }
-)
-
-
 def _gather_findings(context: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Pick up each upstream strategy's attributes dict from the runner ctx.
 
@@ -203,7 +290,20 @@ def _gather_findings(context: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return findings
 
 
-def _format_user(product: ProductInput, findings: dict[str, dict[str, Any]]) -> str:
+def _gather_validator_notes(context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the list the runner stashes under ``_validator_notes`` — one
+    entry per rejected/failed upstream result. Always returns a list."""
+    notes = context.get("_validator_notes")
+    if not isinstance(notes, list):
+        return []
+    return [n for n in notes if isinstance(n, dict)]
+
+
+def _format_user(
+    product: ProductInput,
+    findings: dict[str, dict[str, Any]],
+    validator_notes: list[dict[str, Any]],
+) -> str:
     raw = {
         "product_id": str(product.product_id),
         "title": product.title,
@@ -213,7 +313,16 @@ def _format_user(product: ProductInput, findings: dict[str, dict[str, Any]]) -> 
         "price": float(product.price) if product.price is not None else None,
         "raw_attributes": product.raw_attributes or {},
     }
-    payload = {"raw": raw, "findings": findings}
+    # Tell the LLM which strategies actually produced findings so it can't
+    # invent a source_strategy for a strategy that didn't run (issue #83
+    # review, item 8).
+    available_findings = [_SHORT_TO_STRATEGY.get(k, k) for k in findings.keys()]
+    payload = {
+        "raw": raw,
+        "available_findings": available_findings,
+        "findings": findings,
+        "validator_notes": validator_notes,
+    }
     return "Compose the canonical row for this product.\n" + json.dumps(
         payload, ensure_ascii=False, default=str
     )
@@ -232,50 +341,116 @@ def _coerce_composed_fields(value: Any) -> dict[str, Any]:
 
 
 def _coerce_decisions(value: Any) -> list[dict[str, Any]]:
+    """Validate each decision against ComposerDecision; drop entries that
+    don't parse so the inspector doesn't have to defend against ill-formed
+    JSON at render time (issue #83 review, item 7)."""
     if not isinstance(value, list):
         return []
     decisions: list[dict[str, Any]] = []
     for entry in value:
         if not isinstance(entry, dict):
             continue
-        key = str(entry.get("key") or "").strip()
-        if not key:
+        try:
+            parsed = ComposerDecision.model_validate(entry)
+        except ValidationError as exc:
+            logger.debug("composer_decision_invalid: %s (%s)", entry, exc)
             continue
-        decisions.append(
-            {
-                "key": key,
-                "chosen_value": entry.get("chosen_value"),
-                "source_strategy": str(entry.get("source_strategy") or "") or None,
-                "reason": str(entry.get("reason") or "") or None,
-                "dropped_alternatives": (
-                    entry.get("dropped_alternatives")
-                    if isinstance(entry.get("dropped_alternatives"), list)
-                    else []
-                ),
-            }
-        )
+        decisions.append(parsed.model_dump(mode="json"))
     return decisions
 
 
-def _strip_echoes(
-    composed: dict[str, Any], product: ProductInput
-) -> dict[str, Any]:
-    raw_attrs = product.raw_attributes or {}
-    identity: dict[str, Any] = {
-        "title": product.title,
-        "brand": product.brand,
-        "category": product.category,
-        "description": product.description,
-    }
-    out: dict[str, Any] = {}
-    for k, v in composed.items():
-        if k in identity and identity[k] == v:
+def _cross_check_decisions(
+    composed: dict[str, Any], decisions: list[dict[str, Any]]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Drop decisions whose chosen_value disagrees with composed_fields —
+    catches the LLM lying about its own decisions, per #83 review item 7.
+    Decisions with ``source_strategy`` outside the known upstream set are
+    also dropped (can't lineage-render an unknown source)."""
+    known_sources = frozenset(_SHORT_TO_STRATEGY.values()) | {None}
+    kept: list[dict[str, Any]] = []
+    for d in decisions:
+        key = d.get("key")
+        src = d.get("source_strategy")
+        if src not in known_sources:
+            logger.debug("composer_decision_unknown_source: %s", d)
             continue
-        if k in raw_attrs and raw_attrs[k] == v:
+        if key in composed and d.get("chosen_value") != composed[key]:
+            logger.debug(
+                "composer_decision_mismatch: key=%s decision=%r composed=%r",
+                key,
+                d.get("chosen_value"),
+                composed[key],
+            )
             continue
-        out[k] = v
-    return out
+        kept.append(d)
+    return composed, kept
 
 
-def _strip_narrative_keys(composed: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in composed.items() if k not in _NARRATIVE_KEYS}
+def registry_strip_narrative(composed: dict[str, Any]) -> dict[str, Any]:
+    """Drop narrative keys declared by any registered agent. Reads from the
+    registry instead of a hardcoded list so new narrative-emitting agents
+    are covered by self-declaration (issue #83 review, item 4)."""
+    narrative = registry.narrative_keys()
+    if not narrative:
+        return composed
+    return {k: v for k, v in composed.items() if k not in narrative}
+
+
+def _deterministic_fallback(
+    findings: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Build composed_fields + decisions from findings, no LLM.
+
+    Order matters: later writes win, so precedence goes low-to-high.
+    soft_tags first (weakest claim to canonical), then taxonomy product_type,
+    then parser specs, then scraper specs (manufacturer page beats parser).
+    Narrative stripping happens in the caller — keep this function's shape
+    simple.
+    """
+    composed: dict[str, Any] = {}
+    decisions: list[dict[str, Any]] = []
+
+    def _record(key: str, value: Any, source: str, reason: str) -> None:
+        prev = composed.get(key)
+        dropped = [prev] if key in composed and prev != value else []
+        composed[key] = value
+        decisions.append(
+            {
+                "key": key,
+                "chosen_value": value,
+                "source_strategy": source,
+                "reason": reason,
+                "dropped_alternatives": dropped,
+            }
+        )
+
+    tags = (findings.get("soft_tagger") or {}).get("good_for_tags") or {}
+    if isinstance(tags, dict):
+        for k, v in tags.items():
+            _record(str(k), v, "soft_tagger_v1", "fallback_from_soft_tagger")
+
+    taxonomy = findings.get("taxonomy") or {}
+    ptype = taxonomy.get("product_type")
+    if ptype and ptype != "unknown":
+        _record("product_type", ptype, "taxonomy_v1", "fallback_from_taxonomy")
+
+    parsed_specs = (findings.get("parsed") or {}).get("parsed_specs") or {}
+    if isinstance(parsed_specs, dict):
+        for k, v in parsed_specs.items():
+            _record(str(k), v, "parser_v1", "fallback_from_parser")
+
+    scraped_specs = (findings.get("scraped") or {}).get("scraped_specs") or {}
+    if isinstance(scraped_specs, dict):
+        for k, v in scraped_specs.items():
+            _record(str(k), v, "scraper_v1", "fallback_from_scraper")
+
+    use_case_fit = (findings.get("specialist") or {}).get("specialist_use_case_fit") or {}
+    if isinstance(use_case_fit, dict):
+        _record(
+            "specialist_use_case_fit",
+            use_case_fit,
+            "specialist_v1",
+            "fallback_from_specialist_use_case_fit",
+        )
+
+    return composed, decisions

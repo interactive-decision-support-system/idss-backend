@@ -25,13 +25,17 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# Per-1K-token rates (USD). Update if OpenAI changes pricing — only used for
-# the in-process running total; Langfuse computes its own server-side.
+# Per-1K-token rates (USD). Only used for the in-process running total —
+# Langfuse is the source of truth for server-side cost, so a stale entry
+# here skews the CLI summary but not any invoicing. Source:
+# https://openai.com/api/pricing/ — entries updated 2026-04-20. Re-check
+# when OpenAI announces pricing changes; a stale row silently under- or
+# over-reports cost in scripts/summaries.
 _PRICING: dict[str, tuple[float, float]] = {
     # model: (input_per_1k, output_per_1k)
     "gpt-4o-mini": (0.00015, 0.00060),
     "gpt-4o": (0.00250, 0.01000),
-    # GPT-5 family — public list pricing at time of adoption (issue #83).
+    # GPT-5 family — tiered adoption per issue #83.
     "gpt-5-nano": (0.00005, 0.00040),
     "gpt-5-mini": (0.00025, 0.00200),
     "gpt-5": (0.00125, 0.01000),
