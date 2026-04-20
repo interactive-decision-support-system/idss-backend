@@ -192,14 +192,22 @@ def langfuse_tag_url(run_id: str) -> str:
 
 def fetch_enriched_table(
     engine: Engine, merchant_id: str, limit: int = 500
-) -> tuple[list[dict[str, Any]], list[str], list[str]] | None:
-    """Join raw products and enriched attributes for one merchant, pivoted
-    into ``<strategy>.<key>`` columns so every raw column sits next to the
-    features the agents derived from it. Returns
-    ``(rows, raw_columns, enriched_columns)`` or ``None`` if the merchant's
-    tables are gone (DELETE /merchant mid-session) **or** the slug doesn't
-    match ``MERCHANT_ID_RE`` (stale URL param, malformed test fixture, any
-    future path that bypasses the registry-backed selector)."""
+) -> tuple[list[dict[str, Any]], list[str], list[str], list[str]] | None:
+    """Join raw products and enriched attributes for one merchant. The
+    composer_v1 row is flattened into ``canonical.<key>`` columns (one per
+    entry in its ``composed_fields``); every other strategy's row is
+    pivoted into ``<strategy>.<key>`` columns as pre-composer findings
+    (debug view). Returns ``(rows, raw_columns, canonical_columns,
+    finding_columns)`` or ``None`` if the merchant's tables are gone
+    (DELETE /merchant mid-session) **or** the slug doesn't match
+    ``MERCHANT_ID_RE`` (stale URL param, malformed test fixture, any
+    future path that bypasses the registry-backed selector).
+
+    Splitting canonical vs findings is the read-time counterpart of
+    composer_v1 being the single writer of the catalog row (issue #83).
+    Canonical columns drive the #81 cell-lineage UX — each canonical cell
+    has a composer_decisions entry that names the producing agent; finding
+    cells are what the composer chose from."""
     # Route through the canonical helpers so a future schema-per-tenant
     # move (issue #38) only has to touch ``merchant_*_table``. The helpers
     # also re-validate the slug against MERCHANT_ID_RE — interpolation
@@ -234,7 +242,8 @@ def fetch_enriched_table(
 
     by_pid: dict[Any, dict[str, Any]] = {}
     raw_cols = ["product_id", "name", "brand", "category", "price"]
-    enriched_cols: set[str] = set()
+    canonical_cols: set[str] = set()
+    finding_cols: set[str] = set()
     for r in raw_rows:
         pid = r["product_id"]
         if pid not in by_pid:
@@ -259,16 +268,31 @@ def fetch_enriched_table(
                 by_pid[pid][col] = v
         strategy = r["strategy"]
         attrs = r["enriched_attributes"] or {}
-        if strategy and isinstance(attrs, dict):
-            for k, v in attrs.items():
-                col = f"{strategy}.{k}"
-                enriched_cols.add(col)
-                if isinstance(v, (dict, list)):
-                    v = json.dumps(v, ensure_ascii=False, default=str)[:160]
-                by_pid[pid][col] = v
+        if not (strategy and isinstance(attrs, dict)):
+            continue
+        if strategy == "composer_v1":
+            # The composer's attributes are {composed_fields, composer_decisions,
+            # composed_at}. Flatten composed_fields into canonical.<key> columns;
+            # keep composer_decisions + composed_at out of the grid (they feed
+            # the side panel via the JSONL trace instead).
+            composed = attrs.get("composed_fields") or {}
+            if isinstance(composed, dict):
+                for k, v in composed.items():
+                    col = f"canonical.{k}"
+                    canonical_cols.add(col)
+                    if isinstance(v, (dict, list)):
+                        v = json.dumps(v, ensure_ascii=False, default=str)[:160]
+                    by_pid[pid][col] = v
+            continue
+        for k, v in attrs.items():
+            col = f"{strategy}.{k}"
+            finding_cols.add(col)
+            if isinstance(v, (dict, list)):
+                v = json.dumps(v, ensure_ascii=False, default=str)[:160]
+            by_pid[pid][col] = v
 
     rows = list(by_pid.values())
-    return rows, raw_cols, sorted(enriched_cols)
+    return rows, raw_cols, sorted(canonical_cols), sorted(finding_cols)
 
 
 def fetch_one_product(
@@ -545,59 +569,623 @@ def render_raw_enriched_kg(
     )
 
 
-def render_enriched_table(engine: Engine, merchant_id: str) -> None:
-    st.markdown(
-        f"### Enriched catalog for `{merchant_id}`  "
-        f"(raw columns + `<strategy>.<key>` derived features)"
-    )
-    limit = st.slider("max rows", min_value=10, max_value=2000, value=200, step=10)
-    result = fetch_enriched_table(engine, merchant_id, limit=limit)
-    if result is None:
-        # Slug may have been rejected by the helper (malformed) or the
-        # tables themselves are gone — keep the message generic so we
-        # don't re-raise the same ValueError just to render copy.
-        try:
-            table_hint = f"`{merchant_catalog_table(merchant_id)}`"
-        except ValueError:
-            table_hint = f"the catalog table for `{merchant_id}`"
+# ---------------------------------------------------------------------------
+# Cell-lineage side panel (issue #81) — reads composer_v1's composer_decisions
+# audit log from the JSONL trace and renders the producing agent's full span
+# (input, output, nested LLM prompt/response) on click.
+# ---------------------------------------------------------------------------
+
+
+# Upstream strategies composer_v1 may cite as source_strategy. Matches
+# _SHORT_TO_STRATEGY.values() in app/enrichment/agents/composer.py — kept
+# in sync manually to avoid a UI-time import of agent internals.
+_KNOWN_UPSTREAM_STRATEGIES: tuple[str, ...] = (
+    "taxonomy_v1",
+    "parser_v1",
+    "specialist_v1",
+    "scraper_v1",
+    "soft_tagger_v1",
+)
+
+
+@st.cache_data(show_spinner=False)
+def _index_trace_by_product(
+    jsonl_path_str: str, _mtime: float
+) -> dict[str, dict[str, Any]]:
+    """Parse the run's JSONL once and bucket spans by product_id.
+
+    The ``_mtime`` argument is the cache-bust lever: Streamlit's
+    ``@st.cache_data`` keys on every argument, so passing the file's
+    modification time means a re-run overwrites the cache on file
+    change without the caller having to reason about it.
+
+    Returns ``{pid: {"strategy_spans": {strategy: span}, "llm_by_strategy":
+    {strategy: [span, ...]}, "composer": span | None, "decisions_by_key":
+    {canonical_key: decision}}}``. Missing pids return an empty shell
+    lazily, so callers don't need ``KeyError`` guards.
+    """
+    path = Path(jsonl_path_str)
+    if not path.exists():
+        return {}
+    by_pid: dict[str, dict[str, Any]] = {}
+    current_strategy_by_pid: dict[str, str | None] = {}
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                span = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            pid = _span_product_id(span)
+            if not pid:
+                # LLM spans sometimes lack product_id on their own input,
+                # so fall back to the most recently seen strategy's pid.
+                # We track that via current_strategy_by_pid keys.
+                pid = None
+            name = span.get("name") or ""
+            # Every span opened under a strategy's span inherits the same
+            # product_id tag, so the ``product:<pid>`` tag is the reliable
+            # bucket key even for nested LLM spans.
+            if pid is None:
+                for tag in span.get("tags") or []:
+                    if isinstance(tag, str) and tag.startswith("product:"):
+                        pid = tag.split(":", 1)[1]
+                        break
+            if pid is None:
+                continue
+            bucket = by_pid.setdefault(
+                pid,
+                {
+                    "strategy_spans": {},
+                    "llm_by_strategy": {},
+                    "composer": None,
+                    "decisions_by_key": {},
+                    "dropped_by_key": {},
+                },
+            )
+            if name.startswith("llm:"):
+                owner = current_strategy_by_pid.get(pid)
+                bucket["llm_by_strategy"].setdefault(owner or "(unassigned)", []).append(span)
+                continue
+            # Strategy spans and the composer span both pass here.
+            if name == "composer_v1":
+                bucket["composer"] = span
+                decisions = _composer_decisions_from_span(span)
+                for d in decisions:
+                    key = d.get("key")
+                    if isinstance(key, str) and key:
+                        bucket["decisions_by_key"][key] = d
+            elif name in _KNOWN_UPSTREAM_STRATEGIES:
+                bucket["strategy_spans"][name] = span
+            else:
+                # Unknown span name (e.g. a one-off diagnostic) — store
+                # under its name anyway so the agent graph can render it.
+                bucket["strategy_spans"][name] = span
+            current_strategy_by_pid[pid] = name
+    return by_pid
+
+
+def _composer_decisions_from_span(span: dict[str, Any]) -> list[dict[str, Any]]:
+    """Pull the decisions list out of a composer_v1 span.
+
+    The runner writes ``output`` inside ``updates[*].output`` — ``_span_output``
+    handles that walk. The composer's output is a StrategyOutput dump, so
+    decisions live at ``output.attributes.composer_decisions``."""
+    out = _span_output(span) or {}
+    if not isinstance(out, dict):
+        return []
+    attrs = out.get("attributes") or {}
+    decisions = attrs.get("composer_decisions") or []
+    if not isinstance(decisions, list):
+        return []
+    return [d for d in decisions if isinstance(d, dict)]
+
+
+def _composer_notes(span: dict[str, Any] | None) -> str | None:
+    """Return composer_v1's StrategyOutput.notes (e.g. 'deterministic_fallback',
+    'no_upstream_findings') or None when no composer span is recorded."""
+    if not span:
+        return None
+    out = _span_output(span) or {}
+    if not isinstance(out, dict):
+        return None
+    notes = out.get("notes")
+    return str(notes) if notes else None
+
+
+def _agent_graph_dot(
+    strategy_spans: dict[str, dict[str, Any]],
+    composer_span: dict[str, Any] | None,
+    *,
+    highlight_strategy: str | None,
+    dashed_strategies: tuple[str, ...] = (),
+    highlighted_key: str | None = None,
+) -> str:
+    """Emit a graphviz dot string for the per-product agent graph.
+
+    Nodes: one per strategy span observed for this product + a
+    ``composer_v1`` sink node. Solid edges from sources that produced the
+    highlighted cell's canonical value; dashed edges from sources whose
+    value ended up in that decision's ``dropped_alternatives`` list.
+
+    The graph is intentionally small and terminal-friendly — no colors
+    that break under dark mode (we rely on ``style=filled`` + default
+    fill colors that the Streamlit renderer themes on its own).
+    """
+    lines: list[str] = ["digraph G {", "rankdir=LR;", "node [shape=box, fontsize=10];"]
+    edge_label = highlighted_key or ""
+    for name in sorted(strategy_spans.keys()):
+        attrs = []
+        if name == highlight_strategy:
+            attrs.append("style=filled")
+        attr_str = f" [{', '.join(attrs)}]" if attrs else ""
+        lines.append(f'"{name}"{attr_str};')
+    if composer_span is not None:
+        lines.append('"composer_v1" [shape=doublecircle];')
+        if highlight_strategy and highlight_strategy in strategy_spans:
+            lines.append(
+                f'"{highlight_strategy}" -> "composer_v1"'
+                f' [label="{edge_label}"];'
+            )
+        for s in dashed_strategies:
+            if s in strategy_spans and s != highlight_strategy:
+                lines.append(
+                    f'"{s}" -> "composer_v1" [style=dashed, label="dropped"];'
+                )
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def _render_agent_node(
+    strategy: str,
+    span: dict[str, Any],
+    llm_spans: list[dict[str, Any]],
+    *,
+    expanded: bool,
+) -> None:
+    """One collapsible per-agent node: the agent's span input/output, then
+    its LLM child spans (prompt/response). Matches the shape of the
+    global Reasoning-trace tab so the visual vocabulary is consistent."""
+    dur = _span_duration_ms(span)
+    md = _span_metadata(span)
+    header_bits = [f"`{strategy}`"]
+    if dur is not None:
+        header_bits.append(f"{dur} ms")
+    cost = md.get("cost_usd")
+    if isinstance(cost, (int, float)):
+        header_bits.append(f"${cost:.6f}")
+    with st.expander("  ·  ".join(header_bits), expanded=expanded):
+        inp_col, out_col = st.columns(2)
+        with inp_col:
+            st.markdown("**input**")
+            st.json(_jsonable(span.get("input") or {}))
+        with out_col:
+            st.markdown("**output**")
+            st.json(_jsonable(_span_output(span) or {}))
+        model = md.get("model")
+        if model:
+            st.caption(f"model: `{model}`")
+        if llm_spans:
+            st.markdown(f"**LLM calls within this agent** ({len(llm_spans)})")
+            for llm in llm_spans:
+                lname = llm.get("name", "llm:?")
+                ldur = _span_duration_ms(llm)
+                lmd = _span_metadata(llm)
+                label_bits = [lname]
+                if ldur is not None:
+                    label_bits.append(f"{ldur} ms")
+                lcost = lmd.get("cost_usd")
+                if isinstance(lcost, (int, float)):
+                    label_bits.append(f"${lcost:.6f}")
+                with st.expander("  ·  ".join(label_bits), expanded=False):
+                    li, lo = st.columns(2)
+                    with li:
+                        st.markdown("**prompt**")
+                        st.json(_jsonable(llm.get("input") or {}))
+                    with lo:
+                        st.markdown("**response**")
+                        st.json(_jsonable(_span_output(llm) or {}))
+                    tok_in = lmd.get("input_tokens", "?")
+                    tok_out = lmd.get("output_tokens", "?")
+                    st.caption(f"tokens: {tok_in} in / {tok_out} out")
+
+
+def _render_composer_notes_callout(notes: str | None) -> None:
+    """Surface the composer's StrategyOutput.notes as a small callout so
+    a user inspecting a fallback row doesn't mistake it for LLM-composed."""
+    if not notes:
+        return
+    if notes == "deterministic_fallback":
         st.warning(
-            f"{table_hint} or its enriched table is missing — the merchant "
-            "may have been deleted, or the id is malformed. Use **Refresh "
-            "merchants** in the sidebar to re-hydrate the selector."
+            "Composer LLM failed for this product — canonical row built "
+            "deterministically from findings (`notes='deterministic_fallback'`)."
+        )
+    elif notes == "no_upstream_findings":
+        st.info(
+            "No upstream strategies produced findings for this product; "
+            "composer was invoked but had no material to compose."
+        )
+
+
+def _render_cell_panel_empty() -> None:
+    st.markdown("### Cell lineage")
+    st.caption(
+        "Click a cell in the enriched table to trace who produced it. "
+        "Canonical columns (`canonical.*`, green) show the full composer "
+        "decision + contributing agent; finding columns (grey, debug "
+        "view) show just the emitting agent's span."
+    )
+
+
+def _render_cell_panel_raw(col: str) -> None:
+    st.markdown("### Cell lineage")
+    st.caption(f"`{col}` is a raw catalog cell — no agent produced it.")
+
+
+def _render_cell_panel_canonical(
+    bucket: dict[str, Any],
+    pid: str,
+    canonical_key: str,
+) -> None:
+    st.markdown("### Cell lineage")
+    st.caption(f"`canonical.{canonical_key}`  ·  product `{pid[:8]}…`")
+    composer_span = bucket.get("composer")
+    if composer_span is None:
+        st.warning(
+            "No `composer_v1` span found in this run's trace. Either "
+            "composer didn't run, or `ENRICHMENT_TRACE_JSONL=1` was off "
+            "when the run executed — re-run with tracing enabled to "
+            "surface cell lineage."
         )
         return
-    rows, raw_cols, enriched_cols = result
-    st.caption(
-        f"{len(rows)} rows · {len(raw_cols)} raw columns · "
-        f"{len(enriched_cols)} derived columns"
+    _render_composer_notes_callout(_composer_notes(composer_span))
+    decision = bucket.get("decisions_by_key", {}).get(canonical_key)
+    if decision is None:
+        st.info(
+            f"No `composer_decisions` entry for `{canonical_key}`. The "
+            "canonical value shipped, but the composer didn't record an "
+            "audit entry for it (e.g. LLM returned composed_fields without "
+            "a matching decision, or the cross-check dropped it)."
+        )
+        source_strategy: str | None = None
+        dropped_alts: list[Any] = []
+    else:
+        source_strategy = decision.get("source_strategy")
+        dropped_alts = decision.get("dropped_alternatives") or []
+        _render_decision_card(decision)
+    dashed = _dashed_sources_for_decision(bucket, dropped_alts)
+    dot = _agent_graph_dot(
+        bucket.get("strategy_spans", {}),
+        composer_span,
+        highlight_strategy=source_strategy,
+        dashed_strategies=dashed,
+        highlighted_key=canonical_key,
     )
-    cols = raw_cols + enriched_cols
-    table = [{c: r.get(c) for c in cols} for r in rows]
-    st.caption(
-        "Enriched columns (prefixed with the strategy name) are tinted "
-        "green so you can see at a glance what the agents added on top "
-        "of the raw catalog."
+    st.markdown("**Agent graph**")
+    st.graphviz_chart(dot, use_container_width=True)
+    _render_agent_node(
+        "composer_v1",
+        composer_span,
+        bucket.get("llm_by_strategy", {}).get("composer_v1", []),
+        expanded=False,
     )
+    strategy_spans = bucket.get("strategy_spans", {})
+    if not strategy_spans:
+        st.caption("No upstream strategy spans recorded for this product.")
+        return
+    st.markdown("**Contributing agents**")
+    for strategy in sorted(strategy_spans.keys()):
+        _render_agent_node(
+            strategy,
+            strategy_spans[strategy],
+            bucket.get("llm_by_strategy", {}).get(strategy, []),
+            expanded=(strategy == source_strategy),
+        )
+
+
+def _render_decision_card(decision: dict[str, Any]) -> None:
+    st.markdown("**Composer decision**")
+    cols = st.columns(2)
+    cols[0].markdown(f"**key**: `{decision.get('key')}`")
+    cols[0].markdown(
+        f"**source**: `{decision.get('source_strategy') or '(unknown)'}`"
+    )
+    val = decision.get("chosen_value")
     try:
-        import pandas as pd
+        val_str = json.dumps(val, ensure_ascii=False, default=str)
+    except Exception:  # noqa: BLE001
+        val_str = repr(val)
+    cols[1].markdown("**chosen value**")
+    cols[1].code(val_str[:400])
+    reason = decision.get("reason")
+    if reason:
+        st.caption(f"**reason**: {reason}")
+    dropped = decision.get("dropped_alternatives") or []
+    if dropped:
+        st.markdown(f"**dropped alternatives** ({len(dropped)})")
+        st.json(_jsonable(dropped))
 
-        df = pd.DataFrame(table, columns=cols)
-        enriched_set = set(enriched_cols)
 
-        def _tint(col: pd.Series) -> list[str]:
-            if col.name in enriched_set:
-                return ["background-color: rgba(45, 180, 130, 0.18)"] * len(col)
-            return [""] * len(col)
+def _dashed_sources_for_decision(
+    bucket: dict[str, Any], dropped_alts: list[Any]
+) -> tuple[str, ...]:
+    """Best-effort: infer which upstream strategies' findings matched a
+    value in ``dropped_alternatives`` so the agent graph can render a
+    dashed edge from those sources to composer_v1. We don't have
+    per-drop ``source_strategy`` metadata in the current decision
+    schema, so we reverse-lookup against each strategy's
+    ``StrategyOutput.attributes`` values."""
+    if not dropped_alts:
+        return ()
+    sources: set[str] = set()
+    for strategy, span in bucket.get("strategy_spans", {}).items():
+        if strategy not in _KNOWN_UPSTREAM_STRATEGIES:
+            continue
+        out = _span_output(span) or {}
+        if not isinstance(out, dict):
+            continue
+        attrs = out.get("attributes") or {}
+        if not isinstance(attrs, dict):
+            continue
+        flat_values: list[Any] = []
+        for v in attrs.values():
+            if isinstance(v, dict):
+                flat_values.extend(v.values())
+            elif isinstance(v, list):
+                flat_values.extend(v)
+            else:
+                flat_values.append(v)
+        for dv in dropped_alts:
+            if dv in flat_values:
+                sources.add(strategy)
+                break
+    return tuple(sorted(sources))
 
-        styled = df.style.apply(_tint, axis=0)
-        st.dataframe(styled, hide_index=True, use_container_width=True)
-    except ImportError:
-        st.dataframe(table, hide_index=True, use_container_width=True)
-    st.download_button(
-        "Download as CSV",
-        data=_rows_to_csv(table, cols),
-        file_name=f"{merchant_id}_enriched.csv",
-        mime="text/csv",
+
+def _render_cell_panel_finding(
+    bucket: dict[str, Any],
+    pid: str,
+    strategy: str,
+    key: str,
+    value: Any,
+) -> None:
+    st.markdown("### Cell lineage")
+    st.caption(f"`{strategy}.{key}`  ·  product `{pid[:8]}…`  ·  pre-composer finding")
+    st.info(
+        "This is a pre-composer finding — the raw output of one agent "
+        "before the composer synthesized the canonical row. It may or "
+        "may not have made it onto the canonical row."
+    )
+    # Cross-reference: did this exact value appear in any composer decision's
+    # dropped_alternatives? If so, name the canonical key that shadowed it.
+    composer_span = bucket.get("composer")
+    if composer_span is not None:
+        for canonical_key, decision in bucket.get("decisions_by_key", {}).items():
+            dropped = decision.get("dropped_alternatives") or []
+            if value in dropped:
+                st.caption(
+                    f"_Shadowed by `canonical.{canonical_key}` "
+                    f"(composer chose `{decision.get('source_strategy')}` instead)._"
+                )
+                break
+    span = bucket.get("strategy_spans", {}).get(strategy)
+    if span is None:
+        st.warning(f"No `{strategy}` span found for this product.")
+        return
+    _render_agent_node(
+        strategy,
+        span,
+        bucket.get("llm_by_strategy", {}).get(strategy, []),
+        expanded=True,
+    )
+
+
+def render_enriched_table(run: dict[str, Any], engine: Engine, merchant_id: str) -> None:
+    st.markdown(
+        f"### Enriched catalog for `{merchant_id}`  "
+        f"(canonical columns from `composer_v1` + optional pre-composer findings)"
+    )
+    left, right = st.columns([3, 2], gap="medium")
+
+    with left:
+        limit = st.slider(
+            "max rows", min_value=10, max_value=2000, value=200, step=10
+        )
+        show_findings = st.toggle(
+            "Show pre-composer findings (debug)",
+            value=False,
+            help=(
+                "Surface the raw `<strategy>.<key>` outputs that composer_v1 "
+                "synthesized from. Useful for debugging why the composer "
+                "chose one source over another."
+            ),
+        )
+        result = fetch_enriched_table(engine, merchant_id, limit=limit)
+        if result is None:
+            # Slug may have been rejected by the helper (malformed) or the
+            # tables themselves are gone — keep the message generic so we
+            # don't re-raise the same ValueError just to render copy.
+            try:
+                table_hint = f"`{merchant_catalog_table(merchant_id)}`"
+            except ValueError:
+                table_hint = f"the catalog table for `{merchant_id}`"
+            st.warning(
+                f"{table_hint} or its enriched table is missing — the merchant "
+                "may have been deleted, or the id is malformed. Use **Refresh "
+                "merchants** in the sidebar to re-hydrate the selector."
+            )
+            with right:
+                _render_cell_panel_empty()
+            return
+        rows, raw_cols, canonical_cols, finding_cols = result
+        if not canonical_cols:
+            st.caption(
+                f"{len(rows)} rows · {len(raw_cols)} raw columns · "
+                f"**no `composer_v1` rows found** (run enrichment with the "
+                "composer enabled — see PR #84)."
+            )
+        else:
+            st.caption(
+                f"{len(rows)} rows · {len(raw_cols)} raw columns · "
+                f"{len(canonical_cols)} canonical columns"
+                + (
+                    f" · {len(finding_cols)} finding columns"
+                    if show_findings
+                    else ""
+                )
+            )
+        display_cols = list(raw_cols) + list(canonical_cols)
+        if show_findings:
+            display_cols = display_cols + list(finding_cols)
+        table = [{c: r.get(c) for c in display_cols} for r in rows]
+        st.caption(
+            "Canonical columns (`canonical.*`, green) are the composer's "
+            "single-writer output. Click any canonical cell to see which "
+            "agent produced its value, with that agent's full reasoning "
+            "chain in the side panel."
+        )
+        canonical_set = set(canonical_cols)
+        finding_set = set(finding_cols)
+        try:
+            import pandas as pd
+
+            df = pd.DataFrame(table, columns=display_cols)
+
+            def _tint(col: "pd.Series[Any]") -> list[str]:
+                if col.name in canonical_set:
+                    return ["background-color: rgba(45, 180, 130, 0.18)"] * len(col)
+                if col.name in finding_set:
+                    return ["background-color: rgba(140, 140, 140, 0.12)"] * len(col)
+                return [""] * len(col)
+
+            styled = df.style.apply(_tint, axis=0)
+            event = st.dataframe(
+                styled,
+                hide_index=True,
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode=["single-row", "single-column"],
+                key="enriched_grid",
+            )
+        except ImportError:
+            event = st.dataframe(
+                table,
+                hide_index=True,
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode=["single-row", "single-column"],
+                key="enriched_grid",
+            )
+        st.download_button(
+            "Download as CSV",
+            data=_rows_to_csv(table, display_cols),
+            file_name=f"{merchant_id}_enriched.csv",
+            mime="text/csv",
+        )
+
+    # --- Right column: cell-lineage side panel -------------------------
+    with right:
+        _render_side_panel(event, rows, display_cols, run)
+
+
+def _render_side_panel(
+    event: Any,
+    rows: list[dict[str, Any]],
+    display_cols: list[str],
+    run: dict[str, Any],
+) -> None:
+    """Dispatch the right-column renderer based on the current selection.
+
+    Split off so the ``with left:`` / ``with right:`` blocks stay readable;
+    the routing itself is just the raw vs canonical vs finding fork."""
+    sel = getattr(event, "selection", None) or {}
+    if not isinstance(sel, dict):
+        sel = dict(sel) if sel else {}
+    sel_rows = sel.get("rows") or []
+    sel_cols = sel.get("columns") or []
+    if not (sel_rows and sel_cols):
+        _render_cell_panel_empty()
+        return
+    row_idx = sel_rows[0]
+    col_idx = sel_cols[0]
+    # Streamlit returns the column index as an int (position) in some
+    # versions and the column name as a str in others — handle both.
+    if isinstance(col_idx, int):
+        if col_idx < 0 or col_idx >= len(display_cols):
+            _render_cell_panel_empty()
+            return
+        col_name = display_cols[col_idx]
+    else:
+        col_name = str(col_idx)
+    if row_idx < 0 or row_idx >= len(rows):
+        _render_cell_panel_empty()
+        return
+    row = rows[row_idx]
+    pid = row.get("product_id")
+    if pid is None:
+        _render_cell_panel_empty()
+        return
+    pid_str = str(pid)
+
+    # Route by column namespace.
+    if col_name.startswith("canonical."):
+        canonical_key = col_name[len("canonical.") :]
+        bucket = _load_trace_bucket(run, pid_str)
+        if bucket is None:
+            _render_cell_panel_trace_missing(run, pid_str, col_name)
+            return
+        _render_cell_panel_canonical(bucket, pid_str, canonical_key)
+        return
+    for prefix in _KNOWN_UPSTREAM_STRATEGIES:
+        if col_name.startswith(prefix + "."):
+            bucket = _load_trace_bucket(run, pid_str)
+            if bucket is None:
+                _render_cell_panel_trace_missing(run, pid_str, col_name)
+                return
+            key = col_name[len(prefix) + 1 :]
+            _render_cell_panel_finding(
+                bucket, pid_str, prefix, key, row.get(col_name)
+            )
+            return
+    _render_cell_panel_raw(col_name)
+
+
+def _load_trace_bucket(
+    run: dict[str, Any], pid_str: str
+) -> dict[str, Any] | None:
+    """Return the per-product trace bucket for ``pid_str``, or ``None`` when
+    the JSONL isn't present. Separate helper keeps the call-site routing
+    compact and gives us a single place to apply the mtime-keyed cache."""
+    run_id = (run.get("summary") or {}).get("run_id")
+    if not run_id:
+        return None
+    path = TRACES_DIR / f"{run_id}.jsonl"
+    if not path.exists():
+        return None
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    index = _index_trace_by_product(str(path), mtime)
+    return index.get(pid_str) or {
+        "strategy_spans": {},
+        "llm_by_strategy": {},
+        "composer": None,
+        "decisions_by_key": {},
+    }
+
+
+def _render_cell_panel_trace_missing(
+    run: dict[str, Any], pid_str: str, col_name: str
+) -> None:
+    run_id = (run.get("summary") or {}).get("run_id") or "?"
+    st.markdown("### Cell lineage")
+    st.caption(f"`{col_name}`  ·  product `{pid_str[:8]}…`")
+    st.warning(
+        f"No JSONL trace found at `logs/enrichment_traces/{run_id}.jsonl`. "
+        "Re-run with `ENRICHMENT_TRACE_JSONL=1` to enable cell lineage."
     )
 
 
@@ -1066,7 +1654,7 @@ def main() -> None:
     with tabs[1]:
         render_raw_enriched_kg(run, engine, picked_id)
     with tabs[2]:
-        render_enriched_table(engine, picked_id)
+        render_enriched_table(run, engine, picked_id)
     with tabs[3]:
         render_kg_coverage(run)
     with tabs[4]:
