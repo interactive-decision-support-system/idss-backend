@@ -105,6 +105,8 @@ Desktop.ini
 logs/
 *.log
 *.jsonl
+# Feature-discovery seed corpora are checked in so the prototype is reproducible offline.
+!mcp-server/app/feature_discovery/seeds/*.jsonl
 
 # Evaluation results
 results_*.txt
