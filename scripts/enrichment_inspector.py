@@ -181,6 +181,38 @@ def load_run(path_str: str) -> dict[str, Any]:
         return json.load(fh)
 
 
+@st.cache_data(show_spinner=False)
+def _artifact_merchant_id(path_str: str, mtime: float) -> str | None:
+    """Return ``summary.merchant_id`` for ``path_str`` without paying the
+    full-artifact parse cost repeatedly. Cache key includes ``mtime`` so
+    an overwrite in-place invalidates the entry (the `mtime` argument is
+    used by Streamlit's ``@cache_data`` for keying — don't drop it)."""
+    del mtime  # documented cache key, not consumed here
+    try:
+        with open(path_str, "r", encoding="utf-8") as fh:
+            summary = (json.load(fh).get("summary") or {})
+    except (OSError, json.JSONDecodeError):
+        return None
+    mid = summary.get("merchant_id")
+    return str(mid) if mid is not None else None
+
+
+def list_run_artifacts_for_merchant(merchant_id: str) -> list[Path]:
+    """Filter ``list_run_artifacts()`` to artifacts whose
+    ``summary.merchant_id`` matches. Reads each artifact's summary via a
+    per-file mtime-keyed cache (`_artifact_merchant_id`) so the typical
+    "same files, user flipped a selector" rerun does zero disk I/O."""
+    out: list[Path] = []
+    for p in list_run_artifacts():
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        if _artifact_merchant_id(str(p), mtime) == merchant_id:
+            out.append(p)
+    return out
+
+
 def langfuse_tag_url(run_id: str) -> str:
     q = urllib.parse.urlencode({"tags": f"run:{run_id}"})
     return f"{LANGFUSE_HOST}/traces?{q}"
@@ -779,18 +811,39 @@ def _agent_graph_dot(
 ) -> str:
     """Emit a graphviz dot string for the per-product agent graph.
 
-    Nodes: one per strategy span observed for this product + a
-    ``composer_v1`` sink node. Solid edges from sources that produced the
-    highlighted cell's canonical value; dashed edges from sources whose
-    value ended up in that decision's ``dropped_alternatives`` list.
+    Nodes: only strategies that contributed to *this* cell's lineage —
+    the ``source_strategy`` (solid, highlighted) plus any strategy whose
+    finding ended up in ``dropped_alternatives`` (dashed edge). The full
+    "all agents observed" view is covered by the Contributing-agents
+    expanders below the graph; this chart answers the narrower question
+    "who produced this cell and who was in the running?".
 
-    The graph is intentionally small and terminal-friendly — no colors
-    that break under dark mode (we rely on ``style=filled`` + default
-    fill colors that the Streamlit renderer themes on its own).
+    Edges always terminate at the ``composer_v1`` sink. Solid edges
+    carry the canonical key as their label; dashed edges are marked
+    ``dropped``.
+
+    Sizing is clamped (``size="4,2.5"``) so the rendered DAG stays
+    legible inside the side panel even on wide monitors — the caller
+    must NOT pass ``use_container_width=True`` to ``st.graphviz_chart``
+    or the clamp is overridden.
     """
-    lines: list[str] = ["digraph G {", "rankdir=LR;", "node [shape=box, fontsize=10];"]
+    lines: list[str] = [
+        "digraph G {",
+        'rankdir=LR;',
+        'size="4,2.5";',
+        "nodesep=0.25;",
+        "ranksep=0.45;",
+        "node [shape=box, fontsize=10, margin=\"0.08,0.04\"];",
+        "edge [fontsize=9];",
+    ]
     edge_label = highlighted_key or ""
-    for name in sorted(strategy_spans.keys()):
+    contributors: list[str] = []
+    if highlight_strategy and highlight_strategy in strategy_spans:
+        contributors.append(highlight_strategy)
+    for s in dashed_strategies:
+        if s in strategy_spans and s != highlight_strategy and s not in contributors:
+            contributors.append(s)
+    for name in contributors:
         attrs = []
         if name == highlight_strategy:
             attrs.append("style=filled")
@@ -808,6 +861,9 @@ def _agent_graph_dot(
                 lines.append(
                     f'"{s}" -> "composer_v1" [style=dashed, label="dropped"];'
                 )
+    if not contributors and composer_span is not None:
+        lines.append('"(no contributors)" [shape=plaintext, fontcolor=gray50];')
+        lines.append('"(no contributors)" -> "composer_v1" [style=dotted, color=gray50];')
     lines.append("}")
     return "\n".join(lines)
 
@@ -929,10 +985,8 @@ def _render_cell_panel_canonical(
     decision = bucket.get("decisions_by_key", {}).get(canonical_key)
     if decision is None:
         st.info(
-            f"No `composer_decisions` entry for `{canonical_key}`. The "
-            "canonical value shipped, but the composer didn't record an "
-            "audit entry for it (e.g. LLM returned composed_fields without "
-            "a matching decision, or the cross-check dropped it)."
+            "The composer shipped this value but didn't record which "
+            "agent produced it. This is a known gap — follow-up #88."
         )
         source_strategy: str | None = None
         dropped_alts: list[Any] = []
@@ -949,7 +1003,7 @@ def _render_cell_panel_canonical(
         highlighted_key=canonical_key,
     )
     st.markdown("**Agent graph**")
-    st.graphviz_chart(dot, use_container_width=True)
+    st.graphviz_chart(dot)
     _render_agent_node(
         "composer_v1",
         composer_span,
@@ -1740,17 +1794,19 @@ def main() -> None:
         )
 
         st.divider()
-        artifacts = list_run_artifacts()
+        artifacts = list_run_artifacts_for_merchant(picked_id)
         if not artifacts:
             st.info(
-                "No runs yet. Generate one with:\n\n"
-                "`python scripts/run_enrichment.py "
-                "--mode fixed --limit 5 --eval-output runs/dev.json`"
+                f"No enrichment runs yet for `{picked_id}`. Generate one "
+                "with:\n\n"
+                "`python scripts/run_enrichment.py --mode fixed "
+                f"--merchant {picked_id} --limit 5 "
+                f"--eval-output runs/{picked_id}.json`"
             )
             run: dict[str, Any] = {"summary": {}, "assessment": {}, "catalog_schema": {}}
         else:
             labels = [f"{p.name} ({_fmt_mtime(p)})" for p in artifacts]
-            pick = st.selectbox("run artifact", labels, index=0)
+            pick = st.selectbox("Enrichment run", labels, index=0)
             chosen = artifacts[labels.index(pick)]
             run = load_run(str(chosen))
             st.caption(f"loaded `{chosen}`")
