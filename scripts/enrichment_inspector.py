@@ -63,6 +63,7 @@ from app.merchant_agent import merchant_catalog_table, merchant_enriched_table
 
 
 RUNS_DIR = _REPO_ROOT / "runs"
+TRACES_DIR = _REPO_ROOT / "logs" / "enrichment_traces"
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
 MERCHANT_ADMIN_HOST = os.getenv("MERCHANT_ADMIN_HOST", "").rstrip("/") or None
 
@@ -695,6 +696,203 @@ def render_per_product(
     st.json(_jsonable(projected))
 
 
+def _load_trace_jsonl(run_id: str) -> list[dict[str, Any]] | None:
+    """Read ``logs/enrichment_traces/<run_id>.jsonl``.
+
+    Returns the parsed span list, or ``None`` if the file doesn't exist
+    (JSONL tracing is opt-in via ``ENRICHMENT_TRACE_JSONL=1``). Malformed
+    lines are skipped with a caption-level note so a single corrupt span
+    doesn't blank the whole tab.
+    """
+    path = TRACES_DIR / f"{run_id}.jsonl"
+    if not path.exists():
+        return None
+    spans: list[dict[str, Any]] = []
+    skipped = 0
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                spans.append(json.loads(line))
+            except json.JSONDecodeError:
+                skipped += 1
+    if skipped:
+        st.caption(f"_skipped {skipped} malformed trace line(s) in {path.name}_")
+    return spans
+
+
+def _span_product_id(span: dict[str, Any]) -> str | None:
+    """Extract product_id from a span's input or tags, if present."""
+    inp = span.get("input") or {}
+    if isinstance(inp, dict) and inp.get("product_id"):
+        return str(inp["product_id"])
+    for tag in span.get("tags") or []:
+        if isinstance(tag, str) and tag.startswith("product:"):
+            return tag.split(":", 1)[1]
+    return None
+
+
+def _span_duration_ms(span: dict[str, Any]) -> float | None:
+    """Compute span duration. ``tracing.py`` writes ``started_at`` / ``ended_at``
+    as unix-epoch floats, but tolerate ISO strings too in case the writer
+    format changes."""
+    started = span.get("started_at")
+    ended = span.get("ended_at")
+    if started is None or ended is None:
+        return None
+    if isinstance(started, (int, float)) and isinstance(ended, (int, float)):
+        return round((ended - started) * 1000, 1)
+    try:
+        s = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+        e = datetime.fromisoformat(str(ended).replace("Z", "+00:00"))
+        return round((e - s).total_seconds() * 1000, 1)
+    except ValueError:
+        return None
+
+
+def render_reasoning_trace(run: dict[str, Any]) -> None:
+    """Render JSONL agent traces for the current run.
+
+    The runner writes spans to ``logs/enrichment_traces/<run_id>.jsonl`` when
+    ``ENRICHMENT_TRACE_JSONL=1``. Spans carry the agent/strategy name, LLM
+    calls (``llm:<model>``), inputs, outputs, and tags. This tab groups them
+    by product and strategy so you can walk the decision path the agents
+    took on each row.
+    """
+    summary = run.get("summary", {})
+    run_id = summary.get("run_id")
+    st.markdown("### Reasoning traces (per-agent spans)")
+    if not run_id:
+        st.info(
+            "No `run_id` in this artifact — traces are keyed by run_id. "
+            "Re-run with `--eval-output` from a recent revision."
+        )
+        return
+    spans = _load_trace_jsonl(run_id)
+    if spans is None:
+        st.info(
+            f"No JSONL trace file at `logs/enrichment_traces/{run_id}.jsonl`. "
+            "Re-run with `ENRICHMENT_TRACE_JSONL=1` to enable JSONL tracing:\n\n"
+            "`ENRICHMENT_TRACE_JSONL=1 python scripts/run_enrichment.py "
+            "--merchant <id> --mode fixed --limit 5 --eval-output runs/x.json`"
+        )
+        return
+    if not spans:
+        st.warning("Trace file is empty.")
+        return
+
+    strategy_spans: list[dict[str, Any]] = []
+    llm_by_strategy: dict[str, list[dict[str, Any]]] = {}
+    other_spans: list[dict[str, Any]] = []
+    known_strategies = set(
+        enrichment_registry.list_strategies()
+        if hasattr(enrichment_registry, "list_strategies")
+        else []
+    )
+    # Fall back to the set of names that look like strategies when the
+    # registry doesn't expose a listing helper.
+    if not known_strategies:
+        known_strategies = {
+            s.get("name", "") for s in spans if not (s.get("name") or "").startswith("llm:")
+        }
+
+    current_strategy: str | None = None
+    for span in spans:
+        name = span.get("name") or ""
+        if name.startswith("llm:"):
+            key = current_strategy or "(unassigned)"
+            llm_by_strategy.setdefault(key, []).append(span)
+        elif name in known_strategies:
+            current_strategy = name
+            strategy_spans.append(span)
+        else:
+            other_spans.append(span)
+
+    total_llm = sum(len(v) for v in llm_by_strategy.values())
+    cols = st.columns(4)
+    cols[0].metric("Spans", len(spans))
+    cols[1].metric("Strategy spans", len(strategy_spans))
+    cols[2].metric("LLM calls", total_llm)
+    cols[3].metric("Other spans", len(other_spans))
+
+    pids = sorted({pid for pid in (_span_product_id(s) for s in strategy_spans) if pid})
+    pid_filter = st.selectbox(
+        "Filter by product_id",
+        ["(all)"] + pids,
+        index=0,
+        key="trace_pid_filter",
+    )
+    strategies = sorted({s.get("name") or "?" for s in strategy_spans})
+    strat_filter = st.multiselect(
+        "Filter by strategy",
+        strategies,
+        default=strategies,
+        key="trace_strat_filter",
+    )
+
+    shown = 0
+    for sp in strategy_spans:
+        strategy = sp.get("name") or "?"
+        if strategy not in strat_filter:
+            continue
+        pid = _span_product_id(sp)
+        if pid_filter != "(all)" and pid != pid_filter:
+            continue
+        shown += 1
+        dur = _span_duration_ms(sp)
+        header = f"`{strategy}`"
+        if pid:
+            header += f"  ·  product `{pid[:8]}…`"
+        if dur is not None:
+            header += f"  ·  {dur} ms"
+        tags = sp.get("tags") or []
+        if tags:
+            header += f"  ·  tags: {', '.join(tags[:3])}"
+        with st.expander(header, expanded=False):
+            left, right = st.columns(2)
+            with left:
+                st.markdown("**input**")
+                st.json(_jsonable(sp.get("input") or {}))
+            with right:
+                st.markdown("**output**")
+                st.json(_jsonable(sp.get("output") or {}))
+            updates = sp.get("updates") or []
+            if updates:
+                st.markdown(f"**updates** ({len(updates)})")
+                st.json(_jsonable(updates))
+            llms = [
+                llm for llm in llm_by_strategy.get(strategy, [])
+                if _span_product_id(llm) in (None, pid) or pid is None
+            ]
+            if llms:
+                st.markdown(f"**LLM calls within this strategy** ({len(llms)})")
+                for llm in llms:
+                    model = llm.get("name", "llm:?")
+                    ldur = _span_duration_ms(llm)
+                    label = f"{model}"
+                    if ldur is not None:
+                        label += f"  ·  {ldur} ms"
+                    with st.expander(label, expanded=False):
+                        li, lo = st.columns(2)
+                        with li:
+                            st.markdown("**prompt**")
+                            st.json(_jsonable(llm.get("input") or {}))
+                        with lo:
+                            st.markdown("**response**")
+                            st.json(_jsonable(llm.get("output") or {}))
+
+    if shown == 0:
+        st.info("No strategy spans match the current filters.")
+
+    if other_spans:
+        with st.expander(f"Other spans ({len(other_spans)})", expanded=False):
+            for sp in other_spans:
+                st.markdown(f"**{sp.get('name', '?')}**")
+                st.json(_jsonable(sp))
+
+
 def _jsonable(obj: Any) -> Any:
     try:
         json.dumps(obj, default=str)
@@ -783,6 +981,7 @@ def main() -> None:
             "Enriched table",
             "KG coverage",
             "Per-product drill-down",
+            "Reasoning trace",
         ]
     )
     with tabs[0]:
@@ -795,6 +994,8 @@ def main() -> None:
         render_kg_coverage(run)
     with tabs[4]:
         render_per_product(run, engine, picked_id)
+    with tabs[5]:
+        render_reasoning_trace(run)
 
 
 def _fmt_mtime(path: Path) -> str:
