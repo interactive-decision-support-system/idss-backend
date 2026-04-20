@@ -121,6 +121,10 @@ temp/
 mcp-server/vector_indices/*.index
 mcp-server/vector_indices/*.pkl
 
+# Runtime artifacts
+mcp-server/app/enrichment/cache/
+runs/
+
 # Secrets
 .env.local
 .env.*.local
