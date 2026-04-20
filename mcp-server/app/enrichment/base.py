@@ -39,6 +39,13 @@ class BaseEnrichmentAgent:
     STRATEGY: str = ""
     OUTPUT_KEYS: frozenset[str] = frozenset()
     DEFAULT_MODEL: str | None = None
+    # Subset of OUTPUT_KEYS that hold narrative / planning-artifact output
+    # (prose, buyer questions, audience blurbs). These must NOT land on the
+    # canonical catalog row — the composer reads registry.narrative_keys() to
+    # strip them. Keeping this self-declared per agent means adding a future
+    # narrative-emitting agent is a one-line change on that agent, not a
+    # registry list to keep in sync (issue #83 review).
+    NARRATIVE_KEYS: frozenset[str] = frozenset()
 
     def __init__(self) -> None:
         if not self.STRATEGY:

@@ -61,7 +61,9 @@ def test_llm_orchestrator_falls_back_to_forced_only_on_planning_failure():
     products = [ProductInput(product_id=pid, title="x")]
     plan = LLMOrchestrator(llm=_BoomLLM()).plan(products, AssessorOutput(catalog_size=1))
     chosen = plan.per_product_agents[pid]
-    assert chosen == ["taxonomy_v1", "soft_tagger_v1"]
+    # composer_v1 always trails — it is the single writer of the canonical
+    # row (#83) and must run even when LLM planning fails.
+    assert chosen == ["taxonomy_v1", "soft_tagger_v1", "composer_v1"]
 
 
 def test_llm_orchestrator_empty_products():

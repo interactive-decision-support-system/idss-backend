@@ -32,7 +32,7 @@ _SYSTEM = (
 class TaxonomyAgent(BaseEnrichmentAgent):
     STRATEGY = "taxonomy_v1"
     OUTPUT_KEYS = frozenset({"product_type", "taxonomy_path", "product_type_confidence"})
-    DEFAULT_MODEL = "gpt-4o-mini"
+    DEFAULT_MODEL = "gpt-5-mini"
 
     def __init__(self, llm: LLMClient | None = None) -> None:
         super().__init__()

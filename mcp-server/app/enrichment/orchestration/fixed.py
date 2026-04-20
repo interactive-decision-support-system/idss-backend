@@ -17,13 +17,15 @@ class FixedOrchestrator:
 
 # Strategy run order matters: taxonomy first (others read its product_type),
 # then parser (extracts specs the specialist consults), then specialist /
-# scraper / soft_tagger.
+# scraper / soft_tagger. composer_v1 runs last — it is the single writer of
+# the canonical row and synthesizes all upstream findings (issue #83).
 _PREFERRED_ORDER = (
     "taxonomy_v1",
     "parser_v1",
     "specialist_v1",
     "scraper_v1",
     "soft_tagger_v1",
+    "composer_v1",
 )
 
 

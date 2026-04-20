@@ -37,10 +37,12 @@ _SYSTEM = (
 
 class LLMOrchestrator:
     # taxonomy and soft_tagger are not negotiable — taxonomy gates everything,
-    # soft_tagger is cheap and the KG depends on it. The LLM only chooses among
-    # the others.
+    # soft_tagger is cheap and the KG depends on it. composer_v1 is the single
+    # writer of the canonical row (#83) and must always run last. The LLM only
+    # chooses among the others.
     _FORCED = ("taxonomy_v1", "soft_tagger_v1")
     _CHOOSABLE = ("parser_v1", "specialist_v1", "scraper_v1")
+    _TRAILING = ("composer_v1",)
 
     def __init__(self, llm: LLMClient | None = None) -> None:
         self._llm = llm or LLMClient()
@@ -54,7 +56,9 @@ class LLMOrchestrator:
         for p in products:
             chosen = choices.get(str(p.product_id), [])
             chosen_clean = [s for s in chosen if s in self._CHOOSABLE]
-            per[p.product_id] = list(_dedupe_in_order(self._FORCED + tuple(chosen_clean)))
+            per[p.product_id] = list(
+                _dedupe_in_order(self._FORCED + tuple(chosen_clean) + self._TRAILING)
+            )
         return OrchestratorPlan(per_product_agents=per)
 
     # ------------------------------------------------------------------

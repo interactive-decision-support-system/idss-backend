@@ -138,3 +138,20 @@ class ProposalAck(BaseModel):
     merchant_id: str
     decisions: list[ProposalDecision] = Field(default_factory=list)
     proposal_id: str
+
+
+# ---------------------------------------------------------------------------
+# Composer decisions (one row per key the composer considered — kept or
+# dropped). Surfaces as the cell-lineage audit log for #81.
+# ---------------------------------------------------------------------------
+
+
+class ComposerDecision(BaseModel):
+    """One entry in ``composer_decisions``. Structured schema lets the
+    inspector (#81) render cell lineage without re-parsing free-form JSON."""
+
+    key: str
+    chosen_value: Any = None
+    source_strategy: str | None = None
+    reason: str | None = None
+    dropped_alternatives: list[Any] = Field(default_factory=list)
