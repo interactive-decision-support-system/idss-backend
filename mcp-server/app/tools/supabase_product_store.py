@@ -81,19 +81,28 @@ def get_product_store() -> "SupabaseProductStore":
 # Store
 # ---------------------------------------------------------------------------
 
-def _reject_non_default_merchant(filters: Optional[Dict[str, Any]], op: str) -> None:
-    """Guard the REST path from accidentally serving non-default merchants.
+def _reject_rest_path_for_per_merchant_catalogs(
+    filters: Optional[Dict[str, Any]], op: str
+) -> None:
+    """Guard the REST fallback from routing per-merchant traffic to the wrong table.
 
-    The REST PostgREST endpoint is hard-coded to ``/rest/v1/products`` —
-    that's the legacy shared ``public.products`` table, not the per-merchant
-    ``merchants.products_<id>`` tables introduced for multi-merchant ingest.
-    Routing an uploaded merchant's filters through this path would silently
-    return rows from the default catalog, leaking data and breaking the
-    per-tenant isolation contract.
+    This is a routing-limitation guard, NOT a privilege assertion. The REST
+    PostgREST endpoint is hard-coded to ``/rest/v1/products`` — the legacy
+    shared ``public.products`` table. Per-merchant catalogs live in
+    ``merchants.products_<id>``. Routing an uploaded merchant's filters
+    through this path would silently return rows from public.products,
+    breaking the per-tenant isolation contract.
 
-    This branch only fires when ``DATABASE_URL`` is unset (the SQLAlchemy
-    store is the production path), so the guard mainly protects the
-    REST-only fallback used in local dev / minimal deployments.
+    ``merchant_id='default'`` is accepted only because its data originated as
+    a snapshot of public.products — the legacy REST path happens to return
+    semantically-adjacent rows. Strictly, public.products is closer to the
+    archival pool (merchants.raw_products_default, 51k rows) than to the
+    filtered products_default catalog (34k rows); this path is a transitional
+    convenience, not a correctness guarantee. Whether this class should exist
+    at all is tracked in issue #74.
+
+    Fires only when ``DATABASE_URL`` is unset. Production uses the SQLAlchemy
+    store, which correctly serves any merchant's per-merchant tables.
     """
     if not isinstance(filters, dict):
         return
@@ -101,10 +110,15 @@ def _reject_non_default_merchant(filters: Optional[Dict[str, Any]], op: str) -> 
     if isinstance(mid, str) and mid and mid != "default":
         raise NotImplementedError(
             f"SupabaseProductStore (REST) cannot serve merchant_id={mid!r} — "
-            "the REST path queries the legacy public.products table. Configure "
-            "DATABASE_URL so the SQLAlchemy store handles per-merchant catalogs, "
-            f"or restrict {op} to merchant_id='default'."
+            "the REST path queries the legacy public.products table, not "
+            "merchants.products_<id>. Set DATABASE_URL so the SQLAlchemy store "
+            f"handles per-merchant catalogs, or omit merchant_id from {op}."
         )
+
+
+# Backward-compatible alias for the old name, in case external code imports it.
+# Prefer the new name in new code.
+_reject_non_default_merchant = _reject_rest_path_for_per_merchant_catalogs
 
 
 class SupabaseProductStore:
