@@ -130,11 +130,15 @@ def patched_runtime(monkeypatch):
     monkeypatch.setattr(llm_module.LLMClient, "complete", lambda self, **kw: scripted.complete(**kw))
 
     written: list = []
-    monkeypatch.setattr(db_writer, "upsert_one", lambda db, out, dry_run=False: written.append(out))
+    monkeypatch.setattr(
+        db_writer,
+        "upsert_one",
+        lambda db, out, *, enriched_model, dry_run=False: written.append(out),
+    )
     monkeypatch.setattr(
         db_writer,
         "upsert_many",
-        lambda db, outs, dry_run=False: written.extend(outs) or len(written),
+        lambda db, outs, *, enriched_model, dry_run=False: written.extend(outs) or len(written),
     )
     return {"products": products, "scripted": scripted, "written": written}
 
