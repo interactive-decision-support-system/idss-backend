@@ -184,10 +184,21 @@ def load_run(path_str: str) -> dict[str, Any]:
 
 @st.cache_data(show_spinner=False)
 def _artifact_merchant_id(path_str: str, mtime: float) -> str | None:
-    """Return ``summary.merchant_id`` for ``path_str`` without paying the
-    full-artifact parse cost repeatedly. Cache key includes ``mtime`` so
-    an overwrite in-place invalidates the entry (the `mtime` argument is
-    used by Streamlit's ``@cache_data`` for keying — don't drop it)."""
+    """Return ``summary.merchant_id`` for ``path_str``.
+
+    First call for a given ``(path, mtime)`` pair does a full
+    ``json.load`` of the artifact — there's no streaming shortcut. The
+    cache then ensures every subsequent Streamlit rerun reads from
+    memory until the file is overwritten (``mtime`` changes). For
+    steady-state navigation this is effectively free; it's the *cold
+    load* across ``runs/`` that costs — keep artifacts reasonably small
+    and this stays under tens of milliseconds per file.
+
+    The ``mtime`` argument is the cache-bust lever and is unused in the
+    body — Streamlit's ``@cache_data`` hashes every argument for the
+    key, so passing the file's mtime means an in-place overwrite
+    invalidates the entry without the caller having to reason about
+    it. Review feedback #2, PR #86."""
     del mtime  # documented cache key, not consumed here
     try:
         with open(path_str, "r", encoding="utf-8") as fh:
@@ -633,7 +644,13 @@ try:
     _KNOWN_UPSTREAM_STRATEGIES: tuple[str, ...] = tuple(
         sorted(_COMPOSER_SHORT_TO_STRATEGY.values())
     )
-except Exception:  # noqa: BLE001 - UI must render even if the agent import fails
+except ImportError:
+    # Only swallow missing-module cases — things like a stripped-down test
+    # env where ``app`` isn't on sys.path. Other exceptions (e.g. env-var
+    # assertions in a transitive import, AttributeError from a renamed
+    # symbol) should surface so they're seen and fixed instead of
+    # silently degrading to the hardcoded fallback. Review feedback #4,
+    # PR #86.
     _KNOWN_UPSTREAM_STRATEGIES = _FALLBACK_UPSTREAM_STRATEGIES
 
 
@@ -656,8 +673,8 @@ def _index_trace_by_product(
     {canonical_key: decision}}}``. Missing pids return an empty shell
     lazily, so callers don't need ``KeyError`` guards.
 
-    LLM spans don't carry a product_id on their own input and the
-    tracer doesn't auto-tag them with ``product:<pid>`` (see
+    LLM spans don't usually carry a product_id on their own input and
+    the tracer doesn't auto-tag them with ``product:<pid>`` (see
     ``tracing._current_tags``), so attribution is done by time-window
     containment: an LLM span at ``[start, end]`` belongs to the
     strategy span whose ``[start, end]`` fully contains it. This is
@@ -665,6 +682,22 @@ def _index_trace_by_product(
     *before* their parent strategy span, so "most recently seen
     strategy name" would always mis-attribute) and against any future
     interleaving — review fixes #2 and #3, PR #86.
+
+    When an LLM span *does* carry a pid (via ``input.product_id`` or a
+    ``product:<pid>`` tag — both already handled by
+    ``_span_product_id``), we additionally require the enclosing
+    strategy to share that pid. Today the pipeline runs products
+    serially per worker so this is redundant, but the moment
+    enrichment parallelises across products (``asyncio.gather`` or
+    similar) two products' windows can overlap and the pure
+    time-window match would mis-attribute an LLM call to the other
+    product's strategy. Pid-constrained match prevents that without
+    breaking the current pid-less case — review feedback #1, PR #86.
+
+    Note on memory: the per-strategy LLM lists are unbounded. For a
+    10k-product run with many LLM retries this bloats Streamlit's
+    cache_data entry. Not a v1 blocker (the expected working set is
+    ~dozens of products per inspection) — review feedback #6, PR #86.
     """
     path = Path(jsonl_path_str)
     if not path.exists():
@@ -738,9 +771,17 @@ def _index_trace_by_product(
         lend = _span_ended_at(llm)
         if lstart is None or lend is None:
             continue
+        llm_pid = _span_product_id(llm)  # may be None (pid-less LLM span)
         owner: tuple[str, str] | None = None
         best_duration = float("inf")
         for (s_start, s_end, s_pid, s_name) in intervals:
+            # If the LLM span carries a pid, require the enclosing
+            # strategy to share it — future-proof against concurrent
+            # products whose windows overlap. Falls through to pure
+            # time-window match when the LLM span is pid-less, which
+            # is the common case today.
+            if llm_pid is not None and s_pid != llm_pid:
+                continue
             if s_start <= lstart and lend <= s_end:
                 duration = s_end - s_start
                 if duration < best_duration:
@@ -794,14 +835,21 @@ def _composer_decisions_from_span(span: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _composer_notes(span: dict[str, Any] | None) -> str | None:
     """Return composer_v1's StrategyOutput.notes (e.g. 'deterministic_fallback',
-    'no_upstream_findings') or None when no composer span is recorded."""
+    'no_upstream_findings') or None when no composer span is recorded.
+
+    ``notes`` is compared by ``is None`` rather than truthiness so an
+    intentionally-empty marker string round-trips verbatim — downstream
+    callers still filter empty via ``if not notes:`` but new markers
+    don't get silently erased here (review nit #2, PR #86)."""
     if not span:
         return None
     out = _span_output(span) or {}
     if not isinstance(out, dict):
         return None
     notes = out.get("notes")
-    return str(notes) if notes else None
+    if notes is None:
+        return None
+    return str(notes)
 
 
 def _agent_graph_dot(
@@ -830,6 +878,14 @@ def _agent_graph_dot(
     must NOT pass ``use_container_width=True`` to ``st.graphviz_chart``
     or the clamp is overridden.
     """
+    def _esc(s: str) -> str:
+        # Minimal DOT escape — canonical keys and strategy names today
+        # are safe identifiers, but a decision key containing a quote
+        # or backslash would otherwise break the DOT body. Cheap
+        # defense-in-depth since we don't have python-graphviz as a
+        # dep (review nit #1, PR #86).
+        return s.replace("\\", "\\\\").replace('"', '\\"')
+
     lines: list[str] = [
         "digraph G {",
         'rankdir=LR;',
@@ -839,7 +895,7 @@ def _agent_graph_dot(
         "node [shape=box, fontsize=10, margin=\"0.08,0.04\"];",
         "edge [fontsize=9];",
     ]
-    edge_label = highlighted_key or ""
+    edge_label = _esc(highlighted_key or "")
     contributors: list[str] = []
     if highlight_strategy and highlight_strategy in strategy_spans:
         contributors.append(highlight_strategy)
@@ -851,18 +907,19 @@ def _agent_graph_dot(
         if name == highlight_strategy:
             attrs.append("style=filled")
         attr_str = f" [{', '.join(attrs)}]" if attrs else ""
-        lines.append(f'"{name}"{attr_str};')
+        lines.append(f'"{_esc(name)}"{attr_str};')
     if composer_span is not None:
         lines.append('"composer_v1" [shape=doublecircle];')
         if highlight_strategy and highlight_strategy in strategy_spans:
             lines.append(
-                f'"{highlight_strategy}" -> "composer_v1"'
+                f'"{_esc(highlight_strategy)}" -> "composer_v1"'
                 f' [label="{edge_label}"];'
             )
         for s in dashed_strategies:
             if s in strategy_spans and s != highlight_strategy:
                 lines.append(
-                    f'"{s}" -> "composer_v1" [style=dashed, label="dropped"];'
+                    f'"{_esc(s)}" -> "composer_v1"'
+                    ' [style=dashed, label="dropped"];'
                 )
     if not contributors and composer_span is not None:
         lines.append('"(no contributors)" [shape=plaintext, fontcolor=gray50];')
@@ -975,13 +1032,21 @@ def _render_cell_panel_canonical(
 ) -> None:
     st.markdown("### Cell lineage")
     st.caption(f"`canonical.{canonical_key}`  ·  product `{_short_pid(pid)}`")
+    if bucket.get("_pid_not_in_run"):
+        st.warning(
+            "This product isn't in the selected enrichment run — it was "
+            "likely added to the catalog after the run finished. Pick a "
+            "newer run from the sidebar, or re-run enrichment to include "
+            "it."
+        )
+        return
     composer_span = bucket.get("composer")
     if composer_span is None:
         st.warning(
-            "No `composer_v1` span found in this run's trace. Either "
-            "composer didn't run, or `ENRICHMENT_TRACE_JSONL=1` was off "
-            "when the run executed — re-run with tracing enabled to "
-            "surface cell lineage."
+            "Composer didn't produce a span for this product in the "
+            "selected run. Either the composer was disabled / errored "
+            "for this specific product, or `ENRICHMENT_TRACE_JSONL=1` "
+            "was off when the run executed."
         )
         return
     _render_composer_notes_callout(_composer_notes(composer_span))
@@ -1105,6 +1170,12 @@ def _render_cell_panel_finding(
     st.caption(
         f"`{strategy}.{key}`  ·  product `{_short_pid(pid)}`  ·  pre-composer finding"
     )
+    if bucket.get("_pid_not_in_run"):
+        st.warning(
+            "This product isn't in the selected enrichment run — pick a "
+            "newer run from the sidebar to see its findings."
+        )
+        return
     st.info(
         "This is a pre-composer finding — the raw output of one agent "
         "before the composer synthesized the canonical row. It may or "
@@ -1152,15 +1223,32 @@ def render_enriched_table(run: dict[str, Any], engine: Engine, merchant_id: str)
         limit = st.slider(
             "max rows", min_value=10, max_value=2000, value=200, step=10
         )
+        # Clear the grid's cell selection when the findings toggle flips
+        # — toggling changes the column layout (adds/removes
+        # finding_cols), so a selection index captured before the flip
+        # may point to a different cell after. The range check in
+        # ``_render_side_panel`` guards against out-of-bounds, but the
+        # *semantic* mismatch (user selected canonical.ram_gb, finding
+        # column moves in, now they're looking at a parser_v1.* panel)
+        # is only fixed by dropping the stale selection. Review
+        # feedback #5, PR #86.
+        toggle_key = f"enriched_findings_toggle_{merchant_id}"
+        prev_toggle_key = f"_prev_{toggle_key}"
+        grid_key = f"enriched_grid_{merchant_id}"
         show_findings = st.toggle(
             "Show pre-composer findings (debug)",
             value=False,
+            key=toggle_key,
             help=(
                 "Surface the raw `<strategy>.<key>` outputs that composer_v1 "
                 "synthesized from. Useful for debugging why the composer "
                 "chose one source over another."
             ),
         )
+        prev = st.session_state.get(prev_toggle_key)
+        if prev is not None and prev != show_findings:
+            st.session_state.pop(grid_key, None)
+        st.session_state[prev_toggle_key] = show_findings
         result = fetch_enriched_table(engine, merchant_id, limit=limit)
         if result is None:
             # Slug may have been rejected by the helper (malformed) or the
@@ -1220,10 +1308,9 @@ def render_enriched_table(run: dict[str, Any], engine: Engine, merchant_id: str)
                 return [""] * len(col)
 
             styled = df.style.apply(_tint, axis=0)
-            # Scope the selection key by merchant so switching merchants
-            # doesn't carry over a cell selection that pointed at a
-            # different column layout (review fix #1, PR #86).
-            grid_key = f"enriched_grid_{merchant_id}"
+            # grid_key was set above (merchant-scoped) so switching
+            # merchants / toggling findings both clear the selection
+            # cleanly.
             event = st.dataframe(
                 styled,
                 hide_index=True,
@@ -1233,7 +1320,6 @@ def render_enriched_table(run: dict[str, Any], engine: Engine, merchant_id: str)
                 key=grid_key,
             )
         except ImportError:
-            grid_key = f"enriched_grid_{merchant_id}"
             event = st.dataframe(
                 table,
                 hide_index=True,
@@ -1330,7 +1416,14 @@ def _load_trace_bucket(
 ) -> dict[str, Any] | None:
     """Return the per-product trace bucket for ``pid_str``, or ``None`` when
     the JSONL isn't present. Separate helper keeps the call-site routing
-    compact and gives us a single place to apply the mtime-keyed cache."""
+    compact and gives us a single place to apply the mtime-keyed cache.
+
+    When the JSONL *is* present but ``pid_str`` simply didn't appear in
+    this run — typically because the product was added to the catalog
+    after the selected run artifact was produced — the returned bucket
+    carries ``_pid_not_in_run = True`` so callers can differentiate
+    "composer didn't run for this product" from "this product wasn't
+    part of the selected run" (review feedback #3, PR #86)."""
     run_id = (run.get("summary") or {}).get("run_id")
     if not run_id or not _RUN_ID_SAFE_RE.match(str(run_id)):
         return None
@@ -1342,12 +1435,16 @@ def _load_trace_bucket(
     except OSError:
         return None
     index = _index_trace_by_product(str(path), mtime)
-    return index.get(pid_str) or {
-        "strategy_spans": {},
-        "llm_by_strategy": {},
-        "composer": None,
-        "decisions_by_key": {},
-    }
+    bucket = index.get(pid_str)
+    if bucket is None:
+        return {
+            "strategy_spans": {},
+            "llm_by_strategy": {},
+            "composer": None,
+            "decisions_by_key": {},
+            "_pid_not_in_run": True,
+        }
+    return bucket
 
 
 def _render_cell_panel_trace_missing(
