@@ -92,11 +92,24 @@ from app.enrichment.types import ComposerDecision, ProductInput, StrategyOutput
 logger = logging.getLogger(__name__)
 
 
-# gpt-5-mini is a reasoning model. Composer synthesizes all upstream findings
-# + writes decisions — largest output of any agent (~1000+ tokens visible).
-# Budget covers reasoning floor + full composed_fields + decisions + margin.
-# See Task 12 / ENRICHMENT_MODEL_DIAGNOSIS.md.
-_MAX_COMPLETION_TOKENS = 6000
+# Composer uses gpt-5 (full tier, not gpt-5-mini). gpt-5's reasoning is
+# significantly more expensive in tokens than gpt-5-mini's: empirically ≥6000
+# reasoning tokens are consumed on hard products before any visible output is
+# emitted. Live evidence from a 10-product mocklaptops batch (refactor/
+# merchant-agent-v2 tip + PR #103): 7/10 composer calls hit output_tokens=6000
+# with empty content — entire budget consumed by invisible reasoning, zero JSON
+# emitted. The 3 successful calls used 5063/5522/5788 output_tokens, of which
+# ~2000 tokens was visible JSON (~7000 chars), implying ~3000-4000 reasoning.
+# Hard products (e.g. MacBook 128GB, Razer Blade, Framework 16) likely need
+# 6000+ reasoning tokens alone. Budget breakdown:
+#   - gpt-5 reasoning floor (hard products): ≥6000 tokens (empirical)
+#   - Visible JSON output (composed_fields + decisions): ~2000 tokens
+#   - Safety margin: ~8000 tokens
+# Other agents keep their lower budgets — they run on gpt-5-mini which has a
+# much lower reasoning cost and their existing 2000-4000 budgets still fit.
+# See Task 12 / ENRICHMENT_MODEL_DIAGNOSIS.md and PR #103 (raised 2500→6000),
+# PR #84 (gpt-5 tier setup).
+_MAX_COMPLETION_TOKENS = 16000
 
 
 # Context keys the runner populates for each upstream strategy.
