@@ -55,6 +55,25 @@ from app.catalog import Catalog
 logger = logging.getLogger(__name__)
 
 
+def _is_substantive(value: Any) -> bool:
+    """A key counts as 'filled' if its value carries information.
+
+    None / "" / [] / {} all return False. Booleans / 0 / non-empty
+    containers / non-empty strings return True.
+
+    For nested dicts/lists, this checks the top level only — a dict
+    {'a': {}} returns True (it has one key, even if that key's value
+    is empty). The recursion stops at one level by design; the metric's
+    grain is "did the agent produce a non-empty container", not "is
+    every leaf populated."
+    """
+    if value is None:
+        return False
+    if isinstance(value, (str, list, dict, tuple, set)):
+        return len(value) > 0
+    return True  # scalars (numbers, booleans) are substantive
+
+
 Mode = Literal["fixed", "orchestrated"]
 
 
@@ -247,7 +266,12 @@ def _run_inner(
             verdicts[strategy] = verdict
             if result.success and verdict.passed and result.output is not None:
                 successful.append(result.output)
-                keys_filled += len(result.output.attributes)
+                keys_filled += sum(
+                    1
+                    for v in result.output.attributes.values()
+                    if _is_substantive(v)
+                )
+                # Make output available to downstream agents.
                 ctx[_short(strategy)] = dict(result.output.attributes)
                 succeeded[strategy] = succeeded.get(strategy, 0) + 1
             else:
