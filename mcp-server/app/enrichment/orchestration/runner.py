@@ -16,7 +16,10 @@ Steps:
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
+import os
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -224,29 +227,31 @@ def _run_inner(
     get_ledger().reset()
     successful_outputs_by_pid: dict[Any, list[StrategyOutput]] = defaultdict(list)
     verdicts_by_pid: dict[Any, dict[str, validator_mod.ValidationVerdict]] = defaultdict(dict)
-    for product in products:
+    # Products are independent — parallelize across products, keep strategies
+    # inside a product strictly sequential (downstream ones read ctx from
+    # upstream ones). Default N=8; override via ENRICHMENT_MAX_WORKERS.
+    # Threads are fine here: agent work is I/O-bound (LLM + DB + HTTP).
+    def _work(product: ProductInput) -> dict[str, Any]:
         plan_for_product = plan.per_product_agents.get(product.product_id, [])
         ctx: dict[str, Any] = {}
         keys_filled = 0
+        dump: list[Any] = []
+        verdicts: dict[str, validator_mod.ValidationVerdict] = {}
+        successful: list[StrategyOutput] = []
+        succeeded: dict[str, int] = {}
+        failed: dict[str, int] = {}
         for strategy in plan_for_product:
             result = _run_strategy(strategy, product, ctx, summary)
-            per_product_dump[str(product.product_id)].append(
-                result.model_dump(mode="json")
-            )
+            dump.append(result.model_dump(mode="json"))
             verdict = validator_mod.validate(result)
-            verdicts_by_pid[product.product_id][strategy] = verdict
+            verdicts[strategy] = verdict
             if result.success and verdict.passed and result.output is not None:
-                successful_outputs_by_pid[product.product_id].append(result.output)
+                successful.append(result.output)
                 keys_filled += len(result.output.attributes)
-                # Make output available to downstream agents.
                 ctx[_short(strategy)] = dict(result.output.attributes)
-                summary.strategies_succeeded[strategy] = (
-                    summary.strategies_succeeded.get(strategy, 0) + 1
-                )
+                succeeded[strategy] = succeeded.get(strategy, 0) + 1
             else:
-                summary.strategies_failed[strategy] = (
-                    summary.strategies_failed.get(strategy, 0) + 1
-                )
+                failed[strategy] = failed.get(strategy, 0) + 1
                 # Feed the rejection into ctx so the composer (runs last)
                 # knows which strategies' output was dropped and why, rather
                 # than treating a missing finding as "strategy wasn't asked
@@ -270,8 +275,33 @@ def _run_inner(
                             "reasons": verdict.reasons,
                         },
                     )
-        summary.keys_filled_per_product.append(keys_filled)
-        summary.products_processed += 1
+        return {
+            "pid": product.product_id,
+            "dump": dump,
+            "verdicts": verdicts,
+            "successful": successful,
+            "succeeded": succeeded,
+            "failed": failed,
+            "keys_filled": keys_filled,
+        }
+
+    max_workers = int(os.getenv("ENRICHMENT_MAX_WORKERS", "8"))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_work, p) for p in products]
+        for fut in concurrent.futures.as_completed(futures):
+            r = fut.result()
+            pid = r["pid"]
+            per_product_dump[str(pid)].extend(r["dump"])
+            for strategy, verdict in r["verdicts"].items():
+                verdicts_by_pid[pid][strategy] = verdict
+            for out in r["successful"]:
+                successful_outputs_by_pid[pid].append(out)
+            for s, c in r["succeeded"].items():
+                summary.strategies_succeeded[s] = summary.strategies_succeeded.get(s, 0) + c
+            for s, c in r["failed"].items():
+                summary.strategies_failed[s] = summary.strategies_failed.get(s, 0) + c
+            summary.keys_filled_per_product.append(r["keys_filled"])
+            summary.products_processed += 1
 
     # write outputs (one batched commit)
     all_outputs: list[StrategyOutput] = [
@@ -443,13 +473,17 @@ def _kg_has_products(*, merchant_id: str, kg_strategy: str) -> bool:
                 pass
 
 
+_SUMMARY_LOCK = threading.Lock()
+
+
 def _run_strategy(
     strategy: str,
     product: ProductInput,
     ctx: dict[str, Any],
     summary: RunSummary,
 ) -> AgentResult:
-    summary.strategies_invoked[strategy] = summary.strategies_invoked.get(strategy, 0) + 1
+    with _SUMMARY_LOCK:
+        summary.strategies_invoked[strategy] = summary.strategies_invoked.get(strategy, 0) + 1
     try:
         agent_cls = registry.get(strategy)
     except KeyError as exc:
