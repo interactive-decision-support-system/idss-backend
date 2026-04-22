@@ -529,6 +529,9 @@ class ChatRequest(BaseModel):
     # User actions (favorites, clicks) for preference refinement
     user_actions: Optional[List[Dict[str, str]]] = Field(default=None, description="List of {type, product_id}")
 
+    # Ablation flags — for controlled experiments only; never set in production
+    ablation_no_session: bool = Field(default=False, description="Ablation: clear accumulated slot dict each turn (session history kept for LLM context)")
+
 
 class ChatResponse(BaseModel):
     """Response model for chat endpoint - matches IDSS format."""
@@ -784,6 +787,12 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
         agent = UniversalAgent.restore_from_session(session_id, session, probe_search_fn=_probe_search)
     else:
         agent = UniversalAgent(session_id=session_id, max_questions=request.k if request.k is not None else 3, probe_search_fn=_probe_search)
+
+    # Ablation: zero the accumulated slot dict while preserving conversation history.
+    # Session history still flows to the LLM so context is kept; only the slot-tracking
+    # layer is removed.  This isolates the contribution of explicit session state.
+    if request.ablation_no_session:
+        agent.filters = {}
 
     # Override max_questions if k=0 (skip interview)
     if request.k == 0:
@@ -2992,6 +3001,8 @@ async def _handle_post_recommendation(
     # --- Agent-driven refinement for unmatched post-rec messages ---
     # Instead of returning None and losing the message, let the agent classify it.
     agent = UniversalAgent.restore_from_session(session_id, session)
+    if request.ablation_no_session:
+        agent.filters = {}
     refinement = agent.process_refinement(request.message.strip())
 
     if refinement.get("response_type") == "domain_switch":

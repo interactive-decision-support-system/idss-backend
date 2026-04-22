@@ -631,6 +631,13 @@ class UniversalAgent:
         search_filters = {}
         domain = self.domain or ""
 
+        # Inject product_type from session domain as a hard default.
+        # This ensures "laptop" sessions never return accessories even when no
+        # explicit product_type slot was extracted.
+        _DOMAIN_PRODUCT_TYPE = {"laptops": "laptop", "phones": "phone", "books": "book"}
+        if domain in _DOMAIN_PRODUCT_TYPE:
+            search_filters["product_type"] = _DOMAIN_PRODUCT_TYPE[domain]
+
         for slot_name, value in self.filters.items():
             if not value or str(value).lower() in ("no preference", "any", "either", "any price"):
                 continue
@@ -773,11 +780,27 @@ class UniversalAgent:
             elif slot_name == "excluded_os":
                 # OS/platform exclusion — e.g. "Chrome OS" means no Chromebooks.
                 # Stored as a list to support future multi-exclusion.
+                # value may be a string ("Chrome OS") or list (["Chrome OS"]) depending on path.
                 existing = search_filters.get("excluded_os") or []
                 if isinstance(existing, str):
                     existing = [existing]
-                if value not in existing:
-                    existing.append(value)
+                # Flatten in case value is itself a list; also unwrap stringified lists
+                _os_vals = value if isinstance(value, list) else [value]
+                for _ov in _os_vals:
+                    _s = str(_ov).strip()
+                    if _s.startswith("[") and _s.endswith("]"):
+                        try:
+                            import ast as _ast2
+                            _unwrapped2 = _ast2.literal_eval(_s)
+                            if isinstance(_unwrapped2, list):
+                                for _u2 in _unwrapped2:
+                                    if _u2 and _u2 not in existing:
+                                        existing.append(_u2)
+                            continue
+                        except Exception:
+                            pass
+                    if _ov not in existing:
+                        existing.append(_ov)
                 search_filters["excluded_os"] = existing
 
             elif slot_name == "product_subtype":
@@ -1302,7 +1325,7 @@ class UniversalAgent:
                 _schema_slot_names = {s.name for s in schema.slots}
                 # Extra slots that are valid but not in the schema definition.
                 _ALWAYS_ALLOW = {
-                    "excluded_brands", "_soft_preferences",
+                    "excluded_brands", "excluded_os", "_soft_preferences",
                     "good_for_gaming", "good_for_creative",
                     "good_for_web_dev", "good_for_ml",
                     "use_case",
@@ -1354,6 +1377,34 @@ class UniversalAgent:
                     self.filters["excluded_brands"] = _merge_excluded_brands(
                         self.filters.get("excluded_brands"), ",".join(_det_excl)
                     )
+
+                # Supplement: deterministic ChromeOS exclusion — catches explicit "no Chromebook"
+                # phrases and proactive professional-use signals. Mirrors the logic in
+                # _regex_extract_criteria so both paths produce the same result.
+                _det_excl_os_list: List[str] = []
+                _CHROMEBOOK_EXCL_RE_SUPP = re.compile(
+                    r"(?:no|not\s+a?|don'?t\s+want|avoid|without)\s+chromebook"
+                    r"|chromebook[s]?\s+(?:are\s+)?(?:not|won'?t)\s+work"
+                    r"|\breal\s+os\b|\bwindows\s+or\s+ma?c|\bma?c\s+or\s+windows\b"
+                    r"|\b(?:medical\s+school|med\s+school|nursing\s+school|pharmacy\s+school"
+                    r"|law\s+school|dental\s+school|engineering\s+school"
+                    r"|for\s+(?:work|office|business|professional|corporate|enterprise|hospital|clinic)"
+                    r"|software\s+(?:developer|engineer|development)"
+                    r"|programming|coding\s+bootcamp|computer\s+science\s+(?:major|degree|program)"
+                    r"|data\s+science|machine\s+learning|graphic\s+design|video\s+editing"
+                    r"|autocad|solidworks|matlab|visual\s+studio)\b",
+                    re.IGNORECASE,
+                )
+                if _CHROMEBOOK_EXCL_RE_SUPP.search(message):
+                    _det_excl_os_list.append("Chrome OS")
+                if _det_excl_os_list:
+                    _existing_excl_os = self.filters.get("excluded_os") or []
+                    if isinstance(_existing_excl_os, str):
+                        _existing_excl_os = [_existing_excl_os]
+                    for _eos in _det_excl_os_list:
+                        if _eos not in _existing_excl_os:
+                            _existing_excl_os.append(_eos)
+                    self.filters["excluded_os"] = _existing_excl_os
 
             # Mirror regex fallback heuristic: if user provides ≥2 substantive criteria
             # in a single statement-style message, they've stated their requirements →
@@ -1533,6 +1584,21 @@ class UniversalAgent:
             re.IGNORECASE,
         )
         _exclude_chromeos = bool(_CHROMEBOOK_EXCLUSION_RE.search(message))
+        # Proactively exclude Chrome OS for professional / medical use cases where
+        # Chromebooks are inherently unsuitable (clinical software, IDE, engineering tools, etc.)
+        if not _exclude_chromeos:
+            _PROFESSIONAL_CHROMEBOOK_EXCL_RE = re.compile(
+                r'\b(?:medical\s+school|med\s+school|nursing\s+school|pharmacy\s+school'
+                r'|law\s+school|dental\s+school|engineering\s+school'
+                r'|for\s+(?:work|office|business|professional|corporate|enterprise|hospital|clinic)'
+                r'|software\s+(?:developer|engineer|development)'
+                r'|programming|coding\s+bootcamp|computer\s+science\s+(?:major|degree|program)'
+                r'|data\s+science|machine\s+learning|graphic\s+design|video\s+editing'
+                r'|autocad|solidworks|matlab|visual\s+studio)\b',
+                re.IGNORECASE,
+            )
+            if _PROFESSIONAL_CHROMEBOOK_EXCL_RE.search(message):
+                _exclude_chromeos = True
         if _exclude_chromeos:
             criteria.append(SlotValue(slot_name="excluded_os", value="Chrome OS"))
 
@@ -1601,10 +1667,19 @@ class UniversalAgent:
                 (r'\bschool\b|\bstudent\b|\bcollege\b|\bstud(y|ying)\b', "school"),
                 (r'\bwork\b|\bbusiness\b|\boffice\b|\bprofessional\b', "business"),
             ]
+            _NEG_UC_RE = re.compile(
+                r'\b(?:no|not|non|without|avoid|don\'?t\s+want)\s+\S*\s*$', re.IGNORECASE
+            )
             for _uc_pat, _uc_val in _use_map:
-                if re.search(_uc_pat, text, re.IGNORECASE):
-                    criteria.append(SlotValue(slot_name="use_case", value=_uc_val))
-                    break
+                _m = re.search(_uc_pat, text, re.IGNORECASE)
+                if not _m:
+                    continue
+                # Skip if word is immediately preceded by negation (within 25 chars)
+                _prefix = text[max(0, _m.start()-25):_m.start()]
+                if re.search(r'\b(?:no|not|non|without|avoid)\s+\S*\s*$', _prefix, re.IGNORECASE):
+                    continue
+                criteria.append(SlotValue(slot_name="use_case", value=_uc_val))
+                break
 
         # ── Preferred brand ───────────────────────────────────────────────────
         # Step 1: semantic LLM extraction (handles ALL natural-language variations —
@@ -2197,6 +2272,29 @@ Write the recommendation message."""}
                         self.filters[canonical] = _merge_excluded_brands(
                             self.filters.get(canonical), item.value
                         )
+                    elif canonical == "excluded_os":
+                        # Accumulate OS exclusions, always stored as proper list of strings
+                        _excl_os_ex = self.filters.get("excluded_os") or []
+                        if isinstance(_excl_os_ex, str):
+                            _excl_os_ex = [_excl_os_ex]
+                        _new_os = item.value if isinstance(item.value, list) else [item.value]
+                        for _ov in _new_os:
+                            # Unwrap stringified lists like "['Chrome OS']" → "Chrome OS"
+                            _s = str(_ov).strip()
+                            if _s.startswith("[") and _s.endswith("]"):
+                                try:
+                                    import ast as _ast
+                                    _unwrapped = _ast.literal_eval(_s)
+                                    if isinstance(_unwrapped, list):
+                                        for _u in _unwrapped:
+                                            if _u and _u not in _excl_os_ex:
+                                                _excl_os_ex.append(_u)
+                                    continue
+                                except Exception:
+                                    pass
+                            if _ov and _ov not in _excl_os_ex:
+                                _excl_os_ex.append(_ov)
+                        self.filters["excluded_os"] = _excl_os_ex
                     elif canonical == "use_case":
                         # Pivot: clear stale good_for_* flags so the old use-case doesn't bleed through
                         for _gf in ("good_for_gaming", "good_for_ml", "good_for_creative",

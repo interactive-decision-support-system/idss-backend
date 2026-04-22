@@ -209,13 +209,24 @@ def _extract_year(text: str) -> Optional[int]:
 
 #  Use-case extraction 
 
+_NEGATION_PREFIX_RE = re.compile(
+    r'\b(?:no|not|non|without|avoid|don\'?t\s+want|zero)\s+',
+    re.IGNORECASE,
+)
+
 def _extract_use_cases(text: str) -> List[str]:
-    """Extract canonical use-case tags from query text."""
+    """Extract canonical use-case tags from query text, skipping negated mentions."""
     lower = text.lower()
     found: List[str] = []
     for phrase, tag in USE_CASE_MAP.items():
-        if phrase in lower and tag not in found:
-            found.append(tag)
+        pos = lower.find(phrase)
+        if pos == -1 or tag in found:
+            continue
+        # Check if this phrase is preceded by a negation word (within 20 chars)
+        prefix = lower[max(0, pos - 20):pos]
+        if _NEGATION_PREFIX_RE.search(prefix):
+            continue
+        found.append(tag)
     return found
 
 
