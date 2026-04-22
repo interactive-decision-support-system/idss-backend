@@ -57,8 +57,9 @@ def harvest_reddit(
     """Return up to `max_queries` posts for the product_type.
 
     `http_get(url) -> (status_code, text)` is injected so tests don't
-    hit the network. When None, we lazily build a ScraperClient-equivalent
-    requests-based getter.
+    hit the network. When None, falls back to ``_default_http_get()`` — a
+    plain ``urllib.request.urlopen`` call with a 10 s timeout (no backoff,
+    no ScraperClient).
     """
 
     subs = _SUBREDDITS_BY_TYPE.get(product_type)
