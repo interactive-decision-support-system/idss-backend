@@ -36,6 +36,7 @@ import os
 import re
 import sys
 import urllib.parse
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -159,6 +160,188 @@ def list_merchants(engine: Engine) -> list[dict[str, Any]]:
             "— falling back to DB._"
         )
     return list_merchants_from_db(engine)
+
+
+# ---------------------------------------------------------------------------
+# Coverage breakdown (vision bullet 3 — per-cell source_kind provenance)
+# ---------------------------------------------------------------------------
+
+# Canonical source_kind values from PR #97's SourceKind enum, plus "unknown"
+# for decisions written before that PR or with missing source_kind fields.
+_CANONICAL_SOURCE_KINDS: tuple[str, ...] = (
+    "raw_parse",
+    "scrape",
+    "parametric",
+    "deterministic_fallback",
+    "unknown",
+)
+
+# Path to feature-discovery coverage.json outputs (PR #91, optional).
+_FEATURE_DISCOVERY_DIR = _REPO_ROOT / "runs" / "feature_discovery"
+
+
+@dataclass
+class CoverageBreakdown:
+    """Per-merchant cell-count breakdown by source_kind.
+
+    Built by ``compute_coverage_breakdown`` from
+    ``merchants.products_enriched_<merchant_id>`` rows with
+    ``strategy='composer_v1'``.
+
+    Fields
+    ------
+    total_products : int
+        Number of rows queried (may be 0 for a fresh / failed merchant).
+    total_cells : int
+        Sum of ``len(composed_fields)`` across all products.
+    by_source_kind : dict[str, int]
+        Cell count per source_kind bucket.  Keys come from
+        ``_CANONICAL_SOURCE_KINDS`` plus any other value present in the data.
+    by_attribute : dict[str, dict[str, int]]
+        ``{attr_name: {source_kind: count}}`` across all products.
+    missing_per_attribute : dict[str, int]
+        Count of products where the attribute is absent from
+        ``composed_fields``.
+    incomplete_decisions_count : int
+        Number of products whose ``attributes['incomplete_decisions']`` is True
+        (set by the PR #97 reconciler when it had to synthesise decisions).
+    """
+
+    total_products: int = 0
+    total_cells: int = 0
+    by_source_kind: dict[str, int] = field(default_factory=dict)
+    by_attribute: dict[str, dict[str, int]] = field(default_factory=dict)
+    missing_per_attribute: dict[str, int] = field(default_factory=dict)
+    incomplete_decisions_count: int = 0
+
+
+def compute_coverage_breakdown(engine: Engine, merchant_id: str) -> CoverageBreakdown:
+    """Query ``merchants.products_enriched_<merchant_id>`` (strategy=
+    ``composer_v1``) and return a ``CoverageBreakdown``.
+
+    Pure function — no Streamlit calls.  Safe to call from tests with a
+    mocked/in-memory engine.
+
+    Edge cases handled:
+    * No rows → all-zero breakdown.
+    * Row with ``composed_fields={}`` (current zero-signal state on
+      mocklaptops) → counts toward total_products but adds 0 cells.
+    * Decision missing ``source_kind`` (pre-PR-#97 traces) → bucketed as
+      ``"unknown"``.
+    * Composed key with no matching decision → counted under the source_kind
+      of the synthesised sentinel (``"parametric"`` per the reconciler) but
+      we default to ``"unknown"`` for maximum honesty.
+    * ValueError from ``merchant_enriched_table`` (bad slug) → empty breakdown.
+    """
+    try:
+        enr = merchant_enriched_table(merchant_id)
+    except ValueError:
+        return CoverageBreakdown()
+
+    sql = text(
+        f"SELECT attributes FROM {enr} WHERE strategy = 'composer_v1'"
+    )
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(sql).mappings().all()
+    except (ProgrammingError, DatabaseError):
+        return CoverageBreakdown()
+
+    bd = CoverageBreakdown()
+    # First pass: collect composed_fields data to build the attribute universe.
+    parsed_rows: list[dict[str, Any]] = []
+    attr_universe: set[str] = set()
+
+    for r in rows:
+        attrs: dict[str, Any] = r["attributes"] or {}
+        if not isinstance(attrs, dict):
+            continue
+        composed: dict[str, Any] = attrs.get("composed_fields") or {}
+        if not isinstance(composed, dict):
+            composed = {}
+        decisions: list[Any] = attrs.get("composer_decisions") or []
+        if not isinstance(decisions, list):
+            decisions = []
+        incomplete: bool = bool(attrs.get("incomplete_decisions", False))
+
+        parsed_rows.append(
+            {
+                "composed": composed,
+                "decisions": decisions,
+                "incomplete": incomplete,
+            }
+        )
+        attr_universe.update(composed.keys())
+
+    # Ensure by_attribute and missing_per_attribute cover the full universe.
+    for attr in attr_universe:
+        bd.by_attribute.setdefault(attr, {})
+        bd.missing_per_attribute.setdefault(attr, 0)
+
+    bd.total_products = len(parsed_rows)
+
+    for pr in parsed_rows:
+        composed = pr["composed"]
+        decisions: list[Any] = pr["decisions"]
+        incomplete: bool = pr["incomplete"]
+
+        if incomplete:
+            bd.incomplete_decisions_count += 1
+
+        # Build a key → source_kind lookup from this product's decisions.
+        decision_by_key: dict[str, str] = {}
+        for d in decisions:
+            if not isinstance(d, dict):
+                continue
+            k = d.get("key")
+            if not isinstance(k, str) or not k:
+                continue
+            sk = d.get("source_kind")
+            if sk is None:
+                sk = "unknown"
+            elif isinstance(sk, str) and sk:
+                pass  # use as-is
+            else:
+                sk = "unknown"
+            decision_by_key[k] = sk
+
+        # Tally cells and missing counts against the full attribute universe.
+        for attr in attr_universe:
+            if attr in composed:
+                bd.total_cells += 1
+                sk = decision_by_key.get(attr, "unknown")
+                bd.by_source_kind[sk] = bd.by_source_kind.get(sk, 0) + 1
+                bd.by_attribute[attr][sk] = bd.by_attribute[attr].get(sk, 0) + 1
+            else:
+                bd.missing_per_attribute[attr] = (
+                    bd.missing_per_attribute.get(attr, 0) + 1
+                )
+
+    return bd
+
+
+def _latest_feature_discovery_coverage(product_type: str | None = None) -> dict[str, Any] | None:
+    """Return the most-recently-modified coverage.json from
+    ``runs/feature_discovery/<product_type>/<latest>/coverage.json``.
+
+    Returns ``None`` silently if PR #91 hasn't landed yet (directory absent)
+    or no files exist.  ``product_type=None`` scans all subdirectories."""
+    if not _FEATURE_DISCOVERY_DIR.exists():
+        return None
+    try:
+        candidates: list[Path] = []
+        if product_type:
+            base = _FEATURE_DISCOVERY_DIR / product_type
+            candidates = list(base.rglob("coverage.json")) if base.is_dir() else []
+        else:
+            candidates = list(_FEATURE_DISCOVERY_DIR.rglob("coverage.json"))
+        if not candidates:
+            return None
+        latest = max(candidates, key=lambda p: p.stat().st_mtime)
+        with open(latest, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1840,6 +2023,123 @@ def render_reasoning_trace(run: dict[str, Any]) -> None:
                 st.json(_jsonable(sp))
 
 
+def render_coverage(engine: Engine, merchant_id: str) -> None:
+    """Coverage tab — per-merchant cell breakdown by source_kind.
+
+    Surfaces vision bullet 3: "% populated from parsing the raw source /
+    % from crawling / % from parametric knowledge."  Powered by PR #97's
+    ``source_kind`` field on ``ComposerDecision``.
+    """
+    st.markdown(f"### Coverage breakdown for `{merchant_id}`")
+    st.caption(
+        "Per-cell provenance across ``composer_v1`` decisions — counts how many "
+        "canonical fields were produced by each ``source_kind`` bucket."
+    )
+
+    with st.spinner("Querying enriched table..."):
+        cov = compute_coverage_breakdown(engine, merchant_id)
+
+    # -- Zero-signal banner (current state on mocklaptops, see audit / Task 12)
+    if cov.total_cells == 0:
+        st.warning(
+            "Composer is producing 0 cells across all products on this merchant. "
+            "Coverage breakdown is structurally correct but reflects the upstream "
+            "zero-signal issue (see ENRICHMENT_FAILURE_AUDIT.md / Task 12). "
+            "Re-run after the model investigation lands."
+        )
+
+    # -- Top metrics row -------------------------------------------------------
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Products", cov.total_products)
+    m2.metric("Cells populated", cov.total_cells)
+    avg_cells = (
+        round(cov.total_cells / cov.total_products, 1)
+        if cov.total_products
+        else 0.0
+    )
+    m3.metric("Avg cells / product", avg_cells)
+    m4.metric("Rows with incomplete_decisions", cov.incomplete_decisions_count)
+
+    st.divider()
+
+    # -- Source-kind bar chart -------------------------------------------------
+    st.markdown("#### Per-cell provenance distribution")
+    st.caption("Counts how many composer cells came from each source_kind bucket.")
+
+    if cov.by_source_kind:
+        sk_df = pd.DataFrame(
+            [{"source_kind": k, "cells": v}
+             for k, v in sorted(cov.by_source_kind.items(), key=lambda x: -x[1])],
+        ).set_index("source_kind")
+        st.bar_chart(sk_df, use_container_width=True)
+    else:
+        st.info("No source_kind data yet — run enrichment to populate this chart.")
+
+    st.divider()
+
+    # -- Per-attribute breakdown table ----------------------------------------
+    st.markdown("#### Per-attribute coverage (sorted by gap: worst first)")
+    st.caption(
+        "Rows = attribute names.  Columns = source_kind bucket counts, "
+        "``missing`` = products where this attribute was absent, "
+        "``total_populated`` = filled cells, ``pct_populated`` = fill rate."
+    )
+
+    if cov.by_attribute:
+        all_sk = sorted(
+            {sk for sks in cov.by_attribute.values() for sk in sks}
+            | (set(cov.by_source_kind.keys()) if cov.by_source_kind else set())
+        )
+        attr_rows: list[dict[str, Any]] = []
+        for attr in sorted(cov.by_attribute.keys()):
+            row: dict[str, Any] = {"attribute": attr}
+            total_pop = 0
+            for sk in all_sk:
+                cnt = cov.by_attribute[attr].get(sk, 0)
+                row[sk] = cnt
+                total_pop += cnt
+            missing_cnt = cov.missing_per_attribute.get(attr, 0)
+            row["missing"] = missing_cnt
+            row["total_populated"] = total_pop
+            denom = total_pop + missing_cnt
+            row["pct_populated"] = round(total_pop / denom * 100, 1) if denom else 0.0
+            attr_rows.append(row)
+
+        attr_df = pd.DataFrame(attr_rows).sort_values(
+            "pct_populated", ascending=True
+        )
+        st.dataframe(attr_df, hide_index=True, use_container_width=True)
+
+        st.download_button(
+            "Download as CSV",
+            data=attr_df.to_csv(index=False),
+            file_name=f"{merchant_id}_coverage.csv",
+            mime="text/csv",
+        )
+    else:
+        st.info("No composed attributes found — the attribute table will appear once enrichment runs.")
+
+    st.divider()
+
+    # -- Optional: feature-discovery overlay (PR #91) -------------------------
+    fd_cov = _latest_feature_discovery_coverage()
+    if fd_cov is not None:
+        covered = fd_cov.get("covered", 0)
+        missing_fd = fd_cov.get("missing", 0)
+        underused = fd_cov.get("underused", 0)
+        denom_fd = covered + missing_fd + underused
+        pct_fd = round(covered / denom_fd * 100, 1) if denom_fd else 0.0
+        st.markdown("#### Feature-discovery overlay (PR #91)")
+        st.metric(
+            "% of user-queried features the catalog covers",
+            f"{pct_fd}%",
+            help=(
+                f"covered={covered}, missing={missing_fd}, underused={underused} "
+                "(from latest runs/feature_discovery coverage.json)"
+            ),
+        )
+
+
 def _jsonable(obj: Any) -> Any:
     try:
         json.dumps(obj, default=str)
@@ -1930,6 +2230,7 @@ def main() -> None:
             "Raw → Enriched → KG",
             "Enriched table",
             "KG coverage",
+            "Coverage",
             "Per-product drill-down",
             "Reasoning trace",
         ]
@@ -1943,8 +2244,10 @@ def main() -> None:
     with tabs[3]:
         render_kg_coverage(run)
     with tabs[4]:
-        render_per_product(run, engine, picked_id)
+        render_coverage(engine, picked_id)
     with tabs[5]:
+        render_per_product(run, engine, picked_id)
+    with tabs[6]:
         render_reasoning_trace(run)
 
 
