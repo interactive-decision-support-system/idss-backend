@@ -216,8 +216,8 @@ def test_run_reports_avg_keys_filled(patched_runtime):
     avg = result.summary.to_dict()["avg_keys_filled_per_product"]
     # Each successful agent contributes its OUTPUT_KEYS count;
     # taxonomy(3) + parser(3) + specialist(4) + scraper(6) + soft_tagger(2)
-    # + composer(3: composed_fields, composer_decisions, composed_at) = 21
-    assert avg == 21.0
+    # + composer(4: composed_fields, composer_decisions, composed_at, incomplete_decisions) = 22
+    assert avg == 22.0
 
 
 def test_orchestrated_run_skips_scraper_when_no_url(patched_runtime):
