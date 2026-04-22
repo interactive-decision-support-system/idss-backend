@@ -241,3 +241,64 @@ def test_run_with_no_products_returns_empty_result(monkeypatch):
     assert result.summary.products_processed == 0
     assert "no_products_loaded" in result.summary.notes
     assert result.schema.catalog_size == 0
+
+
+# ---------------------------------------------------------------------------
+# Regression: run_id propagation into ThreadPoolExecutor workers (#96 fix)
+# ---------------------------------------------------------------------------
+
+
+def test_worker_spans_land_in_run_id_jsonl_not_no_run(
+    patched_runtime, monkeypatch, tmp_path
+):
+    """Each worker thread must inherit the run_context ContextVar so that
+    _JsonlTracer writes spans to <run_id>.jsonl, not no_run.jsonl.
+
+    Regression for the bug introduced by PR #96 (ThreadPoolExecutor):
+    before the fix, all 110 worker spans landed in no_run.jsonl while the
+    main-thread orchestration spans appeared in <run_id>.jsonl.
+    """
+    import os
+    import json
+    from app.enrichment import tracing as tracing_mod
+
+    # Enable the JSONL tracer and redirect output to tmp_path.
+    trace_dir = tmp_path / "traces"
+    monkeypatch.setenv("ENRICHMENT_TRACE_JSONL", "1")
+    monkeypatch.setattr(tracing_mod, "_TRACER", None)  # force rebuild
+    monkeypatch.setattr(
+        tracing_mod,
+        "_TRACER",
+        tracing_mod._JsonlTracer(trace_dir),
+    )
+
+    result = runner.run_enrichment(
+        db=None,
+        mode="fixed",
+        merchant_id="default",
+        limit=5,
+        dry_run=True,
+    )
+
+    run_id = result.summary.run_id
+    run_file = trace_dir / f"{run_id}.jsonl"
+    no_run_file = trace_dir / "no_run.jsonl"
+
+    # The no_run.jsonl file must NOT exist (or be empty) — no worker spans
+    # should have fallen through without a run_id.
+    assert not no_run_file.exists(), (
+        f"no_run.jsonl exists with {no_run_file.stat().st_size} bytes — "
+        "worker threads are not inheriting the run_context ContextVar"
+    )
+
+    # The run-tagged file must exist and contain worker spans.
+    assert run_file.exists(), f"Expected trace file {run_file} was not created"
+    lines = [json.loads(l) for l in run_file.read_text().splitlines() if l.strip()]
+    assert lines, "run_id trace file is empty"
+
+    # Every span must carry the correct run tag.
+    expected_tag = f"run:{run_id}"
+    for span in lines:
+        assert expected_tag in span.get("tags", []), (
+            f"span {span.get('name')} is missing tag '{expected_tag}': {span.get('tags')}"
+        )

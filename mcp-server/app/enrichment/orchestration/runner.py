@@ -285,9 +285,17 @@ def _run_inner(
             "keys_filled": keys_filled,
         }
 
+    import contextvars
+
     max_workers = int(os.getenv("ENRICHMENT_MAX_WORKERS", "8"))
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_work, p) for p in products]
+        # copy_context() snapshots the current contextvars (including the
+        # run_context ContextVar set by run_enrichment) so each worker thread
+        # inherits run_id / merchant_id / kg_strategy.  Without this, threads
+        # start with an empty context and the tracer falls back to "no_run".
+        # A fresh copy is made per submission: a single Context object cannot
+        # be entered by more than one thread concurrently.
+        futures = [executor.submit(contextvars.copy_context().run, _work, p) for p in products]
         for fut in concurrent.futures.as_completed(futures):
             r = fut.result()
             pid = r["pid"]
