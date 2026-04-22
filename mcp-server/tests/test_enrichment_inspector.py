@@ -480,3 +480,197 @@ def test_composer_notes_preserves_explicit_empty_string(inspector_module):
         "updates": [{"output": {"notes": None}, "metadata": {}}],
     }
     assert inspector_module._composer_notes(span_none) is None
+
+
+# ---------------------------------------------------------------------------
+# compute_coverage_breakdown (PR #98 — Coverage tab)
+# ---------------------------------------------------------------------------
+#
+# The helper is a pure DB function (no Streamlit).  We fake the engine with
+# a simple mock rather than pulling in SQLite so we don't depend on the
+# real schema.  The Engine.connect() context-manager returns a connection
+# whose execute().mappings().all() returns our fixture rows.
+# ---------------------------------------------------------------------------
+
+
+class _FakeRow:
+    """Minimal mapping-like object returned by the fake cursor."""
+
+    def __init__(self, data: dict):
+        self._data = data
+
+    def __getitem__(self, key: str):
+        return self._data[key]
+
+
+class _FakeCursor:
+    def __init__(self, rows: list[dict]):
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return [_FakeRow(r) for r in self._rows]
+
+
+class _FakeConn:
+    def __init__(self, rows: list[dict]):
+        self._rows = rows
+
+    def execute(self, *_args, **_kwargs):
+        return _FakeCursor(self._rows)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass
+
+
+class _FakeEngine:
+    def __init__(self, rows: list[dict]):
+        self._rows = rows
+
+    def connect(self):
+        return _FakeConn(self._rows)
+
+
+def _make_attrs(
+    composed_fields: dict,
+    decisions: list[dict] | None = None,
+    incomplete: bool = False,
+) -> dict:
+    """Helper: build the ``attributes`` JSONB dict that the enriched table stores."""
+    return {
+        "composed_fields": composed_fields,
+        "composer_decisions": decisions or [],
+        "incomplete_decisions": incomplete,
+    }
+
+
+def test_coverage_breakdown_empty_merchant(inspector_module):
+    """No rows → all-zero breakdown; no crash."""
+    engine = _FakeEngine([])
+    bd = inspector_module.compute_coverage_breakdown(engine, "default")
+    assert bd.total_products == 0
+    assert bd.total_cells == 0
+    assert bd.by_source_kind == {}
+    assert bd.by_attribute == {}
+    assert bd.missing_per_attribute == {}
+    assert bd.incomplete_decisions_count == 0
+
+
+def test_coverage_breakdown_single_product_mixed_source_kinds(inspector_module):
+    """Single product with 3 composed fields, one per source_kind bucket."""
+    decisions = [
+        {"key": "ram_gb", "chosen_value": 16,
+         "source_strategy": "parser_v1", "source_kind": "raw_parse",
+         "reason": "parsed", "dropped_alternatives": []},
+        {"key": "description", "chosen_value": "fast laptop",
+         "source_strategy": "specialist_v1", "source_kind": "parametric",
+         "reason": "generated", "dropped_alternatives": []},
+        {"key": "url", "chosen_value": "http://x.com",
+         "source_strategy": "scraper_v1", "source_kind": "scrape",
+         "reason": "scraped", "dropped_alternatives": []},
+    ]
+    attrs = _make_attrs(
+        composed_fields={"ram_gb": 16, "description": "fast laptop", "url": "http://x.com"},
+        decisions=decisions,
+    )
+    engine = _FakeEngine([{"attributes": attrs}])
+    bd = inspector_module.compute_coverage_breakdown(engine, "default")
+
+    assert bd.total_products == 1
+    assert bd.total_cells == 3
+    assert bd.by_source_kind.get("raw_parse") == 1
+    assert bd.by_source_kind.get("parametric") == 1
+    assert bd.by_source_kind.get("scrape") == 1
+    assert "unknown" not in bd.by_source_kind or bd.by_source_kind["unknown"] == 0
+    # Per-attribute counts.
+    assert bd.by_attribute["ram_gb"]["raw_parse"] == 1
+    assert bd.by_attribute["description"]["parametric"] == 1
+    assert bd.by_attribute["url"]["scrape"] == 1
+    # Nothing missing.
+    assert all(v == 0 for v in bd.missing_per_attribute.values())
+    assert bd.incomplete_decisions_count == 0
+
+
+def test_coverage_breakdown_incomplete_decisions_flag(inspector_module):
+    """A row with ``incomplete_decisions=True`` bumps the counter."""
+    attrs = _make_attrs(
+        composed_fields={"title": "Laptop"},
+        decisions=[
+            {"key": "title", "chosen_value": "Laptop",
+             "source_strategy": "specialist_v1", "source_kind": "parametric",
+             "reason": "synthesised", "dropped_alternatives": []}
+        ],
+        incomplete=True,
+    )
+    engine = _FakeEngine([{"attributes": attrs}])
+    bd = inspector_module.compute_coverage_breakdown(engine, "default")
+    assert bd.incomplete_decisions_count == 1
+
+
+def test_coverage_breakdown_missing_attribute(inspector_module):
+    """Two products; attribute only present in one → missing_per_attribute bumped."""
+    attrs_a = _make_attrs(
+        composed_fields={"ram_gb": 16, "storage_gb": 512},
+        decisions=[
+            {"key": "ram_gb", "chosen_value": 16,
+             "source_strategy": "parser_v1", "source_kind": "raw_parse",
+             "reason": "parsed", "dropped_alternatives": []},
+            {"key": "storage_gb", "chosen_value": 512,
+             "source_strategy": "parser_v1", "source_kind": "raw_parse",
+             "reason": "parsed", "dropped_alternatives": []},
+        ],
+    )
+    # Second product has ram_gb but not storage_gb.
+    attrs_b = _make_attrs(
+        composed_fields={"ram_gb": 8},
+        decisions=[
+            {"key": "ram_gb", "chosen_value": 8,
+             "source_strategy": "parser_v1", "source_kind": "raw_parse",
+             "reason": "parsed", "dropped_alternatives": []},
+        ],
+    )
+    engine = _FakeEngine([
+        {"attributes": attrs_a},
+        {"attributes": attrs_b},
+    ])
+    bd = inspector_module.compute_coverage_breakdown(engine, "default")
+    assert bd.total_products == 2
+    assert bd.total_cells == 3  # 2 from product A, 1 from product B
+    # storage_gb is missing on product B.
+    assert bd.missing_per_attribute.get("storage_gb") == 1
+    # ram_gb is present on both → 0 missing.
+    assert bd.missing_per_attribute.get("ram_gb") == 0
+
+
+def test_coverage_breakdown_missing_source_kind_defaults_to_unknown(inspector_module):
+    """A decision without a ``source_kind`` field (pre-PR-#97 trace) is
+    counted under ``"unknown"`` rather than crashing."""
+    attrs = _make_attrs(
+        composed_fields={"title": "Old laptop"},
+        decisions=[
+            # No source_kind key at all.
+            {"key": "title", "chosen_value": "Old laptop",
+             "source_strategy": "specialist_v1",
+             "reason": "legacy", "dropped_alternatives": []},
+        ],
+    )
+    engine = _FakeEngine([{"attributes": attrs}])
+    bd = inspector_module.compute_coverage_breakdown(engine, "default")
+    assert bd.by_source_kind.get("unknown") == 1
+
+
+def test_coverage_breakdown_zero_composed_fields(inspector_module):
+    """Product with ``composed_fields={}`` (current zero-signal state)
+    counts toward total_products but adds 0 cells."""
+    attrs = _make_attrs(composed_fields={}, decisions=[])
+    engine = _FakeEngine([{"attributes": attrs}])
+    bd = inspector_module.compute_coverage_breakdown(engine, "default")
+    assert bd.total_products == 1
+    assert bd.total_cells == 0
+    assert bd.by_source_kind == {}
+    assert bd.incomplete_decisions_count == 0
