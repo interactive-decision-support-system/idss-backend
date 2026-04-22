@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 from typing import Any, Literal
 from uuid import UUID
 
@@ -146,6 +147,26 @@ class ProposalAck(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class SourceKind(str, Enum):
+    """Provenance taxonomy for a single composed field (vision bullet 3 / #88).
+
+    Enables the coverage dashboard to count what fraction of canonical fields
+    come from parsing raw input vs. crawling vs. LLM world knowledge.
+
+    RAW_PARSE            — fact extracted directly from raw catalog input (parser_v1)
+    SCRAPE               — fact extracted from a crawled manufacturer page (scraper_v1)
+    PARAMETRIC           — LLM produced from world/parametric knowledge
+                           (specialist_v1, taxonomy_v1, soft_tagger_v1, or
+                           composer alone when no upstream contributed)
+    DETERMINISTIC_FALLBACK — rule-based / formula / pass-through; no LLM inference
+    """
+
+    RAW_PARSE = "raw_parse"
+    SCRAPE = "scrape"
+    PARAMETRIC = "parametric"
+    DETERMINISTIC_FALLBACK = "deterministic_fallback"
+
+
 class ComposerDecision(BaseModel):
     """One entry in ``composer_decisions``. Structured schema lets the
     inspector (#81) render cell lineage without re-parsing free-form JSON."""
@@ -153,5 +174,6 @@ class ComposerDecision(BaseModel):
     key: str
     chosen_value: Any = None
     source_strategy: str | None = None
+    source_kind: SourceKind = SourceKind.PARAMETRIC  # safe default; reconciler overrides per source_strategy
     reason: str | None = None
     dropped_alternatives: list[Any] = Field(default_factory=list)
