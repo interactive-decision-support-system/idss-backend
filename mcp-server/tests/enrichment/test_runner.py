@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 
 from app.enrichment import registry
+from app.enrichment.agents.composer import ComposerAgent
 from app.enrichment.agents.parser import ParserAgent
 from app.enrichment.agents.soft_tagger import SoftTaggerAgent
 from app.enrichment.agents.specialist import SpecialistAgent
@@ -27,7 +28,14 @@ from app.enrichment.types import ProductInput
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch, tmp_path):
     registry._reset_for_tests()
-    for cls in (TaxonomyAgent, ParserAgent, SpecialistAgent, WebScraperAgent, SoftTaggerAgent):
+    for cls in (
+        TaxonomyAgent,
+        ParserAgent,
+        SpecialistAgent,
+        WebScraperAgent,
+        SoftTaggerAgent,
+        ComposerAgent,
+    ):
         registry.register(cls)
     # Isolate side-effect filesystem.
     monkeypatch.setattr(merchant_agent_client, "_PROPOSALS_DIR", tmp_path / "proposals")
@@ -81,6 +89,19 @@ class _ScriptedLLM:
             payload = {"good_for_tags": {"good_for_business": 0.9}}
         elif "discovered_product_types" in system:
             payload = {"discovered_product_types": ["laptop"]}
+        elif "composer agent" in system:
+            payload = {
+                "composed_fields": {"ram_gb": 16, "storage_gb": 512, "product_type": "laptop"},
+                "composer_decisions": [
+                    {
+                        "key": "ram_gb",
+                        "chosen_value": 16,
+                        "source_strategy": "parser_v1",
+                        "reason": "grounded in title",
+                        "dropped_alternatives": [],
+                    }
+                ],
+            }
         else:
             payload = {}
         return LLMResponse(
@@ -152,9 +173,16 @@ def test_fixed_run_writes_one_row_per_strategy_per_product(patched_runtime):
         dry_run=False,
     )
     assert result.summary.products_processed == 3
-    # 5 strategies × 3 products = 15 outputs (no scraper output → empty success
-    # because no URL given; scraper still emits a row even if empty).
-    expected_strategies = {"taxonomy_v1", "parser_v1", "specialist_v1", "scraper_v1", "soft_tagger_v1"}
+    # 6 strategies × 3 products = 18 outputs (composer_v1 runs last as the
+    # single writer of the canonical row — #83).
+    expected_strategies = {
+        "taxonomy_v1",
+        "parser_v1",
+        "specialist_v1",
+        "scraper_v1",
+        "soft_tagger_v1",
+        "composer_v1",
+    }
     assert set(result.summary.strategies_invoked.keys()) == expected_strategies
     for s in expected_strategies:
         assert result.summary.strategies_invoked[s] == 3
@@ -187,8 +215,9 @@ def test_run_reports_avg_keys_filled(patched_runtime):
     result = runner.run_enrichment(db=None, mode="fixed", limit=2, dry_run=True)
     avg = result.summary.to_dict()["avg_keys_filled_per_product"]
     # Each successful agent contributes its OUTPUT_KEYS count;
-    # taxonomy(3) + parser(3) + specialist(4) + scraper(6) + soft_tagger(2) = 18
-    assert avg == 18.0
+    # taxonomy(3) + parser(3) + specialist(4) + scraper(6) + soft_tagger(2)
+    # + composer(3: composed_fields, composer_decisions, composed_at) = 21
+    assert avg == 21.0
 
 
 def test_orchestrated_run_skips_scraper_when_no_url(patched_runtime):

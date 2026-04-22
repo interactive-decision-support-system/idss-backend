@@ -37,7 +37,7 @@ _SYSTEM = (
 class SoftTaggerAgent(BaseEnrichmentAgent):
     STRATEGY = "soft_tagger_v1"
     OUTPUT_KEYS = frozenset({"good_for_tags", "soft_tags_at"})
-    DEFAULT_MODEL = "gpt-4o-mini"
+    DEFAULT_MODEL = "gpt-5-mini"
 
     def __init__(self, llm: LLMClient | None = None) -> None:
         super().__init__()

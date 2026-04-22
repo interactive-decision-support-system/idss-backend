@@ -65,7 +65,17 @@ class SpecialistAgent(BaseEnrichmentAgent):
             "specialist_buyer_questions",
         }
     )
-    DEFAULT_MODEL = "gpt-4o-mini"
+    # Prose + planning-artifact outputs. The composer strips these from the
+    # canonical row; specialist_use_case_fit is NOT narrative (structured
+    # {use_case: confidence} map) and stays composer-eligible.
+    NARRATIVE_KEYS = frozenset(
+        {
+            "specialist_capabilities",
+            "specialist_audience",
+            "specialist_buyer_questions",
+        }
+    )
+    DEFAULT_MODEL = "gpt-5-mini"
 
     def __init__(self, llm: LLMClient | None = None) -> None:
         super().__init__()
