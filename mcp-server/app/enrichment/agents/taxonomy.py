@@ -17,6 +17,12 @@ from app.enrichment.tools.llm_client import LLMClient, default_model
 from app.enrichment.types import ProductInput, StrategyOutput
 
 
+# gpt-5-mini is a reasoning model; ~500-1500 tokens go to invisible CoT
+# before any output. Budget covers reasoning + visible output + margin.
+# See Task 12 / ENRICHMENT_MODEL_DIAGNOSIS.md.
+_MAX_COMPLETION_TOKENS = 2000
+
+
 _SYSTEM = (
     "You classify e-commerce products by product type. Return JSON with keys:\n"
     "  product_type     short noun (e.g. 'laptop', 'blender', 'headphones', 'smart-bulb', 'office-chair')\n"
@@ -45,7 +51,7 @@ class TaxonomyAgent(BaseEnrichmentAgent):
             user=user,
             model=context.get("model") or default_model(),
             json_mode=True,
-            max_tokens=200,
+            max_tokens=_MAX_COMPLETION_TOKENS,
             temperature=0.1,
         )
         context["_last_cost_usd"] = resp.cost_usd

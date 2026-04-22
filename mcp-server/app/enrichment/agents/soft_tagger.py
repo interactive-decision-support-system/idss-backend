@@ -21,6 +21,12 @@ from app.enrichment.tools.llm_client import LLMClient, default_model
 from app.enrichment.types import ProductInput, StrategyOutput
 
 
+# gpt-5-mini is a reasoning model; simple tag-confidence output still
+# requires ~500-1000 tokens of invisible CoT. Budget covers reasoning
+# + up to ~10 tag entries + margin. See Task 12 / ENRICHMENT_MODEL_DIAGNOSIS.md.
+_MAX_COMPLETION_TOKENS = 2000
+
+
 _SYSTEM = (
     "You generate soft 'good_for_*' tags for an e-commerce product. Return JSON with one key:\n"
     "  good_for_tags    object {tag_key: confidence 0.0-1.0}\n"
@@ -50,7 +56,7 @@ class SoftTaggerAgent(BaseEnrichmentAgent):
             user=user,
             model=context.get("model") or default_model(),
             json_mode=True,
-            max_tokens=400,
+            max_tokens=_MAX_COMPLETION_TOKENS,
             temperature=0.2,
         )
         context["_last_cost_usd"] = resp.cost_usd
