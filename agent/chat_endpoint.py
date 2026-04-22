@@ -529,6 +529,9 @@ class ChatRequest(BaseModel):
     # User actions (favorites, clicks) for preference refinement
     user_actions: Optional[List[Dict[str, str]]] = Field(default=None, description="List of {type, product_id}")
 
+    # Ablation flags — for controlled experiments only; never set in production
+    ablation_no_session: bool = Field(default=False, description="Ablation: clear accumulated slot dict each turn (session history kept for LLM context)")
+
 
 class ChatResponse(BaseModel):
     """Response model for chat endpoint - matches IDSS format."""
@@ -784,6 +787,12 @@ async def process_chat(request: ChatRequest) -> ChatResponse:
         agent = UniversalAgent.restore_from_session(session_id, session, probe_search_fn=_probe_search)
     else:
         agent = UniversalAgent(session_id=session_id, max_questions=request.k if request.k is not None else 3, probe_search_fn=_probe_search)
+
+    # Ablation: zero the accumulated slot dict while preserving conversation history.
+    # Session history still flows to the LLM so context is kept; only the slot-tracking
+    # layer is removed.  This isolates the contribution of explicit session state.
+    if request.ablation_no_session:
+        agent.filters = {}
 
     # Override max_questions if k=0 (skip interview)
     if request.k == 0:
@@ -1514,6 +1523,16 @@ async def _handle_post_recommendation(
         "work/business", "school/study", "creative work", "general use",
         "home use", "school", "business", "office",
         "gaming",  # use-case quick reply seen after recommendations — treat as refinement
+        # Spec-addition phrases: user is adding a new hardware/spec constraint to the
+        # current search.  Must route to process_refinement (refine_filters), NOT to
+        # targeted_qa (which only answers a question about shown products).
+        # Catching these in the fast path avoids an LLM intent call that occasionally
+        # misclassifies "also needs 16GB RAM" as targeted_qa.
+        "also needs", "also need", "also require", "also requires",
+        "also want", "also wants",
+        "need at least", "needs at least",
+        "need minimum", "needs minimum",
+        "must have at least", "require at least", "requires at least",
     )
     # Exact brand names that can come in as standalone quick-reply selections
     # (e.g. user chose "Acer" from the brand picker). Use exact equality —
@@ -2982,6 +3001,8 @@ async def _handle_post_recommendation(
     # --- Agent-driven refinement for unmatched post-rec messages ---
     # Instead of returning None and losing the message, let the agent classify it.
     agent = UniversalAgent.restore_from_session(session_id, session)
+    if request.ablation_no_session:
+        agent.filters = {}
     refinement = agent.process_refinement(request.message.strip())
 
     if refinement.get("response_type") == "domain_switch":
@@ -3600,7 +3621,10 @@ async def _search_and_respond_ecommerce(
     # Prepend a transparent notice so the user knows why results differ.
     _requested_brand = str(search_filters.get("brand") or "").strip()
     _brand_disclosure = ""
-    if _requested_brand and _requested_brand.lower() not in ("no preference", "any", "", "null"):
+    # Also skip disclosure for negated brand strings like "no HP", "no Dell" — those are
+    # exclusion constraints, not positive brand requests; they must never trigger this message.
+    _brand_is_negation = _requested_brand.lower().startswith(("no ", "not ", "without ", "avoid "))
+    if _requested_brand and not _brand_is_negation and _requested_brand.lower() not in ("no preference", "any", "", "null"):
         def _product_matches_brand(p: dict, brand_lower: str) -> bool:
             name = (p.get("name") or p.get("title") or "").lower()
             brand = (p.get("brand") or "").lower()

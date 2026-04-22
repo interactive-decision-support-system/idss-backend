@@ -21,6 +21,7 @@ Table schema (Supabase):
 from __future__ import annotations
 
 import os
+import re
 import random
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -286,6 +287,16 @@ class SupabaseProductStore:
             params.append(("price", f"gte.{price_min:.2f}"))
         if price_max is not None:
             params.append(("price", f"lte.{price_max:.2f}"))
+
+        # OS exclusion — never relaxed (same as brand exclusion).
+        _excl_os_list_rest = filters.get("excluded_os") or []
+        if isinstance(_excl_os_list_rest, str):
+            _excl_os_list_rest = [_excl_os_list_rest]
+        for _excl_os_rest in _excl_os_list_rest:
+            _kw_rest = _excl_os_rest.lower()                      # "chrome os" (space-preserved)
+            _kw_rest2 = _excl_os_rest.replace(" ", "").lower()   # "chromeos" fallback
+            params.append(("attributes->>os", f"not.ilike.*{_kw_rest}*"))
+            params.append(("attributes->>os", f"not.ilike.*{_kw_rest2}*"))
 
         if not drop_specs:
             # OS filter — only applied at step 1 (full constraints).
@@ -667,6 +678,20 @@ class _SQLAlchemyProductStore:
         brand = filters.get("brand")
         if brand and str(brand).lower() in ("no preference", "any", ""):
             brand = None
+        # Use-case quality floors (avoid ultra-cheap results when no budget is specified)
+        if price_max is None:
+            _uc_floor = None
+            if filters.get("good_for_creative") or filters.get("good_for_ml"):
+                _uc_floor = 500.0   # creative/ML work needs capable hardware
+            elif filters.get("good_for_gaming"):
+                _uc_floor = 450.0   # gaming needs dedicated GPU
+            elif filters.get("good_for_web_dev"):
+                _uc_floor = 350.0   # dev work needs reliable hardware
+            else:
+                # General laptop floor: avoid ancient/unusable hardware (Vista-era, etc.)
+                _uc_floor = 250.0
+            if _uc_floor and (price_min is None or price_min < _uc_floor):
+                price_min = _uc_floor
 
         steps = [
             dict(drop_price_min=False, drop_brand=False, drop_os=False),
@@ -705,7 +730,15 @@ class _SQLAlchemyProductStore:
         exclude_ids: Optional[List[str]],
         drop_os: bool = False,
     ) -> List[Dict[str, Any]]:
-        """Execute one SQL query + Python-side spec filtering pass."""
+        """Execute one SQL query + Python-side spec filtering pass.
+
+        Ablation mode (ABLATION_NO_SQL=1 env var): drops all hard-constraint
+        predicates (brand, price range, OS, excluded_brands) from the WHERE
+        clause, keeping only category and product_type.  This isolates the
+        contribution of deterministic SQL enforcement vs. prompt-only filtering.
+        """
+        import os as _os
+        _no_sql = _os.environ.get("ABLATION_NO_SQL", "").strip() in ("1", "true", "True")
         import json as _json
         try:
             from sqlalchemy import text as sa_text
@@ -727,46 +760,74 @@ class _SQLAlchemyProductStore:
             conditions.append("product_type = :product_type")
             params["product_type"] = product_type
 
-        if brand:
-            conditions.append("brand ILIKE :brand")
-            params["brand"] = f"%{brand}%"
+        # --- Hard-constraint predicates (all skipped in ablation mode) ---
+        if not _no_sql:
+            if brand:
+                conditions.append("brand ILIKE :brand")
+                params["brand"] = f"%{brand}%"
 
-        # Title/name text search — used by compare-first to find specific product models
+            # Brand EXCLUSIONS — always applied, never dropped during relaxation.
+            excluded_brands = filters.get("excluded_brands")
+            if excluded_brands:
+                if isinstance(excluded_brands, str):
+                    excluded_brands = [b.strip() for b in excluded_brands.split(",") if b.strip()]
+                for i, ex_brand in enumerate(excluded_brands):
+                    if ex_brand:
+                        param_key = f"ex_brand_{i}"
+                        conditions.append(f"brand NOT ILIKE :{param_key}")
+                        params[param_key] = f"%{ex_brand}%"
+
+            genre = filters.get("genre") or filters.get("subcategory")
+            if genre and str(genre).lower() not in ("no preference", "any", ""):
+                conditions.append("attributes->>'genre' ILIKE :genre")
+                params["genre"] = f"%{genre}%"
+
+            # OS filter — relaxed only at the last resort step (drop_os=True).
+            # Rare OS values like "Linux" are rarely present in product attributes,
+            # so we must drop this filter before giving up entirely.
+            os_filter = filters.get("os")
+            if os_filter and not drop_os and str(os_filter).lower() not in ("no preference", "any", ""):
+                conditions.append("(attributes->>'os' ILIKE :os_filter OR attributes->>'operating_system' ILIKE :os_filter)")
+                params["os_filter"] = f"%{os_filter}%"
+
+            # OS exclusion filter — e.g. excluded_os=["Chrome OS"] → exclude all Chromebooks.
+            # Never relaxed: a user who said "no Chromebook" always means it.
+            _excl_os_list = filters.get("excluded_os") or []
+            if isinstance(_excl_os_list, str):
+                _excl_os_list = [_excl_os_list]
+            for _oi, _excl_os in enumerate(_excl_os_list):
+                _kw = _excl_os.lower()
+                _kw2 = _excl_os.replace(" ", "").lower()
+                _p_os  = f"excl_os_{_oi}"
+                _p_os2 = f"excl_os2_{_oi}"
+                _p_os3 = f"excl_os3_{_oi}"
+                _p_os4 = f"excl_os4_{_oi}"
+                conditions.append(
+                    f"(attributes->>'os' IS NULL"
+                    f"  OR (attributes->>'os' NOT ILIKE :{_p_os}"
+                    f"      AND attributes->>'os' NOT ILIKE :{_p_os3}))"
+                    f" AND (attributes->>'operating_system' IS NULL"
+                    f"  OR (attributes->>'operating_system' NOT ILIKE :{_p_os2}"
+                    f"      AND attributes->>'operating_system' NOT ILIKE :{_p_os4}))"
+                )
+                params[_p_os]  = f"%{_kw}%"
+                params[_p_os2] = f"%{_kw}%"
+                params[_p_os3] = f"%{_kw2}%"
+                params[_p_os4] = f"%{_kw2}%"
+
+            if price_min is not None:
+                conditions.append("price >= :price_min")
+                params["price_min"] = price_min
+            if price_max is not None:
+                conditions.append("price <= :price_max")
+                params["price_max"] = price_max
+
+        # Title/name text search — kept in ablation mode (used for compare-first lookups,
+        # not a constraint enforcement mechanism).
         title_search = filters.get("title_search")
         if title_search:
             conditions.append("title ILIKE :title_search")
             params["title_search"] = f"%{title_search}%"
-
-        # Brand EXCLUSIONS — always applied, never dropped during relaxation.
-        excluded_brands = filters.get("excluded_brands")
-        if excluded_brands:
-            if isinstance(excluded_brands, str):
-                excluded_brands = [b.strip() for b in excluded_brands.split(",") if b.strip()]
-            for i, ex_brand in enumerate(excluded_brands):
-                if ex_brand:
-                    param_key = f"ex_brand_{i}"
-                    conditions.append(f"brand NOT ILIKE :{param_key}")
-                    params[param_key] = f"%{ex_brand}%"
-
-        genre = filters.get("genre") or filters.get("subcategory")
-        if genre and str(genre).lower() not in ("no preference", "any", ""):
-            conditions.append("attributes->>'genre' ILIKE :genre")
-            params["genre"] = f"%{genre}%"
-
-        # OS filter — relaxed only at the last resort step (drop_os=True).
-        # Rare OS values like "Linux" are rarely present in product attributes,
-        # so we must drop this filter before giving up entirely.
-        os_filter = filters.get("os")
-        if os_filter and not drop_os and str(os_filter).lower() not in ("no preference", "any", ""):
-            conditions.append("(attributes->>'os' ILIKE :os_filter OR attributes->>'operating_system' ILIKE :os_filter)")
-            params["os_filter"] = f"%{os_filter}%"
-
-        if price_min is not None:
-            conditions.append("price >= :price_min")
-            params["price_min"] = price_min
-        if price_max is not None:
-            conditions.append("price <= :price_max")
-            params["price_max"] = price_max
 
         if exclude_ids:
             # Cast id column to text to avoid "operator does not exist: uuid <> text".
@@ -811,6 +872,22 @@ class _SQLAlchemyProductStore:
             except (TypeError, ValueError):
                 return default
 
+        # Regex to extract RAM from product title when DB attribute is null.
+        _TITLE_RAM_RE = re.compile(
+            r'\b(\d+)\s*GB\s*(?:RAM|SDRAM|DDR[0-9]?|LPDDR[0-9]?|Memory)\b'
+            r'|\b(\d+)GB(?:\s+(?:RAM|Memory))\b',
+            re.IGNORECASE,
+        )
+
+        def _extract_title_ram(title: str) -> "int | None":
+            """Parse RAM in GB from product title; return None if not found."""
+            m = _TITLE_RAM_RE.search(title or "")
+            if m:
+                val = m.group(1) or m.group(2)
+                if val:
+                    return int(val)
+            return None
+
         filtered = []
         for row in rows:
             attrs = row.get("attributes") or {}
@@ -819,15 +896,24 @@ class _SQLAlchemyProductStore:
                     attrs = _json.loads(attrs)
                 except Exception:
                     attrs = {}
-            if min_ram and _num(attrs.get("ram_gb")) < int(min_ram):
+            # Only filter on known values — null means "spec not in DB", benefit of doubt.
+            # For RAM: fall back to title parsing when DB attribute is null.
+            if min_ram:
+                _ram_val = attrs.get("ram_gb")
+                if _ram_val is None:
+                    # Try to extract RAM from product title
+                    _ram_val = _extract_title_ram(
+                        row.get("title") or row.get("name") or ""
+                    )
+                if _ram_val is not None and _num(_ram_val) < int(min_ram):
+                    continue
+            if min_storage and attrs.get("storage_gb") is not None and _num(attrs.get("storage_gb")) < int(min_storage):
                 continue
-            if min_storage and _num(attrs.get("storage_gb")) < int(min_storage):
+            if min_screen and attrs.get("screen_size") is not None and _num(attrs.get("screen_size")) < float(min_screen):
                 continue
-            if min_screen and _num(attrs.get("screen_size")) < float(min_screen):
+            if max_screen and attrs.get("screen_size") is not None and _num(attrs.get("screen_size"), 999) > float(max_screen):
                 continue
-            if max_screen and _num(attrs.get("screen_size"), 999) > float(max_screen):
-                continue
-            if min_battery and _num(attrs.get("battery_life_hours")) < float(min_battery):
+            if min_battery and attrs.get("battery_life_hours") is not None and _num(attrs.get("battery_life_hours")) < float(min_battery):
                 continue
             if storage_type and str(attrs.get("storage_type", "")).upper() != storage_type.upper():
                 continue
@@ -837,9 +923,35 @@ class _SQLAlchemyProductStore:
 
         # If spec filtering wiped everything, return the unfiltered pool so the
         # relaxation loop can count this step as a "hit" and stop early.
+        # BUT: still apply hard numerical limits (min_ram_gb) via title parsing so
+        # known-low-spec products (e.g. "8GB RAM" in title) don't sneak back in.
         if not filtered:
             logger.info("SQLAlchemy spec filters returned 0 — returning unfiltered pool")
-            filtered = [SupabaseProductStore._row_to_dict(r) for r in rows]
+            fallback_rows = [SupabaseProductStore._row_to_dict(r) for r in rows]
+            if min_ram:
+                # Prefer products with CONFIRMED RAM ≥ min_ram (from title or attrs).
+                # Fall back to products that merely don't violate (unknown RAM) only if needed.
+                _confirmed, _unknown, _too_low = [], [], []
+                for _p in fallback_rows:
+                    _t = _p.get("name") or _p.get("title") or ""
+                    _rv = _extract_title_ram(_t)
+                    if _rv is None:
+                        _rv = _num((_p.get("attributes") or {}).get("ram_gb"), None)
+                    if _rv is None:
+                        _unknown.append(_p)
+                    elif _num(_rv) >= int(min_ram):
+                        _confirmed.append(_p)
+                    else:
+                        _too_low.append(_p)  # known-low RAM — excluded
+                # Use confirmed-RAM products if we have enough, else supplement with unknown
+                if len(_confirmed) >= 2:
+                    filtered = _confirmed  # clean pool — judge sees only ≥min_ram
+                elif _confirmed:
+                    filtered = _confirmed + _unknown  # few confirmed, pad with unknowns
+                else:
+                    filtered = _unknown if _unknown else fallback_rows
+            else:
+                filtered = fallback_rows
 
         # Post-filter: remove products whose DERIVED brand or title contains an excluded brand.
         # The SQL WHERE uses the raw DB brand column; _derive_brand() can resolve
@@ -861,6 +973,140 @@ class _SQLAlchemyProductStore:
                 removed = before - len(filtered)
                 if removed:
                     logger.info(f"Post-filter removed {removed} products whose brand/name matched excluded_brands")
+
+        # Post-filter: exclude products whose title reveals an OS that the user excluded.
+        # The DB often has NULL for the OS attribute, so SQL filtering misses these.
+        # Example: "Asus Chromebook CZ11 Flip" has os=NULL but title contains "Chromebook".
+        _excl_os_pf = filters.get("excluded_os") or []
+        if isinstance(_excl_os_pf, str):
+            _excl_os_pf = [_excl_os_pf]
+        if _excl_os_pf:
+            _OS_TITLE_PATTERNS: List[Tuple[str, re.Pattern]] = []
+            for _eo in _excl_os_pf:
+                _eo_lower = str(_eo).lower()
+                if "chrome" in _eo_lower:
+                    _OS_TITLE_PATTERNS.append(("Chrome OS", re.compile(r'\bchromebook\b', re.IGNORECASE)))
+            if _OS_TITLE_PATTERNS:
+                def _os_title_excluded(p: dict) -> bool:
+                    title = (p.get("name") or p.get("title") or "")
+                    # Only exclude if no confirmed non-Chrome OS evidence overrides
+                    for _os_name, _pat in _OS_TITLE_PATTERNS:
+                        if _pat.search(title):
+                            return True
+                    return False
+                before_os = len(filtered)
+                filtered = [p for p in filtered if not _os_title_excluded(p)]
+                if before_os - len(filtered):
+                    logger.info(f"OS title post-filter removed {before_os - len(filtered)} products")
+
+        # Post-filter: remove laptop accessories (cables, cases, bags, etc.) when user
+        # wants actual laptops (product_type=laptop, no product_subtype override).
+        # The DB tags cables/cases/adapters as product_type='laptop' too, so SQL alone can't
+        # distinguish them — title-keyword exclusion at Python level is the only reliable fix.
+        _is_laptop_search = (
+            filters.get("product_type") == "laptop"
+            and not filters.get("product_subtype")
+        )
+        if _is_laptop_search:
+            # Accessory title patterns — items that ARE physical accessories for laptops,
+            # not laptops themselves.  We match the accessory word first; a laptop model
+            # name in the title (e.g. "for MacBook Pro") does NOT save it.
+            _ACCESSORY_TITLE_RE = re.compile(
+                r'\b(?:cable|adapter|hub|dock(?:ing)?(?:\s+station)?|sleeve|'
+                r'(?:hard\s+)?case\s+(?:cover|for|compatible)|'  # "case cover", "case for"
+                r'(?:protective|hard|soft)\s+(?:case|cover|shell)|'
+                r'bag\b|stand\b|charger|power\s+bank|stylus|skin\b|'
+                r'(?:screen\s+)?protector|screen\s+film|'
+                r'keyboard\s+cover|keyboard\s+replacement|replacement\s+keyboard|'
+                r'mouse\s+pad|mouse\b|earbuds?|earphones?|headphones?|'
+                r'headset|microphone|webcam|graphics\s+card|gpu\b|'
+                r'motherboard\b|socket\s+am[45]\b|lga\s+\d{4}\b|'   # motherboards
+                r'desktop\s+pc\b|mini\s+(?:pc|computer|tower)\b|'    # desktop systems
+                r'graphics\s+card\b|rx\s+\d{4}|rtx\s+\d{4}|gtx\s+\d{4}|'  # GPUs
+                r'cooling\s+pad|fan\b|psu\b|power\s+supply|'
+                r'key\s+cap|keycap|replacement\s+key|hinge|wrist\s+rest|'
+                r'so-dimm|dimm\b|memory\s+(?:kit|module|upgrade)|ram\s+(?:kit|upgrade)|'
+                r'(?:\d+gb\s+)?kit\s+\(\d+\s*x\s*\d+gb\)|'   # "16GB KIT (2 x 8GB)"
+                r'ssd\s+(?:for|replacement|upgrade)\b|storage\s+upgrade\b|'
+                r'compatible\s+with\s+(?:macbook|thinkpad|lenovo|hp|dell|asus)|'
+                r'designed\s+for\s+(?:macbook|laptop)|'
+                r'for\s+(?:lenovo|thinkpad|ibm\s+lenovo|hp\s+laptop|dell\s+laptop|macbook\s+pro|macbook\s+air))\b',
+                re.IGNORECASE,
+            )
+            # Hardware-spec anchor: only ACTUAL laptops have processor / RAM in the title.
+            # "Laptop Replacement Keyboard" contains "laptop" but NOT hardware specs → filtered.
+            _REAL_LAPTOP_RE = re.compile(
+                r'(?:core\s+i[357]\b|ryzen\s+[357]\b|celeron\b|pentium\b|'
+                r'snapdragon\b|apple\s+m[123]\b|core\s+ultra\b)'       # CPU brand in title
+                r'|\b(?:ddr[45]|lpddr[45])\b'                          # RAM type
+                r'|\b\d{1,3}\s*gb\s+(?:ram|ssd|emmc|nvme)\b'          # RAM/storage spec
+                r'|\b\d{3,4}x\d{3,4}\b',                               # display resolution
+                re.IGNORECASE,
+            )
+            # Hard-exclude desktop/tower form factors — specs in title can't save them.
+            _HARD_EXCLUDE_RE = re.compile(
+                r'\bdesktop\s+(?:pc|computer|tower)\b'
+                r'|\bgaming\s+desktop\b|\bmini\s+(?:pc|computer)\b'
+                r'|\bmotherboard\b|\bsocket\s+am[45]\b|\blga\s+\d{4}\b',
+                re.IGNORECASE,
+            )
+            before_acc = len(filtered)
+            def _is_accessory(p: dict) -> bool:
+                title = (p.get("name") or p.get("title") or "")
+                if _HARD_EXCLUDE_RE.search(title):
+                    return True   # always exclude — specs don't save desktop/mobo
+                if _ACCESSORY_TITLE_RE.search(title):
+                    # Only keep if title also has hardware specs (real device, not accessory)
+                    return not bool(_REAL_LAPTOP_RE.search(title))
+                return False
+            filtered = [p for p in filtered if not _is_accessory(p)]
+            removed_acc = before_acc - len(filtered)
+            if removed_acc:
+                logger.info(f"Accessory post-filter removed {removed_acc} non-laptop products")
+            # If filter wiped everything, restore the pre-accessory-filter pool
+            if not filtered:
+                logger.info("Accessory post-filter wiped all results — restoring pool")
+                filtered = [SupabaseProductStore._row_to_dict(r) for r in rows]
+
+            # Post-filter: remove very old / weak processors for school/business/medical use cases.
+            # AMD A4/A6/A9 9xxx and Intel Celeron/Pentium from pre-2019 era are unacceptable
+            # for professional or medical school use. Only apply when use case is school/business.
+            _uc_soft = filters.get("_soft_preferences", {}) or {}
+            _uc_val = _uc_soft.get("use_case", "")
+            _needs_capable = (
+                any(k in str(_uc_val).lower() for k in ("school", "business", "medical", "professional"))
+                or filters.get("good_for_creative") or filters.get("good_for_ml")
+            )
+            if _needs_capable and len(filtered) > 3:
+                _WEAK_CPU_RE = re.compile(
+                    r'\b(?:a[469]-\d{4}[a-z]*|a[469]\d{4}[a-z]*)'   # AMD A4/A6/A9 9xxx/7xxx
+                    r'|\bceleron\s+n[234]\d{3}\b'                     # Celeron N2xxx/N3xxx/N4xxx (pre-2020 budget)
+                    r'|\bpentium\s+n[234]\d{3}\b'                     # Pentium N-series budget
+                    r'|\batom\b'                                       # Intel Atom
+                    r'|\bcore\s+2\s+duo\b|\bcore2duo\b'               # ancient Core 2
+                    r'|\bwindows\s+7\b|\bwin\s*7\b',                  # Windows 7 EOL (2020) — unacceptable for school/medical
+                    re.IGNORECASE,
+                )
+                capable = [p for p in filtered if not _WEAK_CPU_RE.search(p.get("name") or p.get("title") or "")]
+                if capable:
+                    filtered = capable
+
+            # Post-filter: when user wants creative/video editing (not gaming), soft-exclude
+            # gaming-branded products that slipped through (e.g. "ASUS TUF Gaming Laptop").
+            # Only applies when good_for_creative is active AND good_for_gaming is NOT.
+            if filters.get("good_for_creative") and not filters.get("good_for_gaming") and len(filtered) > 3:
+                _GAMING_TITLE_RE = re.compile(
+                    r'\bgaming\s+laptop\b|\btuf\s+gaming\b|\brog\s+(?:strix|zephyrus|flow)\b'
+                    r'|\bnitro\s+\d+\b|\bpredator\s+(?:helios|triton)\b'
+                    r'|\blegion\s+(?:5i|7i|pro)\b|\braider\b',
+                    re.IGNORECASE,
+                )
+                non_gaming = [p for p in filtered if not _GAMING_TITLE_RE.search(p.get("name") or p.get("title") or "")]
+                if non_gaming:
+                    _removed_gaming = len(filtered) - len(non_gaming)
+                    filtered = non_gaming
+                    if _removed_gaming:
+                        logger.info(f"Creative post-filter removed {_removed_gaming} gaming-branded laptops")
 
         random.shuffle(filtered)
         return filtered[:limit]

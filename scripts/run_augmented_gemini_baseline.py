@@ -104,7 +104,7 @@ def color_score(s: float) -> str:
 # ── Gemini model constant ──────────────────────────────────────────────────
 # gemini-2.0-flash is the "mini" tier — fast, cheap, comparable to gpt-4o-mini.
 # Update this constant to benchmark a different Gemini model (e.g. gemini-1.5-pro).
-GEMINI_MODEL = "gemma-3n-e2b-it"
+GEMINI_MODEL = "gemini-2.5-flash-lite"   # 4K RPM / Unlimited RPD on paid tier
 
 
 # ── Augmented Gemini system prompt ────────────────────────────────────────
@@ -295,6 +295,74 @@ def check_catalog_grounding(response_text: str, products: List[Dict]) -> Tuple[f
         note = f"~ {hits} catalog keyword(s) matched"
 
     return score, note
+
+
+# ── Brand exclusion check for free-text responses ─────────────────────────
+def check_brand_from_text(
+    response_text: str,
+    must_not_brands: List[str],
+) -> Tuple[Optional[float], str]:
+    """
+    Deterministic brand-exclusion check for text-only responses (GPT, Gemini).
+
+    Scans the response for excluded brand names appearing in a recommendation
+    context (i.e. NOT preceded by a negation like "no HP", "avoid HP",
+    "not HP", "without HP", "except HP", "excluding HP", "excluded HP",
+    "non-HP").
+
+    Returns:
+        (None,   note)  – no exclusions specified for this query
+        (0.0,    note)  – excluded brand found in recommendation context
+        (1.0,    note)  – no excluded-brand violations detected
+
+    Design notes:
+    - We look for the brand name as a whole word (\\b) so "HP" won't match "HDPI".
+    - Negation window: up to 5 tokens before the brand name.
+    - Both present- and past-tense negation forms are covered.
+    - Case-insensitive throughout.
+    """
+    if not must_not_brands:
+        return None, "no exclusions to check"
+
+    text = response_text.lower()
+    violations: List[str] = []
+
+    # Tokens within 5 words before the brand name that signal "not recommending".
+    # Both present and past tense forms are included (e.g. "excluding" and "excluded").
+    _NEGATION_WORDS = frozenset({
+        "no", "not", "avoid", "avoiding",
+        "without", "except",
+        "excluding", "excluded",
+        "skip", "skipping", "skipped",
+        "omit", "omitting", "omitted",
+        "drop", "dropping", "dropped",
+        "never", "none",
+        "want",                     # handles "don't want HP"
+    })
+
+    for brand in must_not_brands:
+        brand_l = brand.lower()
+        for m in re.finditer(rf'\b{re.escape(brand_l)}\b', text):
+            start = m.start()
+            # "non-<brand>" pattern — hyphen immediately before brand is a negation.
+            if start > 0 and text[start - 1] == "-":
+                break  # negated; stop scanning this brand
+
+            # Look at up to 5 words before the brand for negation tokens.
+            window = text[max(0, start - 40): start]
+            window_tokens = window.split()[-5:]
+            expanded = " ".join(window_tokens)
+            has_dont = bool(re.search(r"\bdon'?t\b", expanded))
+            is_negated = has_dont or any(tok in _NEGATION_WORDS for tok in window_tokens)
+            if not is_negated:
+                violations.append(brand)
+                break  # one positive violation per brand is enough
+
+    if violations:
+        return 0.0, f"✗ Excluded brand in recommendation context: {', '.join(violations)}"
+    return 1.0, (
+        f"✓ No excluded brands ({', '.join(must_not_brands)}) in recommendation context"
+    )
 
 
 # ── IDSS call ───────────────────────────────────────────────────────────────
@@ -615,7 +683,12 @@ async def run_augmented_gemini(
             gemini_text, products
         )
 
-        # 3. Quality score (GPT-4o-mini judge)
+        # 3. Brand exclusion check — text-parsed for this free-text baseline.
+        # Returns None when the query has no brand exclusions (no penalty applied).
+        must_not = q.get("must_not_contain_brands", [])
+        brand_score_text, brand_note_text = check_brand_from_text(gemini_text, must_not)
+
+        # 4. Quality score (GPT-4o-mini judge)
         quality_score, reason, usage = await score_gemini_quality_async(
             oai, q, gemini_text, products, gemini_rtype
         )
@@ -626,10 +699,9 @@ async def run_augmented_gemini(
         _resp_for_disclosure = {"message": gemini_text, "recommendations": products}
         disclosure_score, disclosure_note = check_disclosure(q, _resp_for_disclosure)
 
-        # Final score: same formula as run_augmented_gpt_baseline.py
-        # type 40% + grounding 15% + quality 45%.
-        # When disclosure_score is present (catalog_impossible group), replace 20%
-        # of quality weight with disclosure — mirrors the weight in run_geval.py.
+        # Final composite score — unchanged from the existing formula.
+        # brand_score_text is a separate diagnostic field; it does NOT change the
+        # composite score so historical results remain directly comparable.
         if disclosure_score is not None:
             final = 0.40 * type_score + 0.15 * grounding_score + 0.20 * disclosure_score + 0.25 * quality_score
         else:
@@ -643,6 +715,9 @@ async def run_augmented_gemini(
             "score":              round(final, 4),
             "type_score":         type_score,
             "grounding_score":    round(grounding_score, 4),
+            # brand_score_text: None = no exclusion; 0.0 = violation; 1.0 = clean.
+            "brand_score_text":   brand_score_text,
+            "brand_note_text":    brand_note_text,
             "quality_score":      quality_score,
             "disclosure_score":   disclosure_score,
             "disclosure_note":    disclosure_note,
@@ -684,35 +759,42 @@ async def run_augmented_gemini(
         )
         print(f"       {r['type_note']}")
         print(f"       grounding: {r['grounding_note']}")
+        if r["brand_score_text"] is not None:
+            print(f"       brand(text): {r['brand_note_text']}")
         if verbose:
             print(f"       reason: {r['reason']}")
             print(f"       Gemini: {r['gemini_text_preview'][:120].replace(chr(10), ' ')}")
     print(f"{'─'*76}\n")
 
     # ── Summary ────────────────────────────────────────────────────────────
-    def stats(subset: List[Dict]) -> Tuple[int, float, float, float, float]:
-        """Compute (n, avg_score, pass_pct, avg_quality, avg_grounding) for a query subset."""
+    def stats(subset: List[Dict]) -> Tuple[int, float, float, float, float, float]:
+        """Return (n, avg_score, pass_pct, avg_quality, avg_grounding, avg_brand_text)."""
         if not subset:
-            return 0, 0.0, 0.0, 0.0, 0.0
+            return 0, 0.0, 0.0, 0.0, 0.0, 0.0
         n      = len(subset)
-        avg    = sum(r["score"]          for r in subset) / n
+        avg    = sum(r["score"]           for r in subset) / n
         pct    = 100.0 * sum(1 for r in subset if r["score"] >= PASS_THRESHOLD) / n
-        qual   = sum(r["quality_score"]  for r in subset) / n
+        qual   = sum(r["quality_score"]   for r in subset) / n
         ground = sum(r["grounding_score"] for r in subset) / n
-        return n, avg, pct, qual, ground
+        # Average brand_score_text only over queries that have brand exclusions.
+        brand_checks = [r["brand_score_text"] for r in subset if r["brand_score_text"] is not None]
+        brand_avg = sum(brand_checks) / len(brand_checks) if brand_checks else float("nan")
+        return n, avg, pct, qual, ground, brand_avg
 
     all_  = scored
     recs_ = [r for r in scored if r["idss_rtype"] == "recommendations"]
     na_   = [r for r in scored if r["idss_rtype"] != "recommendations"]
 
-    na, aa, pa, qa, ga = stats(all_)
-    nr, ar, pr, qr, gr = stats(recs_)
+    na, aa, pa, qa, ga, ba = stats(all_)
+    nr, ar, pr, qr, gr, br = stats(recs_)
 
     print(f"\n{BOLD}  Augmented Gemini Baseline — Summary{RST}\n")
-    print(f"  {'Category':<35} {'N':>4}  {'AvgScore':>8}  {'Pass%':>7}  {'AvgQual':>8}  {'AvgGround':>9}")
-    print(f"  {'─'*73}")
-    print(f"  {'All queries':<35} {na:>4}  {aa:>8.3f}  {pa:>6.1f}%  {qa:>8.3f}  {ga:>9.3f}")
-    print(f"  {'Rec queries (IDSS gave products)':<35} {nr:>4}  {ar:>8.3f}  {pr:>6.1f}%  {qr:>8.3f}  {gr:>9.3f}")
+    print(f"  {'Category':<35} {'N':>4}  {'AvgScore':>8}  {'Pass%':>7}  {'AvgQual':>8}  {'AvgGround':>9}  {'BrandText':>9}")
+    print(f"  {'─'*82}")
+    brand_str   = f"{ba:>9.3f}" if ba == ba else "       N/A"  # nan guard
+    brand_r_str = f"{br:>9.3f}" if br == br else "       N/A"
+    print(f"  {'All queries':<35} {na:>4}  {aa:>8.3f}  {pa:>6.1f}%  {qa:>8.3f}  {ga:>9.3f}  {brand_str}")
+    print(f"  {'Rec queries (IDSS gave products)':<35} {nr:>4}  {ar:>8.3f}  {pr:>6.1f}%  {qr:>8.3f}  {gr:>9.3f}  {brand_r_str}")
     if na_:
         print(f"  {'Interview queries (no products)':<35} {len(na_):>4}  (skipped — IDSS in interview mode)")
 
@@ -724,7 +806,7 @@ async def run_augmented_gemini(
     for g in groups:
         gs = [r for r in recs_ if r["group"] == g]
         if gs:
-            n, a, p, q_, gnd = stats(gs)
+            n, a, p, q_, gnd, br = stats(gs)
             print(f"  {g:<20} {n:>4}  {a:>8.3f}  {q_:>8.3f}  {gnd:>9.3f}")
 
     # Highlight key comparison — how does Gemini quality compare to IDSS?

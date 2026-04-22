@@ -82,7 +82,7 @@ GREEN = "\033[92m"; RED = "\033[91m"; YEL = "\033[93m"; CYN = "\033[96m"
 BOLD  = "\033[1m";  DIM = "\033[2m";  RST = "\033[0m"
 
 PASS_THRESHOLD = 0.5
-GEMINI_MODEL   = "gemini-2.0-flash"   # production stable; comparable to gpt-4o-mini tier
+GEMINI_MODEL   = "gemini-2.5-flash-lite"   # 4K RPM / Unlimited RPD on paid tier — higher throughput than 2.5-flash (1K RPM / 10K RPD)
 
 # ============================================================================
 # Scripted multi-turn scenarios
@@ -339,6 +339,7 @@ MULTITURN_SCENARIOS: List[Dict] = [
         "final_constraints": {
             "use_case": "medical student / note-taking",
             "excluded_types": ["Chromebook"],
+            "excluded_os": ["Chrome OS"],
             "os": "Windows or macOS",
             "budget_max_usd": 600,
         },
@@ -462,14 +463,19 @@ Score 0-10:"""
 # ============================================================================
 
 async def run_idss_scenario(
-    client:    httpx.AsyncClient,
-    base_url:  str,
-    scenario:  Dict,
+    client:     httpx.AsyncClient,
+    base_url:   str,
+    scenario:   Dict,
+    no_session: bool = False,
 ) -> Tuple[List[Dict], float]:
     """
     Run a multi-turn scenario against IDSS.
     Returns (turn_results, total_elapsed_s).
     Each turn_result: {user, assistant, response_type, n_recs, products_flat}.
+
+    no_session=True: passes ablation_no_session=true each turn so the server
+    clears its slot dict before processing (conversation history is kept).
+    Use for the session-state ablation experiment.
     """
     session_id = str(uuid.uuid4())
     turn_results: List[Dict] = []
@@ -477,10 +483,13 @@ async def run_idss_scenario(
 
     for turn_msg in scenario["turns"]:
         t0 = time.perf_counter()
+        payload: Dict = {"message": turn_msg, "session_id": session_id}
+        if no_session:
+            payload["ablation_no_session"] = True
         try:
             resp = await client.post(
                 f"{base_url}/chat",
-                json={"message": turn_msg, "session_id": session_id},
+                json=payload,
                 timeout=90,
             )
             resp.raise_for_status()
@@ -818,7 +827,7 @@ async def run_gemini_scenario(
                     break
                 except Exception as e:
                     if ("429" in str(e) or "quota" in str(e).lower()) and attempt < 2:
-                        await asyncio.sleep(15 * (attempt + 1))
+                        await asyncio.sleep(65)  # Gemini quota reset ~52s; 65s = 13s buffer
                         continue
                     reply = f"[ERROR: {e}]"
                     break
@@ -968,8 +977,12 @@ async def judge_transcript(
         ctx_lines = ["", "DETERMINISTIC CONSTRAINT CHECK RESULTS (pre-verified — use to calibrate score):"]
         for note in constraint_notes:
             ctx_lines.append(f"  {note}")
-        all_pass = all(n.startswith("✓") for n in constraint_notes)
-        if all_pass:
+        # A note starting with ✗ is an explicit failure.
+        # Notes like "no deterministic constraints to check" are NOT failures —
+        # they mean no checkable constraints exist (e.g. final turn is an FAQ answer
+        # with no product list).  Treat absence of ✗ as "all passed".
+        has_failure = any(n.startswith("✗") for n in constraint_notes)
+        if not has_failure:
             ctx_lines.append("ALL checks PASSED. Constraint Satisfaction MUST score ≥3 out of 4.")
         else:
             ctx_lines.append("Some checks FAILED (see ✗ above). Penalise constraint satisfaction accordingly.")
@@ -1078,6 +1091,24 @@ def check_final_turn_constraints(scenario: Dict, turn_results: List[Dict]) -> Tu
                 notes.append(f"✗ FAIL (text): expected brand '{brand}' not mentioned after un-exclusion")
                 penalties += 1
 
+    # OS exclusion check — checks title-based evidence when structured products available
+    excl_os_list = (scenario.get("final_constraints") or {}).get("excluded_os") or []
+    if excl_os_list and final_products:
+        import re as _re3
+        _os_title_checks = []
+        for _eos in excl_os_list:
+            if "chrome" in str(_eos).lower():
+                _os_title_checks.append(("Chrome OS / Chromebook", re.compile(r'\bchromebook\b', re.IGNORECASE)))
+        for _os_name, _os_re in _os_title_checks:
+            _violations = [p for p in final_products
+                           if _os_re.search(p.get("name") or p.get("title") or "")]
+            if _violations:
+                notes.append(f"✗ FAIL: {_os_name} found in final products: "
+                              f"{((_violations[0].get('name') or '')[:30])}")
+                penalties += 1
+            else:
+                notes.append(f"✓ No {_os_name} in final product list")
+
     # Budget check (if products available and budget specified)
     budget = scenario.get("final_constraints", {}).get("budget_max_usd")
     if budget and final_products:
@@ -1088,6 +1119,38 @@ def check_final_turn_constraints(scenario: Dict, turn_results: List[Dict]) -> Tu
             penalties += 1
         else:
             notes.append(f"✓ All {len(final_products)} products within ${budget} budget")
+
+    # RAM minimum check
+    min_ram = scenario.get("final_constraints", {}).get("min_ram_gb")
+    if min_ram and final_products:
+        import re as _re2
+        _RAM_RE = _re2.compile(
+            r'\b(\d+)\s*GB\s*(?:RAM|SDRAM|DDR[0-9]?|LPDDR[0-9]?|Memory)\b'
+            r'|\b(\d+)GB\s+(?:RAM|Memory)\b',
+            _re2.IGNORECASE,
+        )
+        def _title_ram(p):
+            t = p.get("name") or p.get("title") or ""
+            m = _RAM_RE.search(t)
+            if m:
+                v = m.group(1) or m.group(2)
+                return int(v) if v else None
+            attrs = p.get("attributes") or {}
+            v = attrs.get("ram_gb")
+            if v is not None:
+                try: return int(float(v))
+                except: pass
+            return None
+        known_low   = [p for p in final_products if (r := _title_ram(p)) is not None and r < min_ram]
+        known_ok    = [p for p in final_products if (r := _title_ram(p)) is not None and r >= min_ram]
+        if known_low:
+            names = ", ".join((p.get("name") or "")[:30] for p in known_low[:2])
+            notes.append(f"✗ FAIL: {len(known_low)} product(s) have RAM below {min_ram}GB: {names}")
+            penalties += 1
+        elif known_ok:
+            notes.append(f"✓ {len(known_ok)} product(s) confirmed ≥{min_ram}GB RAM")
+        else:
+            notes.append(f"~ RAM data unavailable for final products (DB lacks spec); cannot verify ≥{min_ram}GB")
 
     score = max(0.0, 1.0 - 0.33 * penalties)
     return score, notes if notes else ["no deterministic constraints to check"]
@@ -1211,6 +1274,7 @@ async def run_all_scenarios(
     pplx_key:       Optional[str] = None,
     gemini_key:     Optional[str] = None,
     pass_threshold: float = PASS_THRESHOLD,
+    no_session:     bool  = False,
 ) -> Dict:
     openai_key = os.getenv("OPENAI_API_KEY")
     if not openai_key:
@@ -1220,7 +1284,7 @@ async def run_all_scenarios(
     oai        = AsyncOpenAI(api_key=openai_key)
     gpt_sem    = asyncio.Semaphore(4)
     pplx_sem   = asyncio.Semaphore(2)   # Perplexity free tier: ~3 req/min
-    gemini_sem = asyncio.Semaphore(3)   # Gemini free tier: ~15 RPM
+    gemini_sem = asyncio.Semaphore(8)   # Gemini paid tier: 4K RPM (flash-lite) — 8 concurrent is safe
 
     # Initialise Perplexity client if needed
     pplx = None
@@ -1287,7 +1351,7 @@ async def run_all_scenarios(
                 t_sys = time.perf_counter()
 
                 if system == "idss":
-                    turn_results, elapsed = await run_idss_scenario(client, base_url, sc)
+                    turn_results, elapsed = await run_idss_scenario(client, base_url, sc, no_session=no_session)
                 elif system == "sajjad":
                     turn_results, elapsed = await run_idss_scenario(client, sajjad_url, sc)
                 elif system == "perplexity":
@@ -1899,6 +1963,9 @@ def main():
                              "Recommend 0.65 for multi-turn to overcome the scoring floor: "
                              "with constraint=1.0 and judge=0.0 the score is 0.55, so "
                              "threshold=0.5 auto-passes all compliant systems regardless of quality.")
+    parser.add_argument("--no-session", action="store_true",
+                        help="Ablation: clear IDSS slot dict each turn (conversation history kept). "
+                             "Use with --systems idss to run the session-state ablation experiment.")
     args = parser.parse_args()
 
     valid_systems = {"idss", "gpt", "gemini", "perplexity", "sajjad"}
@@ -1947,6 +2014,7 @@ def main():
             pplx_key=args.perplexity_key,
             gemini_key=args.gemini_key,
             pass_threshold=threshold,
+            no_session=args.no_session,
         ))
         all_run_outputs.append(out)
 

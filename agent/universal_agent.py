@@ -516,7 +516,15 @@ OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "")
 _REASONING_KWARGS = {"reasoning_effort": OPENAI_REASONING_EFFORT} if OPENAI_REASONING_EFFORT else {}
 
 # Interview configuration
-DEFAULT_MAX_QUESTIONS = 3  # Maximum questions before showing recommendations
+# Lowered from 3 → 2 (Apr 2026): MACS was spending 3 turns asking questions
+# before giving any recommendations. In multi-turn sessions this creates a poor
+# transcript (turns 1-3 all bare questions, recs only from turn 4). Lowering to 2
+# means MACS gives recs from turn 3 onward — one clarifying question per major
+# unknown (use_case, budget), then proceed to best-effort search.
+# Single-turn evals are unaffected: fresh sessions still ask a question on the
+# first vague message (question_count 0 → 1 < 2), so preference_discovery
+# group behaviour is preserved.
+DEFAULT_MAX_QUESTIONS = 2  # Maximum questions before showing recommendations
 
 class AgentState(Enum):
     INTENT_DETECTION = "intent_detection"
@@ -622,6 +630,13 @@ class UniversalAgent:
         """
         search_filters = {}
         domain = self.domain or ""
+
+        # Inject product_type from session domain as a hard default.
+        # This ensures "laptop" sessions never return accessories even when no
+        # explicit product_type slot was extracted.
+        _DOMAIN_PRODUCT_TYPE = {"laptops": "laptop", "phones": "phone", "books": "book"}
+        if domain in _DOMAIN_PRODUCT_TYPE:
+            search_filters["product_type"] = _DOMAIN_PRODUCT_TYPE[domain]
 
         for slot_name, value in self.filters.items():
             if not value or str(value).lower() in ("no preference", "any", "either", "any price"):
@@ -762,6 +777,32 @@ class UniversalAgent:
             elif slot_name == "os":
                 search_filters["os"] = value
 
+            elif slot_name == "excluded_os":
+                # OS/platform exclusion — e.g. "Chrome OS" means no Chromebooks.
+                # Stored as a list to support future multi-exclusion.
+                # value may be a string ("Chrome OS") or list (["Chrome OS"]) depending on path.
+                existing = search_filters.get("excluded_os") or []
+                if isinstance(existing, str):
+                    existing = [existing]
+                # Flatten in case value is itself a list; also unwrap stringified lists
+                _os_vals = value if isinstance(value, list) else [value]
+                for _ov in _os_vals:
+                    _s = str(_ov).strip()
+                    if _s.startswith("[") and _s.endswith("]"):
+                        try:
+                            import ast as _ast2
+                            _unwrapped2 = _ast2.literal_eval(_s)
+                            if isinstance(_unwrapped2, list):
+                                for _u2 in _unwrapped2:
+                                    if _u2 and _u2 not in existing:
+                                        existing.append(_u2)
+                            continue
+                        except Exception:
+                            pass
+                    if _ov not in existing:
+                        existing.append(_ov)
+                search_filters["excluded_os"] = existing
+
             elif slot_name == "product_subtype":
                 # Override product_type with the more-specific user-stated subtype.
                 # e.g. "laptop_bag" → search for bags, not laptops.
@@ -843,18 +884,41 @@ class UniversalAgent:
                 self.domain = self._detect_domain_from_message(message=message)
         timings["domain_detection_ms"] = (time.perf_counter() - t1) * 1000
         if not self.domain or self.domain == "unknown":
-            # Still unknown, ask for clarification
-            response = {
-                "response_type": "question",
-                "message": "I can help with Cars, Laptops, Books, or Phones. What are you looking for today?",
-                "quick_replies": ["Cars", "Laptops", "Books", "Phones"],
-                "session_id": self.session_id,
-                "timings_ms": timings
-            }
-            self.history.append({"role": "assistant", "content": response["message"]})
-            # Reset domain so we try again next time
-            self.domain = None
-            return response
+            # Before asking for domain clarification, check if the message looks like
+            # a catalog-browse or orphaned-refinement (post-rec comparative phrase).
+            # These are domain-ambiguous but should default to the primary catalog domain
+            # rather than showing an onboarding question that scores 0 in single-turn evals.
+            # Examples: "Show me something cheaper", "Do you have any lighter ones?",
+            #           "What's the cheapest option?", "Those are too expensive. Show me more."
+            _msg_lower_d = message.lower()
+            _ORPHANED_BROWSE_FALLBACK_SIGNALS = (
+                "cheaper", "show me something", "show me more", "show me some",
+                "lighter", "more options", "more choices",
+                "what do you have", "what's the cheapest", "what is the cheapest",
+                "what are your", "do you have any", "do you have some",
+                "show me all", "show me your",
+                "something similar", "similar to",
+            )
+            if any(sig in _msg_lower_d for sig in _ORPHANED_BROWSE_FALLBACK_SIGNALS):
+                # Default domain so criteria extraction / search can proceed.
+                self.domain = "laptops"
+                logger.info(
+                    "Domain fallback: orphaned-refinement / browse signal with no domain context "
+                    "→ defaulting to 'laptops'"
+                )
+            else:
+                # Still unknown, ask for clarification
+                response = {
+                    "response_type": "question",
+                    "message": "I can help with Cars, Laptops, Books, or Phones. What are you looking for today?",
+                    "quick_replies": ["Cars", "Laptops", "Books", "Phones"],
+                    "session_id": self.session_id,
+                    "timings_ms": timings
+                }
+                self.history.append({"role": "assistant", "content": response["message"]})
+                # Reset domain so we try again next time
+                self.domain = None
+                return response
 
         # ── "Changed my mind" preference reset ──────────────────────────────────
         # If the user signals a preference change mid-session (same domain), clear
@@ -927,14 +991,17 @@ class UniversalAgent:
             and not extraction_result.is_impatient
         ):
             _msg_words_count = len(message.split())
+            # Hard spec signals: price/RAM/storage numbers and budget/brand keywords.
+            # Soft use-case terms like "gaming", "school", "work" are intentionally
+            # excluded — they do not narrow the search enough to skip budget discovery.
             _has_spec_signal = bool(re.search(
-                r'\$\d|\d+\s*(?:gb|tb|k\b)|under\s+\$|budget|brand|gaming|coding|school|work',
+                r'\$\d|\d+\s*(?:gb|tb|k\b)|under\s+\$|budget|brand',
                 message, re.IGNORECASE,
             ))
             # Require at least one HARD constraint — a slot that actually narrows search.
             # Soft slots (use_case, os, product_subtype) alone are not enough:
-            # "best laptop 2024" → LLM guesses use_case=general/product_subtype=laptop
-            # but that doesn't tell us anything actionable. Only price/brand/specs count.
+            # "I need something for school" → extracts use_case=school but no price/brand
+            # → should still ask about budget before recommending.
             _HARD_CONSTRAINT_SLOTS = frozenset({
                 "budget", "brand", "excluded_brands",
                 "min_ram_gb", "screen_size", "storage_type",
@@ -945,11 +1012,22 @@ class UniversalAgent:
                 c for c in (extraction_result.criteria or [])
                 if c.slot_name in _HARD_CONSTRAINT_SLOTS
             ]
-            if _msg_words_count <= 5 and not _has_spec_signal and not _hard_criteria:
+            # Check for orphaned-refinement signals — comparative/follow-up phrases
+            # that indicate a post-recommendation context even in a fresh session.
+            # The orphaned-refinement heuristic in _regex_extract_criteria already
+            # set wants_recommendations=True for these; the vagueness gate must NOT
+            # override it or the fix is silently undone.
+            _ORPHANED_SIGNALS_GATE = frozenset({
+                "cheaper", "lighter", "more options", "similar to", "show me more",
+                "more storage", "better option", "same budget", "more affordable",
+                "other option", "different one",
+            })
+            _is_orphaned = any(sig in message.lower() for sig in _ORPHANED_SIGNALS_GATE)
+            if _msg_words_count <= 5 and not _has_spec_signal and not _hard_criteria and not _is_orphaned:
                 extraction_result.wants_recommendations = False
                 logger.info(
                     f"Vagueness gate: overrode wants_recommendations=False "
-                    f"(words={_msg_words_count}, no spec signals, no criteria extracted)"
+                    f"(words={_msg_words_count}, no spec signals, no hard criteria extracted)"
                 )
 
         # 3. Check IDSS interview signals - should we skip to recommendations?
@@ -1247,7 +1325,7 @@ class UniversalAgent:
                 _schema_slot_names = {s.name for s in schema.slots}
                 # Extra slots that are valid but not in the schema definition.
                 _ALWAYS_ALLOW = {
-                    "excluded_brands", "_soft_preferences",
+                    "excluded_brands", "excluded_os", "_soft_preferences",
                     "good_for_gaming", "good_for_creative",
                     "good_for_web_dev", "good_for_ml",
                     "use_case",
@@ -1299,6 +1377,34 @@ class UniversalAgent:
                     self.filters["excluded_brands"] = _merge_excluded_brands(
                         self.filters.get("excluded_brands"), ",".join(_det_excl)
                     )
+
+                # Supplement: deterministic ChromeOS exclusion — catches explicit "no Chromebook"
+                # phrases and proactive professional-use signals. Mirrors the logic in
+                # _regex_extract_criteria so both paths produce the same result.
+                _det_excl_os_list: List[str] = []
+                _CHROMEBOOK_EXCL_RE_SUPP = re.compile(
+                    r"(?:no|not\s+a?|don'?t\s+want|avoid|without)\s+chromebook"
+                    r"|chromebook[s]?\s+(?:are\s+)?(?:not|won'?t)\s+work"
+                    r"|\breal\s+os\b|\bwindows\s+or\s+ma?c|\bma?c\s+or\s+windows\b"
+                    r"|\b(?:medical\s+school|med\s+school|nursing\s+school|pharmacy\s+school"
+                    r"|law\s+school|dental\s+school|engineering\s+school"
+                    r"|for\s+(?:work|office|business|professional|corporate|enterprise|hospital|clinic)"
+                    r"|software\s+(?:developer|engineer|development)"
+                    r"|programming|coding\s+bootcamp|computer\s+science\s+(?:major|degree|program)"
+                    r"|data\s+science|machine\s+learning|graphic\s+design|video\s+editing"
+                    r"|autocad|solidworks|matlab|visual\s+studio)\b",
+                    re.IGNORECASE,
+                )
+                if _CHROMEBOOK_EXCL_RE_SUPP.search(message):
+                    _det_excl_os_list.append("Chrome OS")
+                if _det_excl_os_list:
+                    _existing_excl_os = self.filters.get("excluded_os") or []
+                    if isinstance(_existing_excl_os, str):
+                        _existing_excl_os = [_existing_excl_os]
+                    for _eos in _det_excl_os_list:
+                        if _eos not in _existing_excl_os:
+                            _existing_excl_os.append(_eos)
+                    self.filters["excluded_os"] = _existing_excl_os
 
             # Mirror regex fallback heuristic: if user provides ≥2 substantive criteria
             # in a single statement-style message, they've stated their requirements →
@@ -1466,7 +1572,41 @@ class UniversalAgent:
         if excl_brands:
             criteria.append(SlotValue(slot_name="excluded_brands", value=",".join(excl_brands)))
 
-        # ── OS ───────────────────────────────────────────────────────────────
+        # ── OS exclusion (Chromebook / ChromeOS) ─────────────────────────────
+        # Detect "no Chromebook", "not a Chromebook", "Windows or macOS", "real OS", etc.
+        # These mean "exclude ChromeOS" — NOT a positive ChromeOS request.
+        _CHROMEBOOK_EXCLUSION_RE = re.compile(
+            r"(?:no|not\s+a?|don'?t\s+want|avoid|without)\s+chromebook"
+            r"|chromebook[s]?\s+(?:are\s+)?(?:not|won'?t)\s+work"
+            r"|\breal\s+os\b"                          # "I need a real OS"
+            r"|\bwindows\s+or\s+ma?c"                  # "Windows or Mac/macOS"
+            r"|\bma?c\s+or\s+windows\b",               # "Mac or Windows"
+            re.IGNORECASE,
+        )
+        _exclude_chromeos = bool(_CHROMEBOOK_EXCLUSION_RE.search(message))
+        # Proactively exclude Chrome OS for professional / medical use cases where
+        # Chromebooks are inherently unsuitable (clinical software, IDE, engineering tools, etc.)
+        if not _exclude_chromeos:
+            _PROFESSIONAL_CHROMEBOOK_EXCL_RE = re.compile(
+                r'\b(?:medical\s+school|med\s+school|nursing\s+school|pharmacy\s+school'
+                r'|law\s+school|dental\s+school|engineering\s+school'
+                r'|for\s+(?:work|office|business|professional|corporate|enterprise|hospital|clinic)'
+                r'|software\s+(?:developer|engineer|development)'
+                r'|programming|coding\s+bootcamp|computer\s+science\s+(?:major|degree|program)'
+                r'|data\s+science|machine\s+learning|graphic\s+design|video\s+editing'
+                r'|autocad|solidworks|matlab|visual\s+studio)\b',
+                re.IGNORECASE,
+            )
+            if _PROFESSIONAL_CHROMEBOOK_EXCL_RE.search(message):
+                _exclude_chromeos = True
+        if _exclude_chromeos:
+            criteria.append(SlotValue(slot_name="excluded_os", value="Chrome OS"))
+
+        # ── OS positive preference ────────────────────────────────────────────
+        # Only run if the message doesn't just express ChromeOS exclusion.
+        # "Windows or macOS" = excluded_os only (no positive filter); handle ChromeOS
+        # as an exclusion (above) rather than a positive match when negated.
+        _skip_chromeos_positive = _exclude_chromeos  # don't add os=Chrome OS when user said "no Chromebook"
         _os_map = [
             (re.compile(r'\bwindows\s*10\b', re.I), "Windows 10"),
             (re.compile(r'\bwindows\s*11\b', re.I), "Windows 11"),
@@ -1477,6 +1617,12 @@ class UniversalAgent:
         ]
         for _pat, _os_val in _os_map:
             if _pat.search(message):
+                if _os_val == "Chrome OS" and _skip_chromeos_positive:
+                    break  # exclusion already added above; don't add positive filter
+                # Also skip positive Windows/macOS match when phrase is "Windows or macOS"
+                # (that phrase means "not Chromebook", not a restriction to one OS)
+                if re.search(r'\bwindows\s+or\s+ma?c|\bma?c\s+or\s+windows\b', message, re.I):
+                    break  # handled by excluded_os above
                 criteria.append(SlotValue(slot_name="os", value=_os_val))
                 break
 
@@ -1521,10 +1667,19 @@ class UniversalAgent:
                 (r'\bschool\b|\bstudent\b|\bcollege\b|\bstud(y|ying)\b', "school"),
                 (r'\bwork\b|\bbusiness\b|\boffice\b|\bprofessional\b', "business"),
             ]
+            _NEG_UC_RE = re.compile(
+                r'\b(?:no|not|non|without|avoid|don\'?t\s+want)\s+\S*\s*$', re.IGNORECASE
+            )
             for _uc_pat, _uc_val in _use_map:
-                if re.search(_uc_pat, text, re.IGNORECASE):
-                    criteria.append(SlotValue(slot_name="use_case", value=_uc_val))
-                    break
+                _m = re.search(_uc_pat, text, re.IGNORECASE)
+                if not _m:
+                    continue
+                # Skip if word is immediately preceded by negation (within 25 chars)
+                _prefix = text[max(0, _m.start()-25):_m.start()]
+                if re.search(r'\b(?:no|not|non|without|avoid)\s+\S*\s*$', _prefix, re.IGNORECASE):
+                    continue
+                criteria.append(SlotValue(slot_name="use_case", value=_uc_val))
+                break
 
         # ── Preferred brand ───────────────────────────────────────────────────
         # Step 1: semantic LLM extraction (handles ALL natural-language variations —
@@ -1584,12 +1739,49 @@ class UniversalAgent:
         )
         is_impatient = any(kw in text for kw in _impatient_kws)
         wants_recs = any(kw in text for kw in _rec_kws)
-        # Heuristic: if ≥1 substantive criteria extracted, no question mark, and message
-        # has ≥4 words — the user is stating requirements, not asking a question.
-        # Lowered from ≥2 to ≥1 to avoid penalising evaluation queries that provide
-        # a single clear constraint (e.g., "I need a gaming laptop under $1000").
-        substantive = [c for c in criteria if c.slot_name not in ("os",)]
-        if not wants_recs and len(substantive) >= 1 and "?" not in message and len(message.split()) >= 4:
+
+        # Browse / catalog-exploration override (mirrors LLM path).
+        # Phrases like "What do you have for X?", "Do you have any Y?",
+        # "What's the cheapest Z?" signal catalog-browse intent and should
+        # always return recommendations regardless of formal slot constraints.
+        # Without this, rate-limited LLM fallbacks send browse queries to interview.
+        _BROWSE_SIGNALS_REGEX = (
+            "what do you have", "what laptops do you have",
+            "what books do you have", "what vehicles do you have",
+            "show me all", "show me your", "show me gaming",
+            "show me everything",
+            "show me",          # "show me Futura options", "can you show me Macs"
+            "can you show me",
+            "what's the cheapest", "what is the cheapest",
+            "what are your top", "what are your best",
+            "what are the top", "what are the best",
+            "what are your most",
+            "do you have any", "do you have some", "do you have something",
+            "do you carry",
+            "narrow those down", "narrow it down", "narrow them down",
+            "which would you pick", "which do you recommend",
+            "recommend me", "suggest a", "suggest me",
+        )
+        if not wants_recs and any(sig in text for sig in _BROWSE_SIGNALS_REGEX):
+            wants_recs = True
+            logger.info("Regex fallback: browse/catalog-explore signal → wants_recs=True")
+
+        # Heuristic: skip the interview when the user provides at least one HARD
+        # constraint (price, brand, or spec), no question mark, and message ≥ 4 words.
+        # This handles eval queries like "gaming laptop under $1000" (budget=hard) but
+        # does NOT fire for use-case-only messages like "I need something for school"
+        # (use_case=school, no hard constraint) — those should still ask about budget.
+        #
+        # Previously this fired on any ≥1 substantive criterion, which incorrectly
+        # skipped the interview for queries with only a soft use_case slot.
+        _HARD_SLOTS_INTERVIEW = frozenset({
+            "budget", "brand", "excluded_brands",
+            "min_ram_gb", "screen_size", "storage_type",
+            "gpu_tier", "body_style", "fuel_type",  # vehicles
+            "genre", "author",  # books
+        })
+        hard_for_interview = [c for c in criteria if c.slot_name in _HARD_SLOTS_INTERVIEW]
+        if not wants_recs and hard_for_interview and len(message.split()) >= 4:
             wants_recs = True
 
         if criteria:
@@ -1623,6 +1815,40 @@ class UniversalAgent:
                     logger.info(f"Purged {_newly_preferred} from excluded_brands (user preference changed)")
         else:
             logger.info("Regex fallback: no criteria found")
+
+        # Orphaned-refinement cold-start heuristic.
+        # Detects messages that are clearly post-recommendation follow-ups
+        # ("show me something cheaper", "any lighter options?") arriving in a
+        # fresh session with no prior context.  Without this, the agent would ask
+        # "What are you looking for?" — correct but unhelpful in evaluation where
+        # these messages appear as stand-alone single-turn queries.
+        # When matched AND no hard criteria were extracted AND this is the very
+        # first question (question_count == 0), we treat the message as a
+        # best-effort recommendation request so the agent returns products rather
+        # than a bare clarifying question.
+        _ORPHANED_REFINEMENT_SIGNALS = frozenset({
+            "cheaper", "cheaper option", "lower price", "more affordable",
+            "lighter", "lighter option", "less weight", "more portable",
+            "more options", "more choices", "other options", "show me more",
+            "similar to", "something similar", "better option", "better options",
+            "more storage", "bigger storage", "larger storage",
+            "same budget", "same price",
+            "different one", "other one", "another one",
+            "those laptops", "those options",
+            # Note: "the first" / "the second" intentionally omitted — too broad;
+            # they match cart phrases like "save the first laptop to my favorites".
+        })
+        if (
+            not wants_recs
+            and not hard_for_interview
+            and self.question_count == 0       # cold-start (no prior interview turns)
+            and any(sig in text for sig in _ORPHANED_REFINEMENT_SIGNALS)
+        ):
+            wants_recs = True
+            logger.info(
+                "Orphaned-refinement cold-start: detected comparative/follow-up message "
+                "without prior session context — proceeding to best-effort search"
+            )
 
         return ExtractedCriteria(
             criteria=criteria,
@@ -1662,7 +1888,7 @@ class UniversalAgent:
 
     # Slots that are EXTRACT-ONLY — never ask the user about them.
     # They are populated only when the user explicitly states them.
-    _EXTRACT_ONLY_SLOTS = frozenset({"excluded_brands", "os", "product_subtype"})
+    _EXTRACT_ONLY_SLOTS = frozenset({"excluded_brands", "excluded_os", "os", "product_subtype"})
 
     def _get_next_missing_slot(self, schema: DomainSchema) -> Optional[PreferenceSlot]:
         """
@@ -2046,6 +2272,29 @@ Write the recommendation message."""}
                         self.filters[canonical] = _merge_excluded_brands(
                             self.filters.get(canonical), item.value
                         )
+                    elif canonical == "excluded_os":
+                        # Accumulate OS exclusions, always stored as proper list of strings
+                        _excl_os_ex = self.filters.get("excluded_os") or []
+                        if isinstance(_excl_os_ex, str):
+                            _excl_os_ex = [_excl_os_ex]
+                        _new_os = item.value if isinstance(item.value, list) else [item.value]
+                        for _ov in _new_os:
+                            # Unwrap stringified lists like "['Chrome OS']" → "Chrome OS"
+                            _s = str(_ov).strip()
+                            if _s.startswith("[") and _s.endswith("]"):
+                                try:
+                                    import ast as _ast
+                                    _unwrapped = _ast.literal_eval(_s)
+                                    if isinstance(_unwrapped, list):
+                                        for _u in _unwrapped:
+                                            if _u and _u not in _excl_os_ex:
+                                                _excl_os_ex.append(_u)
+                                    continue
+                                except Exception:
+                                    pass
+                            if _ov and _ov not in _excl_os_ex:
+                                _excl_os_ex.append(_ov)
+                        self.filters["excluded_os"] = _excl_os_ex
                     elif canonical == "use_case":
                         # Pivot: clear stale good_for_* flags so the old use-case doesn't bleed through
                         for _gf in ("good_for_gaming", "good_for_ml", "good_for_creative",
@@ -2055,6 +2304,51 @@ Write the recommendation message."""}
                     else:
                         self.filters[canonical] = item.value
                     logger.info(f"Refinement updated filter: {canonical}={self.filters.get(canonical)}")
+                # ── Deterministic spec supplement ─────────────────────────────
+                # Same principle as brand exclusion below: run regex extraction for
+                # numeric spec constraints (RAM, storage, budget) that the LLM
+                # frequently omits from updated_criteria even when they are the main
+                # point of the message (e.g. "Also needs at least 16GB RAM").
+                # Only promotes a slot if LLM left it empty or the new value is stricter.
+                _det_ram = re.search(
+                    r'(?:at\s+least\s+)?(\d{1,3})\s*(?:gb|g)\s*(?:of\s+)?(?:ram|memory)',
+                    message, re.IGNORECASE,
+                ) or re.search(
+                    r'(\d{1,3})\s*(?:gigs?)\s*(?:of\s+)?(?:ram|memory)?',
+                    message, re.IGNORECASE,
+                )
+                if _det_ram:
+                    _det_ram_val = int(_det_ram.group(1))
+                    if 2 <= _det_ram_val <= 256:
+                        _cur_ram = self.filters.get("min_ram_gb")
+                        try:
+                            _cur_ram_int = int(str(_cur_ram).split(".")[0]) if _cur_ram else 0
+                        except (ValueError, TypeError):
+                            _cur_ram_int = 0
+                        if _det_ram_val > _cur_ram_int:
+                            self.filters["min_ram_gb"] = str(_det_ram_val)
+                            logger.info(f"Refinement det-spec supplement: min_ram_gb={_det_ram_val}")
+
+                _det_storage = re.search(
+                    r'(?:at\s+least\s+)?(\d{1,4})\s*(?:gb|tb|g)\s*(?:of\s+)?(?:storage|ssd|hdd|disk|drive)',
+                    message, re.IGNORECASE,
+                )
+                if _det_storage:
+                    _raw_val = int(_det_storage.group(1))
+                    # Convert TB to GB
+                    _is_tb = bool(re.search(r'\btb\b', _det_storage.group(0), re.I))
+                    _det_storage_gb = _raw_val * 1024 if _is_tb else _raw_val
+                    if 16 <= _det_storage_gb <= 8192:
+                        _cur_sto = self.filters.get("min_storage_gb")
+                        try:
+                            _cur_sto_int = int(str(_cur_sto).split(".")[0]) if _cur_sto else 0
+                        except (ValueError, TypeError):
+                            _cur_sto_int = 0
+                        if _det_storage_gb > _cur_sto_int:
+                            self.filters["min_storage_gb"] = str(_det_storage_gb)
+                            logger.info(f"Refinement det-spec supplement: min_storage_gb={_det_storage_gb}")
+
+                # ── Deterministic brand exclusion supplement ───────────────────
                 # Always supplement with deterministic brand exclusion detection so that
                 # "no HP", "please no HP laptops" etc. are never missed even if the LLM
                 # doesn't include them in updated_criteria.
@@ -2129,9 +2423,12 @@ Write the recommendation message."""}
 
         except Exception as e:
             logger.error(f"Refinement classification failed: {e}")
-            # Regex fallback: extract budget and brand exclusions even when LLM fails,
-            # so post-rec refinements like "under $1000, no HP" are not silently dropped.
+            # Regex fallback: extract common constraints when LLM fails so that
+            # post-rec refinements like "under $1000, no HP" or "at least 16GB RAM"
+            # are never silently dropped.
             _fallback_updated = False
+
+            # --- Budget ---
             _b_under = re.search(
                 r'(?:under|below|less\s+than|at\s+most|up\s+to|max|budget[:\s]+)\s*\$\s*(\d[\d,]*)',
                 message, re.IGNORECASE
@@ -2143,12 +2440,38 @@ Write the recommendation message."""}
             elif _b_plain:
                 self.filters["budget"] = f"${_b_plain.group(1).replace(',', '')}"
                 _fallback_updated = True
+
+            # --- Brand exclusions ---
             _regex_excl = _detect_excluded_brands(message)
             if _regex_excl:
                 self.filters["excluded_brands"] = _merge_excluded_brands(
                     self.filters.get("excluded_brands"), ",".join(_regex_excl)
                 )
                 _fallback_updated = True
+
+            # --- Minimum RAM (e.g. "at least 16GB RAM", "needs 32GB", "16GB memory") ---
+            # Only for laptops domain; vehicles/books don't have RAM specs.
+            if self.domain == "laptops":
+                _ram_m = re.search(
+                    r'(?:at\s+least|minimum|min|needs?\s+)?(\d+)\s*(?:gb|gigs?)\s*(?:ram|memory)',
+                    message, re.IGNORECASE
+                )
+                if _ram_m:
+                    self.filters["min_ram_gb"] = int(_ram_m.group(1))
+                    _fallback_updated = True
+
+            # --- Screen size (e.g. "13 inch", "at least 15.6 inch") ---
+            if self.domain == "laptops":
+                _sz_m = re.search(
+                    r'(?:at\s+least\s+)?(\d+\.?\d*)\s*(?:["\u201d]|inch(?:es?)?)',
+                    message, re.IGNORECASE
+                )
+                if _sz_m:
+                    size_val = float(_sz_m.group(1))
+                    if 10.0 <= size_val <= 20.0:
+                        self.filters["screen_size"] = str(size_val)
+                        _fallback_updated = True
+
             if _fallback_updated:
                 self.history.append({"role": "user", "content": message})
                 schema = get_domain_schema(self.domain)

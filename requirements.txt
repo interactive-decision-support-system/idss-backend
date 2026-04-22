@@ -31,5 +31,6 @@ neo4j
 # Evaluation
 deepeval>=1.0.0
 pytest>=7.0.0
+pytest-asyncio>=0.23.0
 python-dotenv>=1.0.0
 google-genai>=0.8.0
