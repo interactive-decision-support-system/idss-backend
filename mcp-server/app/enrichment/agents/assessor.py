@@ -25,6 +25,12 @@ from app.enrichment.types import AssessorOutput, ProductInput
 logger = logging.getLogger(__name__)
 
 
+# gpt-5-mini is a reasoning model; even simple list-of-labels output
+# requires ~500-1000 tokens of invisible CoT. Budget covers reasoning
+# + up to 12 product-type labels + margin. See Task 12 / ENRICHMENT_MODEL_DIAGNOSIS.md.
+_MAX_COMPLETION_TOKENS = 2000
+
+
 # Strategies the assessor can recommend. Kept here so the assessor can reason
 # about them without circular imports of the agent classes themselves.
 # composer_v1 always runs (single writer of the canonical row — #83); the
@@ -112,7 +118,7 @@ class Assessor:
                 user="Sample:\n" + json.dumps(sample, ensure_ascii=False),
                 model=model or utility_model(),
                 json_mode=True,
-                max_tokens=400,
+                max_tokens=_MAX_COMPLETION_TOKENS,
                 temperature=0.1,
             )
             data = resp.parsed_json or {}

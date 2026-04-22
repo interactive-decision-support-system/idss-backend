@@ -19,6 +19,13 @@ from app.enrichment.tools.llm_client import LLMClient, default_model
 from app.enrichment.types import ProductInput, StrategyOutput
 
 
+# gpt-5-mini is a reasoning model; ~500-1800 tokens go to invisible CoT
+# before any output. Multi-field extraction needs more headroom than
+# taxonomy. Budget covers reasoning + ~13 spec fields + margin.
+# See Task 12 / ENRICHMENT_MODEL_DIAGNOSIS.md.
+_MAX_COMPLETION_TOKENS = 3000
+
+
 _SYSTEM = (
     "You extract product specifications from unstructured text. Return JSON with keys:\n"
     "  parsed_specs        flat object of normalized specs you found "
@@ -52,7 +59,7 @@ class ParserAgent(BaseEnrichmentAgent):
             user=user,
             model=context.get("model") or default_model(),
             json_mode=True,
-            max_tokens=600,
+            max_tokens=_MAX_COMPLETION_TOKENS,
             temperature=0.0,
         )
         context["_last_cost_usd"] = resp.cost_usd

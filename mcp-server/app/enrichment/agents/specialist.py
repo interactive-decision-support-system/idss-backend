@@ -24,6 +24,13 @@ from app.enrichment.tools.llm_client import LLMClient, default_model
 from app.enrichment.types import ProductInput, StrategyOutput
 
 
+# gpt-5-mini is a reasoning model; heavier output (7 buyer questions,
+# use-case fit dict, capabilities list) demands more headroom than
+# parser. Budget covers reasoning + multi-field JSON + margin.
+# See Task 12 / ENRICHMENT_MODEL_DIAGNOSIS.md.
+_MAX_COMPLETION_TOKENS = 4000
+
+
 _PROMPT_DIR = Path(__file__).resolve().parent / "specialist_prompts"
 _DEFAULT_PROMPT_NAME = "_default.md"
 
@@ -91,7 +98,7 @@ class SpecialistAgent(BaseEnrichmentAgent):
             user=user,
             model=context.get("model") or default_model(),
             json_mode=True,
-            max_tokens=900,
+            max_tokens=_MAX_COMPLETION_TOKENS,
             temperature=0.2,
         )
         context["_last_cost_usd"] = resp.cost_usd

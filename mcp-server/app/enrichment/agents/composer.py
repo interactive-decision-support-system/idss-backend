@@ -92,6 +92,13 @@ from app.enrichment.types import ComposerDecision, ProductInput, StrategyOutput
 logger = logging.getLogger(__name__)
 
 
+# gpt-5-mini is a reasoning model. Composer synthesizes all upstream findings
+# + writes decisions — largest output of any agent (~1000+ tokens visible).
+# Budget covers reasoning floor + full composed_fields + decisions + margin.
+# See Task 12 / ENRICHMENT_MODEL_DIAGNOSIS.md.
+_MAX_COMPLETION_TOKENS = 6000
+
+
 # Context keys the runner populates for each upstream strategy.
 # Keeping this list explicit (rather than scanning ctx) means the composer's
 # prompt has a stable shape — the LLM sees the same findings schema every
@@ -226,7 +233,7 @@ class ComposerAgent(BaseEnrichmentAgent):
                     or composer_model()
                 ),
                 json_mode=True,
-                max_tokens=2500,
+                max_tokens=_MAX_COMPLETION_TOKENS,
                 temperature=0.1,
             )
             context["_last_cost_usd"] = resp.cost_usd
