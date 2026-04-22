@@ -184,8 +184,10 @@ def test_composer_uses_json_mode_and_composer_model_default():
     ComposerAgent(llm=llm).run(_product(), _upstream_ctx())
     assert llm.calls[0]["json_mode"] is True
     assert llm.calls[0]["model"] == "gpt-5"
-    # Task 12: raised to 6000 to satisfy gpt-5-mini reasoning-floor requirement.
-    assert llm.calls[0]["max_tokens"] == 6000
+    # Raised to 16000 (PR #103 set 6000 for gpt-5-mini; composer uses gpt-5
+    # full tier whose reasoning floor alone is ≥6000 tokens on hard products —
+    # 7/10 calls on a mocklaptops batch hit the 6000 ceiling with empty output).
+    assert llm.calls[0]["max_tokens"] == 16000
 
 
 def test_composer_honors_context_model_override():
