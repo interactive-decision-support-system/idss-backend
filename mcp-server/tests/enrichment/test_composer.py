@@ -1,4 +1,4 @@
-"""composer_v1 — single writer of the canonical enriched row (issue #83)."""
+"""composer_v1 — single writer of the canonical enriched row (issues #83, #88)."""
 
 from __future__ import annotations
 
@@ -8,10 +8,14 @@ from uuid import uuid4
 import pytest
 
 from app.enrichment import registry
-from app.enrichment.agents.composer import ComposerAgent
+from app.enrichment.agents.composer import (
+    ComposerAgent,
+    _STRATEGY_TO_SOURCE_KIND,
+    _reconcile_composer_output,
+)
 from app.enrichment.agents.specialist import SpecialistAgent
 from app.enrichment.tools.llm_client import LLMResponse
-from app.enrichment.types import ProductInput
+from app.enrichment.types import ProductInput, SourceKind
 
 
 @pytest.fixture(autouse=True)
@@ -114,8 +118,12 @@ def test_composer_emits_composed_fields_and_decisions():
         "storage_gb": 512,
         "good_for_business": 0.9,
     }
-    assert attrs["composer_decisions"][0]["key"] == "ram_gb"
-    assert attrs["composer_decisions"][0]["source_strategy"] == "parser_v1"
+    # The reconciler (#88) ensures all 4 composed keys have decisions; the
+    # LLM only provided ram_gb so the other 3 are synthesized.
+    decision_keys = {d["key"] for d in attrs["composer_decisions"]}
+    assert decision_keys == {"product_type", "ram_gb", "storage_gb", "good_for_business"}
+    ram_decision = next(d for d in attrs["composer_decisions"] if d["key"] == "ram_gb")
+    assert ram_decision["source_strategy"] == "parser_v1"
     assert "composed_at" in attrs
 
 
@@ -247,7 +255,9 @@ def test_composer_coerces_malformed_llm_output():
 
 def test_composer_drops_decisions_that_lie_about_their_key():
     """Review fix #7: a decision whose chosen_value != composed_fields[key]
-    is the LLM lying about its own choice; drop it from the audit log."""
+    is the LLM lying about its own choice; drop it from the audit log.
+    The reconciler (#88) then synthesizes a replacement for the dropped key
+    so 1:1 is still satisfied."""
     llm = _FakeLLM(
         {
             "composed_fields": {"ram_gb": 16, "storage_gb": 512},
@@ -271,13 +281,23 @@ def test_composer_drops_decisions_that_lie_about_their_key():
     )
     result = ComposerAgent(llm=llm).run(_product(), _upstream_ctx())
     decisions = result.output.attributes["composer_decisions"]
-    assert len(decisions) == 1
-    assert decisions[0]["key"] == "storage_gb"
+    # 1:1 is enforced: both keys are represented (ram_gb via synthesis).
+    assert {d["key"] for d in decisions} == {"ram_gb", "storage_gb"}
+    # The honest storage_gb decision is preserved as-is.
+    storage_d = next(d for d in decisions if d["key"] == "storage_gb")
+    assert storage_d["reason"] == "grounded"
+    # The lying ram_gb decision was dropped; the synthesized replacement
+    # carries the reconciler's reason.
+    ram_d = next(d for d in decisions if d["key"] == "ram_gb")
+    assert ram_d["reason"] == "decision_synthesized_from_composed_fields"
+    # incomplete_decisions flag is set because synthesis occurred.
+    assert result.output.attributes.get("incomplete_decisions") is True
 
 
 def test_composer_drops_decisions_with_unknown_source_strategy():
     """Review fix #7 + #8: a decision citing a source outside the known
-    strategy set can't be rendered as cell lineage — drop it."""
+    strategy set can't be rendered as cell lineage — the cross-check drops it.
+    The reconciler (#88) then synthesizes a replacement so 1:1 is satisfied."""
     llm = _FakeLLM(
         {
             "composed_fields": {"ram_gb": 16},
@@ -293,7 +313,12 @@ def test_composer_drops_decisions_with_unknown_source_strategy():
         }
     )
     result = ComposerAgent(llm=llm).run(_product(), _upstream_ctx())
-    assert result.output.attributes["composer_decisions"] == []
+    decisions = result.output.attributes["composer_decisions"]
+    # The unknown-source decision was dropped; a synthesized replacement exists.
+    assert len(decisions) == 1
+    assert decisions[0]["key"] == "ram_gb"
+    assert decisions[0]["reason"] == "decision_synthesized_from_composed_fields"
+    assert result.output.attributes.get("incomplete_decisions") is True
 
 
 def test_composer_deterministic_fallback_when_llm_fails():
@@ -329,7 +354,10 @@ def test_composer_deterministic_fallback_when_llm_fails():
 def test_composer_registered_with_disjoint_keys():
     assert "composer_v1" in registry.all_known_keys()
     keys = registry.output_keys("composer_v1")
-    assert keys == frozenset({"composed_fields", "composer_decisions", "composed_at"})
+    # incomplete_decisions added in #88 to surface reconciler synthesis gaps.
+    assert keys == frozenset(
+        {"composed_fields", "composer_decisions", "composed_at", "incomplete_decisions"}
+    )
 
 
 def test_specialist_narrative_keys_registered_via_registry():
@@ -340,3 +368,182 @@ def test_specialist_narrative_keys_registered_via_registry():
     assert "specialist_buyer_questions" in narrative
     # Structured output is NOT narrative.
     assert "specialist_use_case_fit" not in narrative
+
+
+# ---------------------------------------------------------------------------
+# Issue #88 — 1:1 enforcement + source_kind provenance tests
+# All tests below use synthetic fixtures only; live mocklaptops validation is
+# deferred pending task #12 (composer uniformly empty on 200 products).
+# ---------------------------------------------------------------------------
+
+
+def test_composer_output_has_1_to_1_keys_happy_path():
+    """All composed_fields keys have matching decisions after reconciliation."""
+    llm = _FakeLLM(
+        {
+            "composed_fields": {"ram_gb": 16, "product_type": "laptop", "weight_kg": 1.12},
+            "composer_decisions": [
+                {
+                    "key": "ram_gb",
+                    "chosen_value": 16,
+                    "source_strategy": "parser_v1",
+                    "reason": "grounded in title",
+                    "dropped_alternatives": [],
+                },
+                {
+                    "key": "product_type",
+                    "chosen_value": "laptop",
+                    "source_strategy": "taxonomy_v1",
+                    "reason": "canonical classifier",
+                    "dropped_alternatives": [],
+                },
+                {
+                    "key": "weight_kg",
+                    "chosen_value": 1.12,
+                    "source_strategy": "scraper_v1",
+                    "reason": "manufacturer page",
+                    "dropped_alternatives": [],
+                },
+            ],
+        }
+    )
+    result = ComposerAgent(llm=llm).run(_product(), _upstream_ctx())
+    attrs = result.output.attributes
+    composed_keys = set(attrs["composed_fields"].keys())
+    decision_keys = {d["key"] for d in attrs["composer_decisions"]}
+    assert composed_keys == decision_keys
+
+
+def test_composer_synthesizes_decision_for_orphan_composed_key():
+    """When LLM emits a composed key without a matching decision, the
+    reconciler synthesizes one marked source_kind=PARAMETRIC with the
+    canonical reason string, and sets incomplete_decisions=True."""
+    llm = _FakeLLM(
+        {
+            "composed_fields": {"cpu": "Intel i7", "ram_gb": 16},
+            "composer_decisions": [
+                # ram_gb has a decision; cpu does NOT
+                {
+                    "key": "ram_gb",
+                    "chosen_value": 16,
+                    "source_strategy": "parser_v1",
+                    "reason": "grounded",
+                    "dropped_alternatives": [],
+                }
+            ],
+        }
+    )
+    result = ComposerAgent(llm=llm).run(_product(), _upstream_ctx())
+    attrs = result.output.attributes
+
+    # 1:1 is satisfied after reconciliation
+    composed_keys = set(attrs["composed_fields"].keys())
+    decision_keys = {d["key"] for d in attrs["composer_decisions"]}
+    assert composed_keys == decision_keys
+
+    # Synthesized decision for the orphan key
+    cpu_decision = next(d for d in attrs["composer_decisions"] if d["key"] == "cpu")
+    assert cpu_decision["reason"] == "decision_synthesized_from_composed_fields"
+    assert cpu_decision["source_kind"] == SourceKind.PARAMETRIC.value
+
+    # Flag is set so the inspector can surface the gap
+    assert attrs.get("incomplete_decisions") is True
+
+
+def test_source_kind_inference_from_source_strategy():
+    """For every entry in _STRATEGY_TO_SOURCE_KIND, the reconciler assigns
+    the correct SourceKind to an existing decision."""
+    for strategy, expected_kind in _STRATEGY_TO_SOURCE_KIND.items():
+        composed = {"some_key": "some_value"}
+        decisions = [
+            {
+                "key": "some_key",
+                "chosen_value": "some_value",
+                "source_strategy": strategy,
+                "reason": "test",
+                "dropped_alternatives": [],
+            }
+        ]
+        reconciled, _ = _reconcile_composer_output(composed, decisions)
+        assert len(reconciled) == 1
+        assert reconciled[0]["source_kind"] == expected_kind.value, (
+            f"strategy={strategy!r}: expected {expected_kind.value!r}, "
+            f"got {reconciled[0]['source_kind']!r}"
+        )
+
+
+def test_unknown_source_strategy_defaults_to_parametric(caplog):
+    """An unrecognised source_strategy falls back to PARAMETRIC and emits
+    a warning log so the gap is surfaceable in tracing."""
+    import logging
+
+    composed = {"some_key": "some_value"}
+    decisions = [
+        {
+            "key": "some_key",
+            "chosen_value": "some_value",
+            "source_strategy": "future_agent_v1",
+            "reason": "test",
+            "dropped_alternatives": [],
+        }
+    ]
+    with caplog.at_level(logging.WARNING, logger="app.enrichment.agents.composer"):
+        reconciled, _ = _reconcile_composer_output(composed, decisions)
+
+    assert reconciled[0]["source_kind"] == SourceKind.PARAMETRIC.value
+    # The warning message includes the unknown strategy name either in the
+    # formatted message or in the args tuple (depending on log handler).
+    warning_texts = " ".join(
+        record.getMessage() for record in caplog.records
+        if record.levelname == "WARNING"
+    )
+    assert "future_agent_v1" in warning_texts, (
+        f"Expected warning mentioning 'future_agent_v1', got: {warning_texts!r}"
+    )
+
+
+def test_reconcile_does_not_set_incomplete_decisions_when_all_present():
+    """When all composed keys have decisions, incomplete_decisions must NOT
+    be set (no false positives in the inspector)."""
+    composed = {"a": 1, "b": 2}
+    decisions = [
+        {"key": "a", "chosen_value": 1, "source_strategy": "parser_v1",
+         "reason": "r", "dropped_alternatives": []},
+        {"key": "b", "chosen_value": 2, "source_strategy": "taxonomy_v1",
+         "reason": "r", "dropped_alternatives": []},
+    ]
+    reconciled, notes = _reconcile_composer_output(composed, decisions)
+    assert "incomplete_decisions" not in notes
+    assert {d["key"] for d in reconciled} == {"a", "b"}
+
+
+def test_source_kind_set_on_decisions_via_full_agent_run():
+    """End-to-end: source_kind appears on every decision in the agent output."""
+    llm = _FakeLLM(
+        {
+            "composed_fields": {"ram_gb": 16, "product_type": "laptop"},
+            "composer_decisions": [
+                {
+                    "key": "ram_gb",
+                    "chosen_value": 16,
+                    "source_strategy": "parser_v1",
+                    "reason": "grounded",
+                    "dropped_alternatives": [],
+                },
+                {
+                    "key": "product_type",
+                    "chosen_value": "laptop",
+                    "source_strategy": "taxonomy_v1",
+                    "reason": "canonical",
+                    "dropped_alternatives": [],
+                },
+            ],
+        }
+    )
+    result = ComposerAgent(llm=llm).run(_product(), _upstream_ctx())
+    decisions = result.output.attributes["composer_decisions"]
+    assert all("source_kind" in d for d in decisions)
+    ram_d = next(d for d in decisions if d["key"] == "ram_gb")
+    pt_d = next(d for d in decisions if d["key"] == "product_type")
+    assert ram_d["source_kind"] == SourceKind.RAW_PARSE.value
+    assert pt_d["source_kind"] == SourceKind.PARAMETRIC.value

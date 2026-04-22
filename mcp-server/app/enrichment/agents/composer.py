@@ -1,4 +1,4 @@
-"""composer_v1 — single writer of the canonical enriched row (issue #83).
+"""composer_v1 — single writer of the canonical enriched row (issues #83, #88).
 
 Today's enrichment pipeline lets every strategy (taxonomy, parser, specialist,
 scraper, soft_tagger) write its own (product_id, strategy, attributes) row;
@@ -13,8 +13,8 @@ The composer is the structural fix: it is the **only** agent allowed to
 emit canonical catalog fields. Every other strategy still writes its own
 row — but downstream readers prefer composer output when present.
 
-v1 scope (this commit)
-----------------------
+v1 scope
+--------
   - Reads every upstream strategy's output from the runner's ``context``
     dict (populated in orchestration/runner.py: ``ctx[_short(strategy)] =
     output.attributes``).
@@ -48,6 +48,37 @@ v1 scope (this commit)
         composer_decisions    list[ComposerDecision] — audit log for the
                               cell-lineage UX in #81
         composed_at           ISO timestamp
+
+1:1 enforcement policy (issue #88)
+------------------------------------
+Every key in ``composed_fields`` MUST have a matching entry in
+``composer_decisions``. The composer instructs the LLM to comply, but compliance
+is not guaranteed. After the LLM returns, ``_reconcile_composer_output`` enforces
+this **leniently with synthesis**: any composed key that has no decision gets a
+synthesized ``ComposerDecision`` marked ``source_kind=PARAMETRIC`` and
+``reason='decision_synthesized_from_composed_fields'``. The row ships in full;
+``attributes['incomplete_decisions'] = True`` flags the gap for the inspector.
+
+source_kind provenance taxonomy (vision bullet 3 / #88)
+--------------------------------------------------------
+``ComposerDecision.source_kind`` (a ``SourceKind`` enum) classifies each
+composed field by how its value was obtained:
+
+  RAW_PARSE            — parser_v1 extracted it from raw catalog text
+  SCRAPE               — scraper_v1 crawled the manufacturer page
+  PARAMETRIC           — LLM world knowledge (specialist_v1, taxonomy_v1,
+                         soft_tagger_v1, composer alone, or echoes from raw)
+  DETERMINISTIC_FALLBACK — rule-based pass-through (no LLM inference)
+
+The reconciler infers ``source_kind`` from ``source_strategy`` via
+``_STRATEGY_TO_SOURCE_KIND``. If ``source_strategy`` is unknown, the field
+defaults to ``PARAMETRIC`` and a warning is logged so the gap is visible.
+
+Live validation caveat
+-----------------------
+The live mocklaptops enrichment run currently returns uniformly empty composer
+output (task #12 investigates root cause). All validation for this PR is
+therefore synthetic-fixture-only — see ``tests/enrichment/test_composer.py``.
 
 # _TODO(closed_loop) — #85 attach points
 # ---------------------------------------
@@ -87,7 +118,7 @@ from pydantic import ValidationError
 from app.enrichment import registry
 from app.enrichment.base import BaseEnrichmentAgent
 from app.enrichment.tools.llm_client import LLMClient, composer_model
-from app.enrichment.types import ComposerDecision, ProductInput, StrategyOutput
+from app.enrichment.types import ComposerDecision, ProductInput, SourceKind, StrategyOutput
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +165,31 @@ _SHORT_TO_STRATEGY: dict[str, str] = {
     "specialist": "specialist_v1",
     "scraped": "scraper_v1",
     "soft_tagger": "soft_tagger_v1",
+}
+
+
+# Maps each known source_strategy to its SourceKind provenance bucket.
+# Used by _reconcile_composer_output to populate source_kind on each
+# ComposerDecision without requiring the LLM to do so (it often omits it).
+# Unknown source_strategy values fall back to PARAMETRIC with a warning.
+#
+# Mapping rationale:
+#   parser_v1      — LLM extraction from raw text → RAW_PARSE
+#   scraper_v1     — crawled manufacturer page → SCRAPE
+#   specialist_v1  — LLM world knowledge, no direct evidence → PARAMETRIC
+#   taxonomy_v1    — LLM classifier, no raw evidence → PARAMETRIC
+#   soft_tagger_v1 — LLM soft-tag inference → PARAMETRIC
+#   composer_v1    — composer acting alone (no upstream contributed) → PARAMETRIC
+#   echoes_raw     — literal pass-through reason from echo discipline → RAW_PARSE
+#                    (the value came from raw_attributes, which is raw catalog input)
+_STRATEGY_TO_SOURCE_KIND: dict[str, SourceKind] = {
+    "parser_v1": SourceKind.RAW_PARSE,
+    "scraper_v1": SourceKind.SCRAPE,
+    "specialist_v1": SourceKind.PARAMETRIC,
+    "taxonomy_v1": SourceKind.PARAMETRIC,
+    "soft_tagger_v1": SourceKind.PARAMETRIC,
+    "composer_v1": SourceKind.PARAMETRIC,
+    "echoes_raw": SourceKind.RAW_PARSE,
 }
 
 
@@ -186,6 +242,12 @@ _SYSTEM = (
     "  6. Only reference strategies listed in the 'available_findings' "
     "section of the user prompt. If a strategy didn't run, do not invent "
     "a source_strategy for it.\n"
+    "  7. 1:1 requirement. For every key you emit in `composed_fields`, "
+    "you MUST emit a matching entry in `composer_decisions` with `key` "
+    "equal to that field name. Do not ship a composed value without a "
+    "decision — the Python post-check will synthesize missing decisions "
+    "and flag the gap, but a missing decision breaks cell lineage in the "
+    "inspector.\n"
     "\n"
     + _PRECEDENCE_NOTE
     + "\n\n"
@@ -202,7 +264,13 @@ _SYSTEM = (
 @registry.register
 class ComposerAgent(BaseEnrichmentAgent):
     STRATEGY = "composer_v1"
-    OUTPUT_KEYS = frozenset({"composed_fields", "composer_decisions", "composed_at"})
+    OUTPUT_KEYS = frozenset({
+        "composed_fields", "composer_decisions", "composed_at",
+        # incomplete_decisions is set to True when the reconciler had to
+        # synthesize decisions for keys the LLM omitted from composer_decisions.
+        # Presence flags the gap for the inspector (#88).
+        "incomplete_decisions",
+    })
     DEFAULT_MODEL = "gpt-5"
 
     def __init__(self, llm: LLMClient | None = None) -> None:
@@ -261,6 +329,7 @@ class ComposerAgent(BaseEnrichmentAgent):
             composed, decisions = _deterministic_fallback(findings)
             composed = registry_strip_narrative(composed)
             composed, decisions = _cross_check_decisions(composed, decisions)
+            decisions, notes_payload = _reconcile_composer_output(composed, decisions)
             return StrategyOutput(
                 product_id=product.product_id,
                 strategy=self.STRATEGY,
@@ -269,6 +338,7 @@ class ComposerAgent(BaseEnrichmentAgent):
                     "composed_fields": composed,
                     "composer_decisions": decisions,
                     "composed_at": now_iso,
+                    **notes_payload,
                 },
                 notes="deterministic_fallback",
             )
@@ -279,6 +349,10 @@ class ComposerAgent(BaseEnrichmentAgent):
         composed = registry_strip_narrative(composed)
         composed, decisions = _cross_check_decisions(composed, decisions)
 
+        # 1:1 enforcement (issue #88): synthesize missing decisions and infer
+        # source_kind for all existing decisions.
+        decisions, notes_payload = _reconcile_composer_output(composed, decisions)
+
         return StrategyOutput(
             product_id=product.product_id,
             strategy=self.STRATEGY,
@@ -287,6 +361,7 @@ class ComposerAgent(BaseEnrichmentAgent):
                 "composed_fields": composed,
                 "composer_decisions": decisions,
                 "composed_at": now_iso,
+                **notes_payload,
             },
         )
 
@@ -386,7 +461,7 @@ def _cross_check_decisions(
     catches the LLM lying about its own decisions, per #83 review item 7.
     Decisions with ``source_strategy`` outside the known upstream set are
     also dropped (can't lineage-render an unknown source)."""
-    known_sources = frozenset(_SHORT_TO_STRATEGY.values()) | {None}
+    known_sources = frozenset(_STRATEGY_TO_SOURCE_KIND.keys()) | {None}
     kept: list[dict[str, Any]] = []
     for d in decisions:
         key = d.get("key")
@@ -404,6 +479,73 @@ def _cross_check_decisions(
             continue
         kept.append(d)
     return composed, kept
+
+
+def _reconcile_composer_output(
+    composed_fields: dict[str, Any],
+    composer_decisions: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Enforce 1:1 between composed_fields keys and composer_decisions entries.
+
+    Policy: lenient with synthesis. For any composed key without a decision,
+    synthesize a ComposerDecision marked source_kind=PARAMETRIC and
+    reason='decision_synthesized_from_composed_fields'. The output ships in
+    full but the gap is visible in the trace and surfaceable in the inspector.
+
+    Also ensures source_kind is populated on every existing decision:
+    inferred from source_strategy via _STRATEGY_TO_SOURCE_KIND. If the
+    source_strategy is not in the mapping, defaults to PARAMETRIC and emits
+    a warning.
+
+    Returns (reconciled_decisions, notes_payload). notes_payload contains
+    'incomplete_decisions': True if any synthesis happened.
+    """
+    # Index existing decisions by key for O(1) lookup.
+    decision_by_key: dict[str, dict[str, Any]] = {
+        d["key"]: d for d in composer_decisions if isinstance(d.get("key"), str)
+    }
+
+    reconciled: list[dict[str, Any]] = []
+    synthesized_any = False
+
+    for key, value in composed_fields.items():
+        if key in decision_by_key:
+            d = dict(decision_by_key[key])
+        else:
+            # Orphan composed key — synthesize a decision.
+            logger.warning(
+                "composer_missing_decision_synthesized",
+                extra={"key": key},
+            )
+            d = {
+                "key": key,
+                "chosen_value": value,
+                "source_strategy": None,
+                "reason": "decision_synthesized_from_composed_fields",
+                "dropped_alternatives": [],
+            }
+            synthesized_any = True
+
+        # Always infer source_kind from source_strategy so the authoritative
+        # mapping drives provenance (not the LLM's or pydantic's default).
+        src = d.get("source_strategy")
+        if src is not None and src not in _STRATEGY_TO_SOURCE_KIND:
+            logger.warning(
+                "composer_unknown_source_strategy_defaulting_to_parametric: "
+                "strategy=%s key=%s",
+                src,
+                key,
+            )
+        kind = _STRATEGY_TO_SOURCE_KIND.get(src, SourceKind.PARAMETRIC)
+        d["source_kind"] = kind.value
+
+        reconciled.append(d)
+
+    notes_payload: dict[str, Any] = {}
+    if synthesized_any:
+        notes_payload["incomplete_decisions"] = True
+
+    return reconciled, notes_payload
 
 
 def registry_strip_narrative(composed: dict[str, Any]) -> dict[str, Any]:
