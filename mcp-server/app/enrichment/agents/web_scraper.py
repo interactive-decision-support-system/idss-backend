@@ -79,8 +79,16 @@ class WebScraperAgent(BaseEnrichmentAgent):
 
 
 def _pick_url(p: ProductInput) -> str | None:
+    # Prefer the top-level catalog column wired through ProductInput.link.
+    # Fall back to raw_attributes keys for backward compat with rows that
+    # carry the URL only in the JSONB blob.
     raw = p.raw_attributes or {}
-    candidate = raw.get("merchant_product_url") or raw.get("link") or raw.get("url")
+    candidate = (
+        p.link
+        or raw.get("merchant_product_url")
+        or raw.get("link")
+        or raw.get("url")
+    )
     if not isinstance(candidate, str):
         return None
     parsed = urlparse(candidate)
