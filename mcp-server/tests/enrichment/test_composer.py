@@ -184,8 +184,8 @@ def test_composer_uses_json_mode_and_composer_model_default():
     ComposerAgent(llm=llm).run(_product(), _upstream_ctx())
     assert llm.calls[0]["json_mode"] is True
     assert llm.calls[0]["model"] == "gpt-5"
-    # Review fix #6: composer budget bumped to handle dense findings.
-    assert llm.calls[0]["max_tokens"] == 2500
+    # Task 12: raised to 6000 to satisfy gpt-5-mini reasoning-floor requirement.
+    assert llm.calls[0]["max_tokens"] == 6000
 
 
 def test_composer_honors_context_model_override():
