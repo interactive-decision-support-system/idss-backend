@@ -155,9 +155,13 @@ class LLMClient:
         kwargs: dict[str, Any] = {
             "model": model_name,
             "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
+            "max_completion_tokens": max_tokens,
         }
+        # GPT-5 family only accepts the default temperature (1). Omit the
+        # kwarg so OpenAI applies its default; pre-GPT-5 models still honor
+        # the caller-supplied value.
+        if not model_name.startswith("gpt-5"):
+            kwargs["temperature"] = temperature
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
