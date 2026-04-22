@@ -27,6 +27,7 @@ def _to_input(p: Any) -> ProductInput:
         brand=p.brand,
         description=(p.attributes or {}).get("description") if p.attributes else None,
         price=p.price_value,
+        link=getattr(p, "link", None),
         raw_attributes=dict(p.attributes) if p.attributes else {},
     )
 

@@ -32,6 +32,7 @@ class ProductInput(BaseModel):
     brand: str | None = None
     description: str | None = None
     price: Decimal | None = None
+    link: str | None = None
     raw_attributes: dict[str, Any] = Field(default_factory=dict)
 
 
