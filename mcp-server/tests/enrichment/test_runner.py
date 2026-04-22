@@ -214,10 +214,53 @@ def test_run_returns_catalog_schema_and_proposes_extension(patched_runtime):
 def test_run_reports_avg_keys_filled(patched_runtime):
     result = runner.run_enrichment(db=None, mode="fixed", limit=2, dry_run=True)
     avg = result.summary.to_dict()["avg_keys_filled_per_product"]
-    # Each successful agent contributes its OUTPUT_KEYS count;
-    # taxonomy(3) + parser(3) + specialist(4) + scraper(6) + soft_tagger(2)
-    # + composer(4: composed_fields, composer_decisions, composed_at, incomplete_decisions) = 22
-    assert avg == 22.0
+    # Each successful agent contributes substantive (non-empty) values only.
+    # taxonomy(3) + parser(3) + specialist(4) + scraper(2) + soft_tagger(2)
+    # + composer(4: composed_fields, composer_decisions, composed_at, incomplete_decisions) = 18.
+    # scraper drops from 6 → 2 because scraped_specs={}, scraped_reviews=[],
+    # scraped_qna=[], scraped_sources=[] are all empty containers and no longer
+    # count — the fixture products have no URL, so the scraper produces nothing
+    # useful for those four keys. scraped_at and scraped_category remain.
+    # composer gains incomplete_decisions=True (PR #97: 1:1 reconciler synthesizes
+    # decisions for storage_gb and product_type which the scripted LLM omitted).
+    assert avg == 18.0
+
+
+def test_avg_keys_filled_treats_empty_container_as_unfilled(monkeypatch):
+    """Regression guard: empty container must contribute 0, not 1, to keys_filled.
+
+    Reproduces the mocklaptops audit bug where parsed_specs={} was counted as
+    one filled key, making a zero-signal run report avg_keys_filled=21.0.
+    """
+    from app.enrichment.orchestration.runner import _is_substantive
+
+    # Empty containers are not substantive.
+    assert _is_substantive({}) is False
+    assert _is_substantive([]) is False
+    assert _is_substantive("") is False
+    assert _is_substantive(None) is False
+
+    # Non-empty containers and scalars are substantive.
+    assert _is_substantive({"ram_gb": 16}) is True
+    assert _is_substantive([1, 2]) is True
+    assert _is_substantive("laptop") is True
+    assert _is_substantive(0) is True      # zero int is substantive
+    assert _is_substantive(False) is True  # booleans are substantive
+    assert _is_substantive(0.9) is True
+
+    # Simulate the exact audit scenario: a composer row with only empty containers.
+    # Before the fix this would have contributed 1 key (the container key itself);
+    # after the fix it contributes 0.
+    empty_composer_attrs = {"parsed_specs": {}}
+    keys_filled_empty = sum(1 for v in empty_composer_attrs.values() if _is_substantive(v))
+    assert keys_filled_empty == 0, "empty container must not count as a filled key"
+
+    # Substantive case: same key, populated value.
+    populated_composer_attrs = {"parsed_specs": {"ram_gb": 16}}
+    keys_filled_populated = sum(
+        1 for v in populated_composer_attrs.values() if _is_substantive(v)
+    )
+    assert keys_filled_populated == 1, "non-empty container must count as one filled key"
 
 
 def test_orchestrated_run_skips_scraper_when_no_url(patched_runtime):
