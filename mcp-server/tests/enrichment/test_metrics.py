@@ -11,7 +11,7 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from app.enrichment.metrics import compute_run_metrics
+from app.enrichment.metrics import compute_run_metrics, compute_scraper_metrics
 from app.enrichment.types import ProductInput, StrategyOutput
 
 
@@ -147,3 +147,100 @@ def test_shares_are_zero_when_no_decisions_classified():
     metrics = compute_run_metrics([p], outputs)
     assert metrics["parsed_share_pct"] == 0.0
     assert metrics["generated_share_pct"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Scraper (#118) metrics
+# ---------------------------------------------------------------------------
+
+
+def _scraper_output(
+    pid: UUID,
+    *,
+    scraped_specs: dict | None = None,
+    scraped_sources: list[dict] | None = None,
+    notes: str | None = None,
+) -> StrategyOutput:
+    return StrategyOutput(
+        product_id=pid,
+        strategy="scraper_v1",
+        attributes={
+            "scraped_specs": scraped_specs or {},
+            "scraped_sources": scraped_sources or [],
+        },
+        notes=notes,
+    )
+
+
+def _parser_output(pid: UUID, *, specs: dict) -> StrategyOutput:
+    return StrategyOutput(
+        product_id=pid,
+        strategy="parser_v1",
+        attributes={"parsed_specs": specs},
+    )
+
+
+def test_scraper_metrics_gated_out_and_in():
+    p_gated_out = _product()
+    p_gated_in = _product()
+    scr_gated_out = _scraper_output(p_gated_out.product_id, notes="no_missing_fields")
+    scr_gated_in = _scraper_output(
+        p_gated_in.product_id,
+        scraped_specs={
+            "ram_gb": {
+                "value": 16,
+                "source_url": "https://lenovo.com/x",
+                "source_domain": "lenovo.com",
+                "snippet": "16 GB",
+                "extracted_at": "2026-04-23T00:00:00+00:00",
+            }
+        },
+        scraped_sources=[
+            {
+                "url": "https://lenovo.com/x",
+                "domain": "lenovo.com",
+                "query": "Acme Laptop ram_gb",
+                "fetched_at": "2026-04-23T00:00:00+00:00",
+            }
+        ],
+    )
+    metrics = compute_scraper_metrics(
+        [p_gated_out, p_gated_in],
+        {
+            p_gated_out.product_id: [scr_gated_out],
+            p_gated_in.product_id: [scr_gated_in],
+        },
+    )
+    assert metrics["scraper_products_gated_in"] == 1
+    assert metrics["scraper_products_gated_out"] == 1
+    assert metrics["scraper_fields_attempted"] == 1
+    assert metrics["scraper_fields_filled"] == 1
+    assert metrics["scraper_search_calls"] == 1
+    assert metrics["scraper_crawl_calls"] == 1
+
+
+def test_scraper_metrics_conflict_with_parser():
+    p = _product()
+    parser = _parser_output(p.product_id, specs={"ram_gb": 8})  # parser says 8
+    scraper = _scraper_output(
+        p.product_id,
+        scraped_specs={
+            "ram_gb": {
+                "value": 16,  # scraper says 16 → conflict
+                "source_url": "https://lenovo.com/x",
+                "source_domain": "lenovo.com",
+                "snippet": "16 GB",
+                "extracted_at": "2026-04-23T00:00:00+00:00",
+            }
+        },
+        scraped_sources=[
+            {
+                "url": "https://lenovo.com/x",
+                "domain": "lenovo.com",
+                "query": "ram_gb",
+                "fetched_at": "2026-04-23T00:00:00+00:00",
+            }
+        ],
+    )
+    metrics = compute_scraper_metrics([p], {p.product_id: [parser, scraper]})
+    assert metrics["scraper_fields_conflicted_with_parser"] == 1

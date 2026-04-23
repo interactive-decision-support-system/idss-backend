@@ -272,6 +272,13 @@ def _run_inner(
             input={"product_id": str(product.product_id)},
         ):
             for strategy in plan_for_product:
+                # Populate ctx['missing_fields'] right before the scraper runs
+                # so the gap-filler knows which per-category spec keys
+                # upstream (parser/specialist) failed to close. Stays local
+                # to this loop: no cross-product state, computed from ctx
+                # the strategies just populated. Issue #118.
+                if strategy == "scraper_v1":
+                    ctx["missing_fields"] = _compute_missing_fields(ctx, product)
                 result = _run_strategy(strategy, product, ctx, summary)
                 dump.append(result.model_dump(mode="json"))
                 verdict = validator_mod.validate(result)
@@ -552,6 +559,64 @@ def _run_strategy(
             product_id=product.product_id,
         )
     return agent_cls().run(product, ctx)
+
+
+def _compute_missing_fields(ctx: dict[str, Any], product: ProductInput) -> list[str]:
+    """Return the category's gap fields that are still missing after the
+    parser/specialist ran.
+
+    ``ctx`` is the per-product context the runner is building: after
+    parser_v1 succeeds it holds ``ctx['parsed']['parsed_specs']``; after
+    specialist_v1 it holds ``ctx['specialist']``. Category is read from
+    taxonomy_v1 output if present, else product.category.
+
+    The gap list is per-category (see agents.web_scraper._GAP_FIELDS).
+    Unknown categories return ``[]`` — the scraper then short-circuits.
+
+    Issue #118.
+    """
+    from app.enrichment.agents.web_scraper import aliases_for, gap_fields_for
+
+    taxonomy = ctx.get("taxonomy") or {}
+    category = ""
+    if isinstance(taxonomy, dict):
+        category = str(taxonomy.get("product_type") or "") or ""
+    if not category and product.category:
+        category = product.category
+    gap_fields = gap_fields_for(category)
+    if not gap_fields:
+        return []
+
+    parsed_specs: dict[str, Any] = {}
+    parsed = ctx.get("parsed") or {}
+    if isinstance(parsed, dict):
+        ps = parsed.get("parsed_specs")
+        if isinstance(ps, dict):
+            parsed_specs = ps
+
+    # Also check raw_attributes — if the merchant's catalog already has
+    # the field, don't waste a fetch on it.
+    raw = product.raw_attributes or {}
+
+    def _filled(key: str) -> bool:
+        # Check the canonical key plus known alternate spellings so a
+        # parser/catalog that already filled the concept under a different
+        # name (e.g. screen_size_in for display_size_in) doesn't get
+        # re-scraped.
+        keys_to_check = (key,) + aliases_for(key)
+        for src in (parsed_specs, raw):
+            for k in keys_to_check:
+                v = src.get(k)
+                if v is None:
+                    continue
+                if isinstance(v, (str, list, dict, tuple, set)):
+                    if len(v) > 0:
+                        return True
+                    continue
+                return True
+        return False
+
+    return [k for k in gap_fields if not _filled(k)]
 
 
 def _short(strategy: str) -> str:
