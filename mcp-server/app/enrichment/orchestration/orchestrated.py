@@ -1,9 +1,9 @@
 """LLMOrchestrator: per product, asks an LLM which subset of strategies to run.
 
 The LLM sees the assessor output + a per-product summary and returns a list of
-strategy labels. taxonomy_v1 is force-included (the specialist needs it);
-soft_tagger_v1 is force-included (cheap and high-value). Everything else is
-the LLM's call.
+strategy labels. taxonomy_v1 is force-included (the specialist needs it).
+Everything else is the LLM's call. soft_tagger_v1 is off by default (#115
+point 2) — opt in by naming it in recommended_strategies upstream.
 """
 
 from __future__ import annotations
@@ -27,21 +27,23 @@ _SYSTEM = (
     "  specialist_v1   adds capabilities + use-case fit + buyer questions. MEDIUM.\n"
     "  scraper_v1      fetches an external page (only useful if a manufacturer "
     "URL is present and the catalog is sparse). EXPENSIVE.\n"
+    "  soft_tagger_v1  emits good_for_* subjective tags. OFF by default — only "
+    "include if the caller has a confirmed downstream consumer of these tags.\n"
     "Rules:\n"
     "  - Always include parser_v1 when the product has a description.\n"
     "  - Skip specialist_v1 when the title is too sparse to enrich meaningfully.\n"
     "  - Skip scraper_v1 unless raw_attributes already lists a merchant_product_url.\n"
+    "  - Skip soft_tagger_v1 unless explicitly requested — default off.\n"
     "  - Output exactly one entry per product_id you were given."
 )
 
 
 class LLMOrchestrator:
-    # taxonomy and soft_tagger are not negotiable — taxonomy gates everything,
-    # soft_tagger is cheap and the KG depends on it. composer_v1 is the single
-    # writer of the canonical row (#83) and must always run last. The LLM only
-    # chooses among the others.
-    _FORCED = ("taxonomy_v1", "soft_tagger_v1")
-    _CHOOSABLE = ("parser_v1", "specialist_v1", "scraper_v1")
+    # taxonomy is not negotiable — it gates everything downstream. composer_v1
+    # is the single writer of the canonical row (#83) and must always run last.
+    # The LLM chooses among the rest; soft_tagger_v1 is opt-in only (#115 pt 2).
+    _FORCED = ("taxonomy_v1",)
+    _CHOOSABLE = ("parser_v1", "specialist_v1", "scraper_v1", "soft_tagger_v1")
     _TRAILING = ("composer_v1",)
 
     def __init__(self, llm: LLMClient | None = None) -> None:

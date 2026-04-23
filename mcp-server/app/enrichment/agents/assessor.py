@@ -35,12 +35,14 @@ _MAX_COMPLETION_TOKENS = 2000
 # about them without circular imports of the agent classes themselves.
 # composer_v1 always runs (single writer of the canonical row — #83); the
 # orchestrator appends it last regardless of assessor filtering.
+# soft_tagger_v1 is opt-in only — default-off per issue #115 point 2
+# (label explosion + 67% of generation spend for a signal with no confirmed
+# downstream consumer). Pass it explicitly in recommended_strategies to enable.
 _AVAILABLE_STRATEGIES = (
     "taxonomy_v1",
     "parser_v1",
     "specialist_v1",
     "scraper_v1",
-    "soft_tagger_v1",
     "composer_v1",
 )
 
