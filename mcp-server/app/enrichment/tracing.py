@@ -394,12 +394,27 @@ class _CompositeTracer:
 # ---------------------------------------------------------------------------
 
 
+def _is_test_env() -> bool:
+    """True when we should permit a missing Langfuse config without raising.
+
+    Two escape hatches:
+    - ``PYTEST_CURRENT_TEST`` is set by pytest during test execution.
+    - ``ENRICHMENT_TRACE_DISABLED=1`` is an explicit opt-out for local work
+      (the operator is acknowledging they'll lose observability).
+    """
+    return bool(os.getenv("PYTEST_CURRENT_TEST")) or os.getenv("ENRICHMENT_TRACE_DISABLED") == "1"
+
+
 def build_tracer() -> Any:
     """Construct the tracer for this process.
 
     - Langfuse tracer when LANGFUSE_PUBLIC_KEY is set AND the SDK is installed.
     - JSONL tracer when ENRICHMENT_TRACE_JSONL=1 (can run alongside Langfuse).
-    - NoopTracer otherwise.
+    - NoopTracer only in tests or when ENRICHMENT_TRACE_DISABLED=1.
+
+    Outside of tests, a missing ``LANGFUSE_PUBLIC_KEY`` is a startup error
+    (issue #93). Silent degradation to noop meant we'd discover the
+    observability gap exactly when we needed the traces most.
     """
     tracers: list[Any] = []
 
@@ -413,9 +428,20 @@ def build_tracer() -> Any:
                 host=os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
             )
             tracers.append(_LangfuseTracer(client))
-        except ImportError:
+        except ImportError as exc:
+            if not _is_test_env():
+                raise RuntimeError(
+                    "langfuse package not installed but LANGFUSE_PUBLIC_KEY is set. "
+                    "Install with `pip install langfuse` or unset the env var."
+                ) from exc
             logger.info("langfuse not installed — enrichment tracing disabled")
         except Exception as exc:  # noqa: BLE001 - never let tracing break enrichment
+            if not _is_test_env():
+                raise RuntimeError(
+                    f"langfuse client failed to initialize: {exc}. "
+                    "Check LANGFUSE_HOST / keys, or set ENRICHMENT_TRACE_DISABLED=1 "
+                    "to opt out (not recommended outside local dev)."
+                ) from exc
             logger.warning("langfuse init failed (%s) — falling back to no-op", exc)
 
     if os.getenv("ENRICHMENT_TRACE_JSONL") == "1":
@@ -423,6 +449,13 @@ def build_tracer() -> Any:
         tracers.append(_JsonlTracer(root))
 
     if not tracers:
+        if not _is_test_env():
+            raise RuntimeError(
+                "No tracer configured. Set LANGFUSE_PUBLIC_KEY (and LANGFUSE_SECRET_KEY "
+                "if the project requires it) to enable observability. "
+                "For local-only work you can set ENRICHMENT_TRACE_DISABLED=1, but note "
+                "that every agent call and LLM generation will go unrecorded."
+            )
         return _NoopTracer()
     if len(tracers) == 1:
         return tracers[0]
