@@ -126,3 +126,9 @@ secrets.yaml
 credentials.json
 
 .claude/
+
+# Ad-hoc enrichment smoke-run outputs (baseline audit dirs under runs/ are tracked intentionally)
+runs/smoke_*/
+
+# Enrichment proposal cache (generated per-run artifacts)
+mcp-server/app/enrichment/cache/
