@@ -61,5 +61,8 @@ def load_products(
     *,
     product_model: Any,
     limit: int | None = None,
+    offset: int = 0,
 ) -> list[ProductInput]:
-    return list(iter_products(db, product_model=product_model, limit=limit))
+    return list(
+        iter_products(db, product_model=product_model, limit=limit, offset=offset)
+    )

@@ -36,6 +36,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--mode", choices=["fixed", "orchestrated"], default="fixed")
     p.add_argument("--limit", type=int, default=10, help="Max products to process.")
     p.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Skip the first N products (ordered by product_id). Useful for batching.",
+    )
+    p.add_argument(
         "--merchant",
         default=_V1_MERCHANT_ID,
         help=f"Merchant slug to enrich (default {_V1_MERCHANT_ID!r}). "
@@ -95,6 +101,7 @@ def main() -> int:
             mode=args.mode,
             merchant_id=args.merchant,
             limit=args.limit,
+            offset=args.offset,
             strategies_filter=strategies_filter,
             dry_run=args.dry_run,
             audit=args.audit,

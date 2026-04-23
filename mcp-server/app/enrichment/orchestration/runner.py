@@ -160,6 +160,7 @@ def run_enrichment(
     mode: Mode = "fixed",
     merchant_id: str = "default",
     limit: int = 10,
+    offset: int = 0,
     strategies_filter: list[str] | None = None,
     dry_run: bool = False,
     audit: bool = False,
@@ -186,6 +187,7 @@ def run_enrichment(
             mode=mode,
             merchant_id=merchant_id,
             limit=limit,
+            offset=offset,
             strategies_filter=strategies_filter,
             dry_run=dry_run,
             audit=audit,
@@ -200,6 +202,7 @@ def _run_inner(
     mode: Mode,
     merchant_id: str,
     limit: int,
+    offset: int,
     strategies_filter: list[str] | None,
     dry_run: bool,
     audit: bool,
@@ -211,6 +214,7 @@ def _run_inner(
         db,
         product_model=catalog.product_model,
         limit=limit,
+        offset=offset,
     )
     per_product_dump: dict[str, list[dict[str, Any]]] = defaultdict(list)
     if not products:
