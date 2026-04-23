@@ -73,7 +73,7 @@ def _product():
 
 def test_taxonomy_output_combines_with_raw():
     out = TaxonomyAgent(
-        llm=_FakeLLM({"product_type": "laptop", "taxonomy_path": ["electronics"], "confidence": 0.9})
+        llm=_FakeLLM({"product_type": "laptop", "confidence": 0.9})
     ).run(_product()).output
     combined = combine_raw_and_enriched(_RAW, out.attributes)
     assert combined["product_type"] == "laptop"

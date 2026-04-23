@@ -26,8 +26,6 @@ _MAX_COMPLETION_TOKENS = 2000
 _SYSTEM = (
     "You classify e-commerce products by product type. Return JSON with keys:\n"
     "  product_type     short noun (e.g. 'laptop', 'blender', 'headphones', 'smart-bulb', 'office-chair')\n"
-    "  taxonomy_path    list of broader categories from generic to specific\n"
-    "                   (e.g. ['electronics','computers','laptop'])\n"
     "  confidence       0.0–1.0 — your certainty\n"
     "If the input is too sparse to classify, return product_type='unknown' "
     "and confidence below 0.3. Never invent specs — only label."
@@ -37,7 +35,7 @@ _SYSTEM = (
 @registry.register
 class TaxonomyAgent(BaseEnrichmentAgent):
     STRATEGY = "taxonomy_v1"
-    OUTPUT_KEYS = frozenset({"product_type", "taxonomy_path", "product_type_confidence"})
+    OUTPUT_KEYS = frozenset({"product_type", "product_type_confidence"})
     DEFAULT_MODEL = "gpt-5-mini"
 
     def __init__(self, llm: LLMClient | None = None) -> None:
@@ -58,7 +56,6 @@ class TaxonomyAgent(BaseEnrichmentAgent):
         data = resp.parsed_json or {}
         attrs = {
             "product_type": str(data.get("product_type") or "unknown"),
-            "taxonomy_path": list(data.get("taxonomy_path") or []),
             "product_type_confidence": float(data.get("confidence") or 0.0),
         }
         return StrategyOutput(

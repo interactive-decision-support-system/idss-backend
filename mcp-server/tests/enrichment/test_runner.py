@@ -70,7 +70,6 @@ class _ScriptedLLM:
         if "classify e-commerce products" in system:
             payload = {
                 "product_type": "laptop",
-                "taxonomy_path": ["electronics", "laptop"],
                 "confidence": 0.9,
             }
         elif "extract product specifications" in system:
@@ -215,16 +214,18 @@ def test_run_reports_avg_keys_filled(patched_runtime):
     result = runner.run_enrichment(db=None, mode="fixed", limit=2, dry_run=True)
     avg = result.summary.to_dict()["avg_keys_filled_per_product"]
     # Each successful agent contributes substantive (non-empty) values only.
-    # taxonomy(3) + parser(3) + specialist(4) + scraper(2)
-    # + composer(4: composed_fields, composer_decisions, composed_at, incomplete_decisions) = 16.
-    # soft_tagger_v1 is default-off since #115 pt 2 (was previously 2).
+    # taxonomy(2) + parser(3) + specialist(4) + scraper(2)
+    # + composer(4: composed_fields, composer_decisions, composed_at, incomplete_decisions) = 15.
+    # soft_tagger_v1 is default-off since #115 pt 2 (PR #121) — was previously 2.
+    # taxonomy drops from 3 → 2 after the taxonomy_path cull (#115 pt 4 / this PR):
+    # product_type + product_type_confidence remain.
     # scraper drops from 6 → 2 because scraped_specs={}, scraped_reviews=[],
     # scraped_qna=[], scraped_sources=[] are all empty containers and no longer
     # count — the fixture products have no URL, so the scraper produces nothing
     # useful for those four keys. scraped_at and scraped_category remain.
     # composer gains incomplete_decisions=True (PR #97: 1:1 reconciler synthesizes
     # decisions for storage_gb and product_type which the scripted LLM omitted).
-    assert avg == 16.0
+    assert avg == 15.0
 
 
 def test_avg_keys_filled_treats_empty_container_as_unfilled(monkeypatch):

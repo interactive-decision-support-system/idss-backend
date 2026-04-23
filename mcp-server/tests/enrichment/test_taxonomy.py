@@ -54,7 +54,6 @@ def test_taxonomy_returns_product_type_and_confidence():
     llm = _FakeLLM(
         {
             "product_type": "laptop",
-            "taxonomy_path": ["electronics", "computers", "laptop"],
             "confidence": 0.92,
         }
     )
@@ -63,7 +62,6 @@ def test_taxonomy_returns_product_type_and_confidence():
     assert result.success is True
     assert result.output.attributes == {
         "product_type": "laptop",
-        "taxonomy_path": ["electronics", "computers", "laptop"],
         "product_type_confidence": 0.92,
     }
     assert result.cost_usd == 0.0001
@@ -79,6 +77,6 @@ def test_taxonomy_falls_back_to_unknown_on_empty_response():
 
 
 def test_taxonomy_uses_json_mode():
-    llm = _FakeLLM({"product_type": "laptop", "taxonomy_path": [], "confidence": 0.5})
+    llm = _FakeLLM({"product_type": "laptop", "confidence": 0.5})
     TaxonomyAgent(llm=llm).run(_product())
     assert llm.last_call["json_mode"] is True
