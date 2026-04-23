@@ -348,3 +348,41 @@ def test_worker_spans_land_in_run_id_jsonl_not_no_run(
         assert expected_tag in span.get("tags", []), (
             f"span {span.get('name')} is missing tag '{expected_tag}': {span.get('tags')}"
         )
+
+
+# ---------------------------------------------------------------------------
+# missing_fields wiring (#118)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_missing_fields_picks_laptop_gaps_unfilled_by_parser():
+    """Runner computes ctx['missing_fields'] from the category's gap list
+    minus what parser / raw_attributes already filled."""
+    from app.enrichment.orchestration.runner import _compute_missing_fields
+
+    p = ProductInput(
+        product_id=uuid4(),
+        title="ThinkPad",
+        category="Electronics",
+        raw_attributes={"weight_kg": 1.1},  # raw already has weight_kg
+    )
+    ctx = {
+        "taxonomy": {"product_type": "laptop"},
+        "parsed": {"parsed_specs": {"ram_gb": 16, "storage_gb": 512}},
+    }
+    missing = _compute_missing_fields(ctx, p)
+    # Laptop gap list minus {ram_gb, storage_gb, weight_kg} = 6 fields.
+    assert "ram_gb" not in missing
+    assert "storage_gb" not in missing
+    assert "weight_kg" not in missing
+    assert "cpu_model" in missing
+    assert "gpu_model" in missing
+
+
+def test_compute_missing_fields_empty_for_unknown_category():
+    from app.enrichment.orchestration.runner import _compute_missing_fields
+
+    p = ProductInput(product_id=uuid4(), title="X", category="Books")
+    # No taxonomy, non-laptop category → no gap list.
+    ctx = {}
+    assert _compute_missing_fields(ctx, p) == []
