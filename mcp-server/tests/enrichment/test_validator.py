@@ -37,7 +37,7 @@ def _success(strategy: str, attrs: dict) -> AgentResult:
 def test_passes_clean_taxonomy_output():
     r = _success(
         "taxonomy_v1",
-        {"product_type": "laptop", "taxonomy_path": ["electronics"], "product_type_confidence": 0.9},
+        {"product_type": "laptop", "product_type_confidence": 0.9},
     )
     v = validate(r)
     assert v.passed is True
@@ -47,7 +47,7 @@ def test_passes_clean_taxonomy_output():
 def test_rejects_taxonomy_confidence_out_of_range():
     r = _success(
         "taxonomy_v1",
-        {"product_type": "laptop", "taxonomy_path": [], "product_type_confidence": 1.7},
+        {"product_type": "laptop", "product_type_confidence": 1.7},
     )
     v = validate(r)
     assert v.passed is False

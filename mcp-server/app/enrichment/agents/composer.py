@@ -202,7 +202,7 @@ _STRATEGY_TO_SOURCE_KIND: dict[str, SourceKind] = {
 # judgment on confidence conflicts.
 _PRECEDENCE_NOTE = (
     "Per-key precedence:\n"
-    "  - product_type / taxonomy_path -> taxonomy_v1 (canonical classifier)\n"
+    "  - product_type -> taxonomy_v1 (canonical classifier)\n"
     "  - numeric/categorical specs (ram_gb, weight_kg, etc.) -> scraper_v1 "
     "beats parser_v1 when both are present (scraper reads the manufacturer "
     "page, parser is LLM extraction); parser_v1 beats all others\n"

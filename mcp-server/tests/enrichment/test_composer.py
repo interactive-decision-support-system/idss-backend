@@ -69,7 +69,6 @@ def _upstream_ctx():
     return {
         "taxonomy": {
             "product_type": "laptop",
-            "taxonomy_path": ["electronics", "computers", "laptop"],
             "product_type_confidence": 0.92,
         },
         "parsed": {
