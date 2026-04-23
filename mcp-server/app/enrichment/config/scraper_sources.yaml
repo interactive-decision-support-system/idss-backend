@@ -1,9 +1,34 @@
-# Per-category allowlist of domains the v1 scraper will visit.
+# Per-category allowlist of domains the scraper agent will visit.
 # Format: top-level key is a category (product type within electronics);
-# values are bare domain names. Subdomain matches are accepted.
+# values are bare domain names ranked roughly by signal density.
+# Subdomain matches are accepted (see scraper_client.is_allowed).
 #
-# v1 ships intentionally narrow. The follow-up PR expands this list and
-# adds a reviews/Q&A scraper that consumes per-category source rankings.
+# Issue #118 expands beyond the v1 single-domain allowlist so the
+# gap-filler agent can find credible spec pages for laptops and other
+# electronics. Keep the list short and curated — "more" is not "better"
+# here; every domain has to earn its place or the agent spends its per-
+# product fetch budget on noise.
 
 laptop:
+  - amazon.com
+  - bestbuy.com
+  - newegg.com
+  - lenovo.com
+  - dell.com
+  - apple.com
+  - hp.com
+  - asus.com
+  - framework.com
+  - microsoft.com
+  - example-manufacturer.com
+
+electronics:
+  - amazon.com
+  - bestbuy.com
+  - newegg.com
+  - apple.com
+  - microsoft.com
+  - samsung.com
+  - sony.com
+  - lg.com
   - example-manufacturer.com
