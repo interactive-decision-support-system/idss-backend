@@ -173,14 +173,14 @@ def test_fixed_run_writes_one_row_per_strategy_per_product(patched_runtime):
         dry_run=False,
     )
     assert result.summary.products_processed == 3
-    # 6 strategies × 3 products = 18 outputs (composer_v1 runs last as the
-    # single writer of the canonical row — #83).
+    # 5 strategies × 3 products = 15 outputs. soft_tagger_v1 is default-off
+    # since #115 pt 2; composer_v1 runs last as the single writer of the
+    # canonical row — #83.
     expected_strategies = {
         "taxonomy_v1",
         "parser_v1",
         "specialist_v1",
         "scraper_v1",
-        "soft_tagger_v1",
         "composer_v1",
     }
     assert set(result.summary.strategies_invoked.keys()) == expected_strategies
@@ -215,15 +215,16 @@ def test_run_reports_avg_keys_filled(patched_runtime):
     result = runner.run_enrichment(db=None, mode="fixed", limit=2, dry_run=True)
     avg = result.summary.to_dict()["avg_keys_filled_per_product"]
     # Each successful agent contributes substantive (non-empty) values only.
-    # taxonomy(3) + parser(3) + specialist(4) + scraper(2) + soft_tagger(2)
-    # + composer(4: composed_fields, composer_decisions, composed_at, incomplete_decisions) = 18.
+    # taxonomy(3) + parser(3) + specialist(4) + scraper(2)
+    # + composer(4: composed_fields, composer_decisions, composed_at, incomplete_decisions) = 16.
+    # soft_tagger_v1 is default-off since #115 pt 2 (was previously 2).
     # scraper drops from 6 → 2 because scraped_specs={}, scraped_reviews=[],
     # scraped_qna=[], scraped_sources=[] are all empty containers and no longer
     # count — the fixture products have no URL, so the scraper produces nothing
     # useful for those four keys. scraped_at and scraped_category remain.
     # composer gains incomplete_decisions=True (PR #97: 1:1 reconciler synthesizes
     # decisions for storage_gb and product_type which the scripted LLM omitted).
-    assert avg == 18.0
+    assert avg == 16.0
 
 
 def test_avg_keys_filled_treats_empty_container_as_unfilled(monkeypatch):
@@ -266,11 +267,12 @@ def test_avg_keys_filled_treats_empty_container_as_unfilled(monkeypatch):
 def test_orchestrated_run_skips_scraper_when_no_url(patched_runtime):
     # The LLMOrchestrator should opt out of scraper_v1 since no products have URLs.
     # Our scripted LLM doesn't return a per_product plan for the orchestrator,
-    # so it falls back to forced-only (taxonomy + soft_tagger). Verify.
+    # so it falls back to forced-only (taxonomy + composer). soft_tagger_v1 is
+    # default-off since #115 pt 2 — not forced and not in the fallback set.
     result = runner.run_enrichment(db=None, mode="orchestrated", limit=2, dry_run=True)
     assert result.summary.strategies_invoked.get("scraper_v1", 0) == 0
     assert result.summary.strategies_invoked["taxonomy_v1"] == 2
-    assert result.summary.strategies_invoked["soft_tagger_v1"] == 2
+    assert result.summary.strategies_invoked.get("soft_tagger_v1", 0) == 0
 
 
 def test_run_with_no_products_returns_empty_result(monkeypatch):
