@@ -36,7 +36,7 @@ from app.enrichment.agents.assessor import Assessor, serialize as serialize_asse
 from app.enrichment.tools import db_writer, merchant_agent_client
 from app.enrichment.tools.catalog_reader import load_products
 from app.enrichment.tools.llm_client import get_ledger
-from app.enrichment.tracing import run_context
+from app.enrichment.tracing import get_tracer, run_context
 from app.enrichment.types import (
     AgentResult,
     AssessorOutput,
@@ -263,46 +263,53 @@ def _run_inner(
         successful: list[StrategyOutput] = []
         succeeded: dict[str, int] = {}
         failed: dict[str, int] = {}
-        for strategy in plan_for_product:
-            result = _run_strategy(strategy, product, ctx, summary)
-            dump.append(result.model_dump(mode="json"))
-            verdict = validator_mod.validate(result)
-            verdicts[strategy] = verdict
-            if result.success and verdict.passed and result.output is not None:
-                successful.append(result.output)
-                keys_filled += sum(
-                    1
-                    for v in result.output.attributes.values()
-                    if _is_substantive(v)
-                )
-                # Make output available to downstream agents.
-                ctx[_short(strategy)] = dict(result.output.attributes)
-                succeeded[strategy] = succeeded.get(strategy, 0) + 1
-            else:
-                failed[strategy] = failed.get(strategy, 0) + 1
-                # Feed the rejection into ctx so the composer (runs last)
-                # knows which strategies' output was dropped and why, rather
-                # than treating a missing finding as "strategy wasn't asked
-                # to run" (issue #83 review, item 3).
-                ctx.setdefault("_validator_notes", []).append(
-                    {
-                        "strategy": strategy,
-                        "failure_mode": "validator_rejected"
-                        if result.success
-                        else "agent_errored",
-                        "reasons": list(verdict.reasons),
-                        "error": result.error,
-                    }
-                )
-                if verdict.reasons:
-                    logger.info(
-                        "validator_rejected",
-                        extra={
-                            "strategy": strategy,
-                            "product_id": str(product.product_id),
-                            "reasons": verdict.reasons,
-                        },
+        # Wrap the per-product strategy loop in a span so strategy spans nest
+        # under it in Langfuse (issue #111 target tree). All tracers honor
+        # the call; the JSONL tracer just writes one extra line.
+        with get_tracer().span(
+            name=f"product:{product.product_id}",
+            input={"product_id": str(product.product_id)},
+        ):
+            for strategy in plan_for_product:
+                result = _run_strategy(strategy, product, ctx, summary)
+                dump.append(result.model_dump(mode="json"))
+                verdict = validator_mod.validate(result)
+                verdicts[strategy] = verdict
+                if result.success and verdict.passed and result.output is not None:
+                    successful.append(result.output)
+                    keys_filled += sum(
+                        1
+                        for v in result.output.attributes.values()
+                        if _is_substantive(v)
                     )
+                    # Make output available to downstream agents.
+                    ctx[_short(strategy)] = dict(result.output.attributes)
+                    succeeded[strategy] = succeeded.get(strategy, 0) + 1
+                else:
+                    failed[strategy] = failed.get(strategy, 0) + 1
+                    # Feed the rejection into ctx so the composer (runs last)
+                    # knows which strategies' output was dropped and why, rather
+                    # than treating a missing finding as "strategy wasn't asked
+                    # to run" (issue #83 review, item 3).
+                    ctx.setdefault("_validator_notes", []).append(
+                        {
+                            "strategy": strategy,
+                            "failure_mode": "validator_rejected"
+                            if result.success
+                            else "agent_errored",
+                            "reasons": list(verdict.reasons),
+                            "error": result.error,
+                        }
+                    )
+                    if verdict.reasons:
+                        logger.info(
+                            "validator_rejected",
+                            extra={
+                                "strategy": strategy,
+                                "product_id": str(product.product_id),
+                                "reasons": verdict.reasons,
+                            },
+                        )
         return {
             "pid": product.product_id,
             "dump": dump,
