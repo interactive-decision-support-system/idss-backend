@@ -575,7 +575,7 @@ def _compute_missing_fields(ctx: dict[str, Any], product: ProductInput) -> list[
 
     Issue #118.
     """
-    from app.enrichment.agents.web_scraper import gap_fields_for
+    from app.enrichment.agents.web_scraper import aliases_for, gap_fields_for
 
     taxonomy = ctx.get("taxonomy") or {}
     category = ""
@@ -599,15 +599,21 @@ def _compute_missing_fields(ctx: dict[str, Any], product: ProductInput) -> list[
     raw = product.raw_attributes or {}
 
     def _filled(key: str) -> bool:
+        # Check the canonical key plus known alternate spellings so a
+        # parser/catalog that already filled the concept under a different
+        # name (e.g. screen_size_in for display_size_in) doesn't get
+        # re-scraped.
+        keys_to_check = (key,) + aliases_for(key)
         for src in (parsed_specs, raw):
-            v = src.get(key)
-            if v is None:
-                continue
-            if isinstance(v, (str, list, dict, tuple, set)):
-                if len(v) > 0:
-                    return True
-                continue
-            return True
+            for k in keys_to_check:
+                v = src.get(k)
+                if v is None:
+                    continue
+                if isinstance(v, (str, list, dict, tuple, set)):
+                    if len(v) > 0:
+                        return True
+                    continue
+                return True
         return False
 
     return [k for k in gap_fields if not _filled(k)]

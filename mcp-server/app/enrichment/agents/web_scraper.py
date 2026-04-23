@@ -97,11 +97,36 @@ _GAP_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 
+# Alternate spellings a gap field may appear under in parser output or raw
+# attributes. Checked by the runner's gap detection so we don't queue a
+# scrape for a field the parser already filled under a different key
+# (e.g. parser emits `screen_size_in`, gap list uses `display_size_in`).
+# Issue #115 rec #4 tracks normalizing this upstream; until then, this map
+# prevents the scraper from burning cost on redundant fetches.
+_GAP_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "display_size_in": (
+        "screen_size_in",
+        "screen_size_inch",
+        "screen_size_inches",
+        "screen_size",
+    ),
+    "weight_kg": ("weight_lbs", "weight_g", "weight_grams", "weight"),
+    "cpu_model": ("cpu",),
+    "gpu_model": ("gpu",),
+    "refresh_rate_hz": ("refresh_rate", "display_refresh_rate"),
+}
+
+
 def gap_fields_for(category: str) -> tuple[str, ...]:
     """Public accessor so the runner doesn't re-define this list."""
     if not category:
         return ()
     return _GAP_FIELDS.get(category.lower(), ())
+
+
+def aliases_for(gap_field: str) -> tuple[str, ...]:
+    """Alternate key spellings a gap field may already appear under."""
+    return _GAP_FIELD_ALIASES.get(gap_field, ())
 
 
 _SYSTEM = (

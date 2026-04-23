@@ -386,3 +386,46 @@ def test_compute_missing_fields_empty_for_unknown_category():
     # No taxonomy, non-laptop category → no gap list.
     ctx = {}
     assert _compute_missing_fields(ctx, p) == []
+
+
+def test_compute_missing_fields_respects_aliases_in_parser_output():
+    """Parser emits `screen_size_in` / `weight_lbs` / `cpu`; those cover the
+    canonical gap fields `display_size_in` / `weight_kg` / `cpu_model` so
+    the scraper should not re-fetch them."""
+    from app.enrichment.orchestration.runner import _compute_missing_fields
+
+    p = ProductInput(product_id=uuid4(), title="Dell XPS", category="Electronics")
+    ctx = {
+        "taxonomy": {"product_type": "laptop"},
+        "parsed": {
+            "parsed_specs": {
+                "screen_size_in": 15.6,      # alias of display_size_in
+                "weight_lbs": 4.2,           # alias of weight_kg
+                "cpu": "Intel Core i7-13700H",  # alias of cpu_model
+            }
+        },
+    }
+    missing = _compute_missing_fields(ctx, p)
+    assert "display_size_in" not in missing
+    assert "weight_kg" not in missing
+    assert "cpu_model" not in missing
+    # These remain unfilled.
+    assert "refresh_rate_hz" in missing
+    assert "gpu_model" in missing
+
+
+def test_compute_missing_fields_respects_aliases_in_raw_attributes():
+    """Same alias resolution when the field lives in raw_attributes instead
+    of parser output."""
+    from app.enrichment.orchestration.runner import _compute_missing_fields
+
+    p = ProductInput(
+        product_id=uuid4(),
+        title="MacBook",
+        category="Electronics",
+        raw_attributes={"gpu": "Apple Integrated GPU", "screen_size": 13.6},
+    )
+    ctx = {"taxonomy": {"product_type": "laptop"}, "parsed": {"parsed_specs": {}}}
+    missing = _compute_missing_fields(ctx, p)
+    assert "gpu_model" not in missing
+    assert "display_size_in" not in missing
