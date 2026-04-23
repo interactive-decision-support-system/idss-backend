@@ -282,6 +282,14 @@ class ComposerAgent(BaseEnrichmentAgent):
         validator_notes = _gather_validator_notes(context)
         now_iso = datetime.now(timezone.utc).isoformat()
 
+        # Issue #118: scraper_v1 now emits cited per-field dicts
+        # ({value, source_url, source_domain, snippet, extracted_at}).
+        # Capture the citation index once so we can both (a) pre-flatten
+        # scraped_specs to scalars for the LLM / fallback, and (b)
+        # re-attach the citation to any decision whose key came from
+        # scraper_v1. Findings is mutated in place (shallow copy first).
+        findings, scraper_citations = _normalize_scraper_findings(findings)
+
         # If nothing upstream ran successfully, the composer has no material
         # to work with. Emit empty composed_fields so the row is still written
         # (useful as a marker that the composer was invoked) and skip the LLM
@@ -330,6 +338,7 @@ class ComposerAgent(BaseEnrichmentAgent):
             composed = registry_strip_narrative(composed)
             composed, decisions = _cross_check_decisions(composed, decisions)
             decisions, notes_payload = _reconcile_composer_output(composed, decisions)
+            decisions = _attach_scraper_citations(decisions, scraper_citations)
             return StrategyOutput(
                 product_id=product.product_id,
                 strategy=self.STRATEGY,
@@ -352,6 +361,11 @@ class ComposerAgent(BaseEnrichmentAgent):
         # 1:1 enforcement (issue #88): synthesize missing decisions and infer
         # source_kind for all existing decisions.
         decisions, notes_payload = _reconcile_composer_output(composed, decisions)
+
+        # Issue #118: attach scraper citations to any decision whose key
+        # was filled by scraper_v1. Runs AFTER reconcile so synthesized
+        # decisions also pick up their citation if scraper_v1 owned the key.
+        decisions = _attach_scraper_citations(decisions, scraper_citations)
 
         return StrategyOutput(
             product_id=product.product_id,
@@ -548,6 +562,93 @@ def _reconcile_composer_output(
     return reconciled, notes_payload
 
 
+def _normalize_scraper_findings(
+    findings: dict[str, dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Flatten scraper_v1's cited per-field objects to scalars for the LLM
+    prompt, and return a separate index of citations for re-attachment.
+
+    Scraper_v1 (issue #118) emits:
+        scraped_specs[field] = {
+            "value": <scalar>,
+            "source_url": ...,
+            "source_domain": ...,
+            "snippet": ...,
+            "extracted_at": ...,
+        }
+
+    The LLM prompt shouldn't see the full citation block — it would either
+    leak URLs into composed_fields or confuse the per-key precedence logic.
+    So: strip to ``{field: value}`` for the prompt, keep citations aside.
+
+    Returns (findings_with_flattened_scraper, citations_by_field). Values
+    from non-nested (legacy) scraped_specs pass through untouched.
+    """
+    scraped = findings.get("scraped") or {}
+    specs = scraped.get("scraped_specs") if isinstance(scraped, dict) else None
+    citations: dict[str, dict[str, Any]] = {}
+    if not isinstance(specs, dict) or not specs:
+        return findings, citations
+
+    flattened: dict[str, Any] = {}
+    for k, v in specs.items():
+        key = str(k)
+        if isinstance(v, dict) and "value" in v:
+            flattened[key] = v["value"]
+            citations[key] = {
+                "kind": "scraped",
+                "url": v.get("source_url"),
+                "domain": v.get("source_domain"),
+                "snippet": v.get("snippet"),
+            }
+        else:
+            # Legacy / non-cited entry — pass through.
+            flattened[key] = v
+
+    if citations:
+        new_findings = dict(findings)
+        new_scraped = dict(scraped)
+        new_scraped["scraped_specs"] = flattened
+        new_findings["scraped"] = new_scraped
+        return new_findings, citations
+    return findings, citations
+
+
+def _attach_scraper_citations(
+    decisions: list[dict[str, Any]],
+    citations: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """For each decision whose key has a scraper citation, stamp
+    ``decision['source'] = {kind:'scraped', url, domain, snippet}``.
+
+    Only attaches when the decision's source_strategy is ``scraper_v1``
+    OR the decision is synthesized (source_strategy=None) but the key
+    is one scraper actually filled — the latter covers reconciler-
+    synthesized decisions where the LLM forgot to emit an explicit
+    scraper attribution.
+    """
+    if not citations:
+        return decisions
+    out: list[dict[str, Any]] = []
+    for d in decisions:
+        key = d.get("key")
+        if not isinstance(key, str) or key not in citations:
+            out.append(d)
+            continue
+        src = d.get("source_strategy")
+        if src not in ("scraper_v1", None):
+            out.append(d)
+            continue
+        new_d = dict(d)
+        new_d["source"] = dict(citations[key])
+        # If synthesized, upgrade source_strategy so provenance is accurate.
+        if src is None:
+            new_d["source_strategy"] = "scraper_v1"
+            new_d["source_kind"] = SourceKind.SCRAPE.value
+        out.append(new_d)
+    return out
+
+
 def registry_strip_narrative(composed: dict[str, Any]) -> dict[str, Any]:
     """Drop narrative keys declared by any registered agent. Reads from the
     registry instead of a hardcoded list so new narrative-emitting agents
@@ -604,7 +705,14 @@ def _deterministic_fallback(
     scraped_specs = (findings.get("scraped") or {}).get("scraped_specs") or {}
     if isinstance(scraped_specs, dict):
         for k, v in scraped_specs.items():
-            _record(str(k), v, "scraper_v1", "fallback_from_scraper")
+            # scraper_v1 emits either a legacy scalar value (pre-#118) or
+            # a cited object {value, source_url, source_domain, snippet,
+            # extracted_at}. Lift .value into composed_fields; the citation
+            # is attached by _attach_scraper_citations after the fact.
+            if isinstance(v, dict) and "value" in v:
+                _record(str(k), v["value"], "scraper_v1", "fallback_from_scraper")
+            else:
+                _record(str(k), v, "scraper_v1", "fallback_from_scraper")
 
     use_case_fit = (findings.get("specialist") or {}).get("specialist_use_case_fit") or {}
     if isinstance(use_case_fit, dict):

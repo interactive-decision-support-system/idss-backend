@@ -546,3 +546,92 @@ def test_source_kind_set_on_decisions_via_full_agent_run():
     pt_d = next(d for d in decisions if d["key"] == "product_type")
     assert ram_d["source_kind"] == SourceKind.RAW_PARSE.value
     assert pt_d["source_kind"] == SourceKind.PARAMETRIC.value
+
+
+# ---------------------------------------------------------------------------
+# Scraper citation passthrough (issue #118)
+# ---------------------------------------------------------------------------
+
+
+def _ctx_with_cited_scraped():
+    ctx = _upstream_ctx()
+    # scraper_v1 (scraper-v2) emits cited dicts per field.
+    ctx["scraped"] = {
+        "scraped_specs": {
+            "weight_kg": {
+                "value": 1.12,
+                "source_url": "https://lenovo.com/x1",
+                "source_domain": "lenovo.com",
+                "snippet": "Weight: 1.12 kg",
+                "extracted_at": "2026-04-23T00:00:00+00:00",
+            }
+        }
+    }
+    return ctx
+
+
+def test_composer_attaches_scraped_citation_to_decision():
+    """When scraper_v1 fills a field with cited data, the composer stamps
+    ``decision['source']`` with {kind:'scraped', url, domain, snippet}."""
+    llm = _FakeLLM(
+        {
+            "composed_fields": {"weight_kg": 1.12},
+            "composer_decisions": [
+                {
+                    "key": "weight_kg",
+                    "chosen_value": 1.12,
+                    "source_strategy": "scraper_v1",
+                    "reason": "manufacturer page",
+                    "dropped_alternatives": [],
+                }
+            ],
+        }
+    )
+    result = ComposerAgent(llm=llm).run(_product(), _ctx_with_cited_scraped())
+    decisions = result.output.attributes["composer_decisions"]
+    weight_d = next(d for d in decisions if d["key"] == "weight_kg")
+    assert weight_d["source"] == {
+        "kind": "scraped",
+        "url": "https://lenovo.com/x1",
+        "domain": "lenovo.com",
+        "snippet": "Weight: 1.12 kg",
+    }
+    # composed_fields got the unwrapped scalar, not the citation dict.
+    assert result.output.attributes["composed_fields"]["weight_kg"] == 1.12
+
+
+def test_composer_fallback_attaches_scraped_citation():
+    """Deterministic fallback path (LLM failed): scraper citations still
+    flow through so the inspector has a trail even on LLM blips."""
+    llm = _FakeLLM(payload=None, raises=RuntimeError("boom"))
+    result = ComposerAgent(llm=llm).run(_product(), _ctx_with_cited_scraped())
+    assert result.output.notes == "deterministic_fallback"
+    decisions = result.output.attributes["composer_decisions"]
+    weight_d = next((d for d in decisions if d["key"] == "weight_kg"), None)
+    assert weight_d is not None
+    assert weight_d["source"] == {
+        "kind": "scraped",
+        "url": "https://lenovo.com/x1",
+        "domain": "lenovo.com",
+        "snippet": "Weight: 1.12 kg",
+    }
+
+
+def test_composer_synthesized_decision_gets_scraper_citation():
+    """If LLM composes weight_kg but forgets the decision, the reconciler
+    synthesizes one. That synthesized decision should still pick up the
+    scraper citation (so inspector trail never misses the URL)."""
+    llm = _FakeLLM(
+        {
+            "composed_fields": {"weight_kg": 1.12},
+            # LLM omits the weight_kg decision entirely.
+            "composer_decisions": [],
+        }
+    )
+    result = ComposerAgent(llm=llm).run(_product(), _ctx_with_cited_scraped())
+    decisions = result.output.attributes["composer_decisions"]
+    weight_d = next(d for d in decisions if d["key"] == "weight_kg")
+    # Upgraded from synthesized → scraper_v1.
+    assert weight_d["source_strategy"] == "scraper_v1"
+    assert weight_d["source_kind"] == SourceKind.SCRAPE.value
+    assert weight_d["source"]["url"] == "https://lenovo.com/x1"

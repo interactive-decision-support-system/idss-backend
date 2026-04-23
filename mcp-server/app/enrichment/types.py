@@ -168,6 +168,19 @@ class SourceKind(str, Enum):
     DETERMINISTIC_FALLBACK = "deterministic_fallback"
 
 
+class CitationSource(BaseModel):
+    """Optional per-decision citation block populated when a composed field
+    traces to a crawled web page (scraper_v1 output). Scraper emits
+    ``{value, source_url, source_domain, snippet, extracted_at}`` per
+    field; the composer lifts the citation here so the inspector can
+    render a clickable trail. Issue #118."""
+
+    kind: str = "scraped"
+    url: str | None = None
+    domain: str | None = None
+    snippet: str | None = None
+
+
 class ComposerDecision(BaseModel):
     """One entry in ``composer_decisions``. Structured schema lets the
     inspector (#81) render cell lineage without re-parsing free-form JSON."""
@@ -178,3 +191,6 @@ class ComposerDecision(BaseModel):
     source_kind: SourceKind = SourceKind.PARAMETRIC  # safe default; reconciler overrides per source_strategy
     reason: str | None = None
     dropped_alternatives: list[Any] = Field(default_factory=list)
+    # Populated for scraper-sourced decisions (#118). None for every
+    # other provenance; inspector treats missing `source` as "no citation".
+    source: CitationSource | None = None
