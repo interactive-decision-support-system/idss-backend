@@ -29,6 +29,7 @@ import contextvars
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -120,61 +121,129 @@ class _NoopTracer:
 
 
 class _LangfuseSpan:
-    """Wraps a langfuse generation so its ``update`` signature matches what
-    callers pass (``output``, ``metadata``, ``cost_usd``, ``level``, ``status_message``)
-    regardless of the underlying SDK kwargs."""
+    """Wraps a langfuse span/generation so its ``update`` signature matches
+    what callers pass (``output``, ``metadata``, ``cost_usd``, ``level``,
+    ``status_message``) regardless of the underlying SDK kwargs."""
 
-    def __init__(self, gen: Any) -> None:
-        self._gen = gen
-        self.id = getattr(gen, "id", None) or uuid.uuid4().hex
+    def __init__(self, node: Any) -> None:
+        self._node = node
+        self.id = getattr(node, "id", None) or uuid.uuid4().hex
 
     def update(self, **kwargs: Any) -> None:
         try:
-            self._gen.update(**kwargs)
+            self._node.update(**kwargs)
         except Exception as exc:  # noqa: BLE001 - tracing must never raise
             logger.debug("langfuse span.update failed: %s", exc)
 
     def end(self) -> None:
         try:
-            self._gen.end()
+            self._node.end()
         except Exception as exc:  # noqa: BLE001
             logger.debug("langfuse span.end failed: %s", exc)
 
 
+# Per-run trace cache + parent-span stack.
+#
+# Issue #111: Langfuse v2 treats ``tags=`` as a trace-level field; passing it
+# to ``generation()`` is silently dropped. We therefore maintain one trace per
+# run (keyed by run_id) with trace-level tags, and nest every span/generation
+# under it. The ContextVar stack makes the enclosing span the implicit parent,
+# so strategy spans inside a ``product:<id>`` span become its children.
+_LANGFUSE_TRACES: dict[str, Any] = {}
+_LANGFUSE_TRACES_LOCK = threading.Lock()
+_LANGFUSE_PARENT_STACK: contextvars.ContextVar[tuple[Any, ...]] = contextvars.ContextVar(
+    "enrichment_lf_parent_stack", default=()
+)
+
+
+def _current_parent() -> Any | None:
+    stack = _LANGFUSE_PARENT_STACK.get()
+    return stack[-1] if stack else None
+
+
 class _LangfuseTracer:
-    """Thin adapter over the langfuse SDK. Lazy-imports so the package is
-    optional. Each span maps to a langfuse generation."""
+    """Adapter over the langfuse SDK. Lazy-imports so the package is optional.
+
+    Tree shape:
+        trace (per run_id, trace-level tags)
+          ├── span product:<id>
+          │     ├── span parser_v1
+          │     │     └── generation llm:gpt-5-mini
+          │     └── ...
+          └── ...
+
+    ``name.startswith("llm:")`` dispatches to ``generation()``; everything
+    else is a generic ``span()``.
+    """
 
     enabled = True
 
     def __init__(self, client: Any) -> None:
         self._client = client
 
+    def _get_or_create_trace(self, run_ctx: RunContext) -> Any | None:
+        with _LANGFUSE_TRACES_LOCK:
+            if run_ctx.run_id in _LANGFUSE_TRACES:
+                return _LANGFUSE_TRACES[run_ctx.run_id]
+            try:
+                trace = self._client.trace(
+                    id=run_ctx.run_id,
+                    name=f"enrichment_run:{run_ctx.merchant_id}:{run_ctx.run_id[:8]}",
+                    tags=[
+                        f"run:{run_ctx.run_id}",
+                        f"merchant:{run_ctx.merchant_id}",
+                        f"kg_strategy:{run_ctx.kg_strategy}",
+                    ],
+                    metadata={
+                        "merchant_id": run_ctx.merchant_id,
+                        "kg_strategy": run_ctx.kg_strategy,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001 - never break enrichment
+                logger.debug("langfuse trace() failed: %s", exc)
+                trace = None
+            _LANGFUSE_TRACES[run_ctx.run_id] = trace
+            return trace
+
     @contextlib.contextmanager
     def span(
         self, *, name: str, input: Any | None = None, metadata: Any | None = None
     ) -> Iterator[_LangfuseSpan]:
-        tags = _current_tags()
+        run_ctx = _RUN_CONTEXT.get()
+        is_llm = name.startswith("llm:")
+
+        if run_ctx is not None:
+            trace = self._get_or_create_trace(run_ctx)
+            parent = _current_parent() or trace or self._client
+        else:
+            # No run context — fall back to client-level node (legacy behavior).
+            parent = self._client
+
         kwargs: dict[str, Any] = {"name": name, "input": input}
-        if tags:
-            kwargs["tags"] = tags
         if metadata is not None:
             kwargs["metadata"] = metadata
         try:
-            gen = self._client.generation(**kwargs)
+            if is_llm:
+                node = parent.generation(**kwargs)
+            else:
+                node = parent.span(**kwargs)
         except Exception as exc:  # noqa: BLE001 - never break enrichment
-            logger.debug("langfuse generation() failed: %s — yielding noop span", exc)
+            logger.debug("langfuse span/generation create failed: %s — noop", exc)
             yield _LangfuseSpan(_NoopSpan())
             return
-        span = _LangfuseSpan(gen)
+
+        span = _LangfuseSpan(node)
+        token = _LANGFUSE_PARENT_STACK.set(_LANGFUSE_PARENT_STACK.get() + (node,))
         try:
             yield span
         except Exception as exc:
             span.update(level="ERROR", status_message=str(exc))
             span.end()
+            _LANGFUSE_PARENT_STACK.reset(token)
             raise
         else:
             span.end()
+            _LANGFUSE_PARENT_STACK.reset(token)
 
     def flush(self) -> None:
         try:
@@ -374,3 +443,5 @@ def get_tracer() -> Any:
 def _reset_for_tests() -> None:
     global _TRACER
     _TRACER = None
+    with _LANGFUSE_TRACES_LOCK:
+        _LANGFUSE_TRACES.clear()
