@@ -339,21 +339,25 @@ def _run_inner(
             summary.keys_filled_per_product.append(r["keys_filled"])
             summary.products_processed += 1
 
-    # write outputs (one batched commit)
-    all_outputs: list[StrategyOutput] = [
-        out for outs in successful_outputs_by_pid.values() for out in outs
-    ]
-    if audit:
-        all_outputs.extend(
-            validator_mod.make_audit_output(product_id=pid, verdicts=verdicts)
-            for pid, verdicts in verdicts_by_pid.items()
-        )
-    db_writer.upsert_many(
-        db,
-        all_outputs,
-        enriched_model=catalog.enriched_model,
-        dry_run=dry_run,
-    )
+            # Flush this product's rows as soon as its future completes (#108).
+            # Previously the entire run's outputs were held in memory and written
+            # in one upsert_many after the drain finished — if any future hung,
+            # every completed product's work was discarded. Flushing per-product
+            # makes partial progress durable; each flush commits independently.
+            product_outputs: list[StrategyOutput] = list(r["successful"])
+            if audit:
+                product_outputs.append(
+                    validator_mod.make_audit_output(
+                        product_id=pid, verdicts=r["verdicts"]
+                    )
+                )
+            if product_outputs:
+                db_writer.upsert_many(
+                    db,
+                    product_outputs,
+                    enriched_model=catalog.enriched_model,
+                    dry_run=dry_run,
+                )
 
     # 7) catalog schema + propose extensions
     schema = _build_catalog_schema(merchant_id, successful_outputs_by_pid, products)
