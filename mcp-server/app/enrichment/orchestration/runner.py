@@ -33,10 +33,11 @@ from sqlalchemy.orm import Session
 from app.enrichment import registry
 from app.enrichment.agents import validator as validator_mod
 from app.enrichment.agents.assessor import Assessor, serialize as serialize_assessment
+from app.enrichment import metrics as run_metrics_mod
 from app.enrichment.tools import db_writer, merchant_agent_client
 from app.enrichment.tools.catalog_reader import load_products
 from app.enrichment.tools.llm_client import get_ledger
-from app.enrichment.tracing import get_tracer, run_context
+from app.enrichment.tracing import get_run_context, get_tracer, run_context
 from app.enrichment.types import (
     AgentResult,
     AssessorOutput,
@@ -378,6 +379,19 @@ def _run_inner(
         kg_strategy=summary.kg_strategy,
         outputs_by_pid=successful_outputs_by_pid,
     )
+
+    # Per-run enrichment metrics — deterministic aggregates over raw input
+    # and composer output, emitted as Langfuse scores on the run trace (and
+    # mirrored to the JSONL sidecar when enabled). See issue #115 rec #8.
+    try:
+        scores = run_metrics_mod.compute_run_metrics(
+            products, successful_outputs_by_pid
+        )
+        ctx = get_run_context()
+        if scores and ctx is not None:
+            get_tracer().score_run(ctx, dict(scores))
+    except Exception as exc:  # noqa: BLE001 - scoring must never break a run
+        logger.debug("run metrics emission failed: %s", exc)
 
     # tally cost + latency
     summary.total_cost_usd = get_ledger().total_usd

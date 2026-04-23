@@ -111,6 +111,9 @@ class _NoopTracer:
     ) -> Iterator[_NoopSpan]:
         yield _NoopSpan()
 
+    def score_run(self, run_ctx: RunContext, scores: dict[str, Any]) -> None:
+        pass
+
     def flush(self) -> None:
         pass
 
@@ -245,6 +248,24 @@ class _LangfuseTracer:
             span.end()
             _LANGFUSE_PARENT_STACK.reset(token)
 
+    def score_run(self, run_ctx: RunContext, scores: dict[str, Any]) -> None:
+        """Attach run-level deterministic aggregates as Langfuse scores.
+
+        Each score posts against ``trace_id = run_ctx.run_id`` — the trace
+        created by ``_get_or_create_trace`` uses ``id=run_ctx.run_id`` so the
+        two are the same handle. Failures are swallowed per score; tracing
+        must never break enrichment.
+        """
+        # Ensure the trace exists (a run with zero spans still gets one).
+        self._get_or_create_trace(run_ctx)
+        for name, value in scores.items():
+            try:
+                self._client.score(
+                    trace_id=run_ctx.run_id, name=name, value=value
+                )
+            except Exception as exc:  # noqa: BLE001 - never break enrichment
+                logger.debug("langfuse score(%s) failed: %s", name, exc)
+
     def flush(self) -> None:
         try:
             self._client.flush()
@@ -320,6 +341,34 @@ class _JsonlTracer:
         else:
             span.end()
 
+    def score_run(self, run_ctx: RunContext, scores: dict[str, Any]) -> None:
+        """Mirror run-level scores as a single JSONL record alongside spans.
+
+        Uses ``run_ctx.run_id`` for the filename directly (not the contextvar)
+        so the call works whether or not it's inside a ``run_context`` block —
+        matches the Langfuse tracer, which also takes ``run_ctx`` explicitly.
+        """
+        record = {
+            "record_type": "run_scores",
+            "run_id": run_ctx.run_id,
+            "merchant_id": run_ctx.merchant_id,
+            "kg_strategy": run_ctx.kg_strategy,
+            "tags": [
+                f"run:{run_ctx.run_id}",
+                f"merchant:{run_ctx.merchant_id}",
+                f"kg_strategy:{run_ctx.kg_strategy}",
+            ],
+            "recorded_at": time.time(),
+            "scores": _safe_jsonable(scores),
+        }
+        try:
+            self._root.mkdir(parents=True, exist_ok=True)
+            path = self._root / f"{run_ctx.run_id}.jsonl"
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        except Exception as exc:  # noqa: BLE001 - never break enrichment
+            logger.debug("jsonl score_run write failed: %s", exc)
+
     def flush(self) -> None:
         pass
 
@@ -380,6 +429,13 @@ class _CompositeTracer:
             yield _CompositeSpan(spans)
         finally:
             stack.close()
+
+    def score_run(self, run_ctx: RunContext, scores: dict[str, Any]) -> None:
+        for t in self._tracers:
+            try:
+                t.score_run(run_ctx, scores)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("composite score_run failed: %s", exc)
 
     def flush(self) -> None:
         for t in self._tracers:
