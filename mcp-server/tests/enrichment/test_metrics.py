@@ -11,7 +11,7 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from app.enrichment.metrics import compute_run_metrics
+from app.enrichment.metrics import compute_run_metrics, compute_scraper_metrics
 from app.enrichment.types import ProductInput, StrategyOutput
 
 
@@ -204,7 +204,7 @@ def test_scraper_metrics_gated_out_and_in():
             }
         ],
     )
-    metrics = compute_run_metrics(
+    metrics = compute_scraper_metrics(
         [p_gated_out, p_gated_in],
         {
             p_gated_out.product_id: [scr_gated_out],
@@ -242,5 +242,5 @@ def test_scraper_metrics_conflict_with_parser():
             }
         ],
     )
-    metrics = compute_run_metrics([p], {p.product_id: [parser, scraper]})
+    metrics = compute_scraper_metrics([p], {p.product_id: [parser, scraper]})
     assert metrics["scraper_fields_conflicted_with_parser"] == 1

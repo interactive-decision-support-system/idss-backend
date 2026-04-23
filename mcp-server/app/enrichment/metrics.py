@@ -129,7 +129,6 @@ def compute_run_metrics(
     }
 
     if new_columns_created == 0:
-        metrics.update(compute_scraper_metrics(products, outputs_by_pid))
         return metrics
 
     filled_new_cells = 0
@@ -164,9 +163,6 @@ def compute_run_metrics(
 
     metrics["singleton_column_count"] = sum(1 for v in per_col_fill.values() if v == 1)
 
-    # Scraper (#118) run-level aggregates — computed from the same
-    # outputs_by_pid dict so no extra run-time bookkeeping is needed.
-    metrics.update(compute_scraper_metrics(products, outputs_by_pid))
     return metrics
 
 
