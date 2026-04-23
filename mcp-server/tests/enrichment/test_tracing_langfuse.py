@@ -143,3 +143,55 @@ def test_no_run_context_falls_back_to_client_level():
     client.trace.assert_not_called()
     client.span.assert_called_once()
     client.generation.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# #93 — Langfuse required outside of tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_tracer_raises_when_langfuse_unset_outside_tests(monkeypatch):
+    """Silent degradation to noop was the issue from #93: in prod we'd
+    discover the observability gap only when we needed traces. Now the
+    process refuses to start without an explicit tracer config."""
+    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("ENRICHMENT_TRACE_JSONL", raising=False)
+    monkeypatch.delenv("ENRICHMENT_TRACE_DISABLED", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    with pytest.raises(RuntimeError, match="LANGFUSE_PUBLIC_KEY"):
+        tracing.build_tracer()
+
+
+def test_build_tracer_allows_noop_when_explicitly_disabled(monkeypatch):
+    """Local dev escape hatch — operator explicitly opts out."""
+    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("ENRICHMENT_TRACE_JSONL", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("ENRICHMENT_TRACE_DISABLED", "1")
+
+    t = tracing.build_tracer()
+    assert t.enabled is False
+
+
+def test_build_tracer_allows_noop_inside_pytest(monkeypatch):
+    """Test env is the other escape hatch — PYTEST_CURRENT_TEST is set
+    automatically by pytest during test execution."""
+    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("ENRICHMENT_TRACE_JSONL", raising=False)
+    monkeypatch.delenv("ENRICHMENT_TRACE_DISABLED", raising=False)
+    # PYTEST_CURRENT_TEST is already set by the runner; don't clobber.
+
+    t = tracing.build_tracer()
+    assert t.enabled is False
+
+
+def test_build_tracer_allows_jsonl_only_outside_tests(monkeypatch):
+    """JSONL alone counts as 'a tracer is configured' — no Langfuse required."""
+    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("ENRICHMENT_TRACE_DISABLED", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("ENRICHMENT_TRACE_JSONL", "1")
+
+    t = tracing.build_tracer()
+    assert t.enabled is True
