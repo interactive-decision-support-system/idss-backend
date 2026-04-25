@@ -1,40 +1,32 @@
-# Migration Tip: merchant-agent repo seed
+# Migration Tip: agentic-ecommerce repo seed
 
 This branch is the staging point for issue #109: creating a fresh
-`interactive-decision-support-system/merchant-agent` repo that contains only
-the relevant merchant-agent code.
+`interactive-decision-support-system/agentic-ecommerce` repo that contains only
+the relevant merchant-agent backend code.
 
 This branch is not intended to merge back into `idss-backend`. Its purpose is
-to make the intended seed state reviewable before copying it into a new repo.
+to make the proposed seed state reviewable before copying it into a new repo.
 
 ## Source
 
 - Source repository: `interactive-decision-support-system/idss-backend`
 - Source branch: `enrichment-pipeline-dev`
 - Migration branch: `migration/merchant-agent-seed`
-- Destination repository: `interactive-decision-support-system/merchant-agent`
+- Destination repository: `interactive-decision-support-system/agentic-ecommerce`
 - Governing issue: #109
+- Included fix: `0e25a16` / `fix/mocklaptops-real-row-seed-124`
 
-## Outcome
-
-Create a new repo with a clean initial history and only the code needed for the
-merchant-agent product. The migration should use a whitelist approach: carry
-forward only the files that are intentionally part of the new product, rather
-than deleting legacy files in place.
-
-The new repo should start in this shape:
+## Seed Layout
 
 ```text
-merchant-agent/
+agentic-ecommerce/
   apps/
     backend/
       merchant_agent/
-      agent/
       scripts/
       tests/
       migrations/
       pyproject.toml
-      uv.lock
   packages/
     contract/
   pnpm-workspace.yaml
@@ -43,174 +35,74 @@ merchant-agent/
   MIGRATION_SOURCE.md
 ```
 
-`apps/merchant-web/` is intentionally not created in this first seed. It is the
-follow-on admin UI app described in #109.
+`apps/merchant-web/` is intentionally not created in this first seed. It is a
+follow-on admin UI app. `idss-web` remains a separate repository and is not
+covered here.
 
-`idss-web` remains separate and is not covered by this migration branch.
+`uv.lock` is not generated in this branch because `uv` is not installed in the
+current local environment. Generate it after the standalone repo is created.
 
-## Carry Forward
+## Carried Forward
 
-Carry forward the merchant-agent backend core:
+The seed carries the merchant-agent backend core:
 
-- `mcp-server/app/merchant_agent.py`
-- `mcp-server/app/merchant.py`
-- `mcp-server/app/contract.py`
-- `mcp-server/app/kg_service.py`
-- `mcp-server/app/kg_projection.py`
-- `mcp-server/app/vector_search.py`
-- `mcp-server/app/enriched_reader.py`
-- `mcp-server/app/catalog.py`
-- `mcp-server/app/catalog_ingestion.py`
-- `mcp-server/app/csv_importer.py`
-- `mcp-server/app/enrichment/`
-- `mcp-server/app/ingestion/`
-- `mcp-server/app/tools/supabase_product_store.py`
-- relevant merchant/admin routes from `mcp-server/app/main.py`
-- relevant compatibility routes from `mcp-server/app/endpoints.py`, only if they
-  are still required by the merchant-agent backend contract
+- per-merchant catalog model/binding code
+- merchant registry and admin/search contract
+- CSV ingestion and catalog normalization
+- enrichment orchestration, agents, tracing, metrics, and persistence helpers
+- KG projection/service code
+- vector search support
+- Supabase product store helper
+- migrations 002-006 for the current merchant schema
+- operational scripts:
+  - `bootstrap_merchant.py`
+  - `run_enrichment.py`
+  - `enrichment_inspector.py`
+  - `seed_mock_laptops.py`
+  - `run_normalizer.py`
+- focused tests for enrichment, merchant registry/admin, KG, vector search,
+  enriched reader, catalog binding, and score breakdown behavior
 
-Carry forward the migrations that belong to the merchant-agent storage model:
+The old `main.py` and `endpoints.py` are not copied verbatim. They are replaced
+with a narrower FastAPI surface for:
 
-- `mcp-server/migrations/002*`
-- `mcp-server/migrations/003*`
-- `mcp-server/migrations/004*`
-- `mcp-server/migrations/005*`
-- `mcp-server/migrations/006*`
+- `GET /health`
+- `POST /api/search-products`
+- `POST /merchant`
+- `GET /merchant`
+- `DELETE /merchant/{merchant_id}`
+- `POST /merchant/search`
+- `POST /merchant/{merchant_id}/search`
+- `GET /merchant/{merchant_id}/health`
 
-Carry forward operational scripts that are still part of the merchant-agent
-workflow:
+## Left Behind
 
-- `scripts/bootstrap_merchant.py`
-- `scripts/run_enrichment.py`
-- `scripts/enrichment_inspector.py`
-- `scripts/seed_mock_laptops.py`
-- `scripts/run_normalizer.py`
+The seed intentionally leaves behind:
 
-Carry forward tests only where they exercise the retained backend surface:
-
-- merchant registry/admin HTTP tests
-- enrichment pipeline tests
-- ingestion tests
-- KG projection/service tests
-- vector search tests
-- enriched reader tests
-- catalog binding tests
-- offer score breakdown tests
-- per-merchant vector index tests
-
-Carry forward documentation only after rewriting it for the new repo:
-
-- `ARCHITECTURE.md`
-- `CLAUDE.md`
-
-Do not carry these docs verbatim if they still describe the old two-repo
-workspace, paper-era IDSS scaffolding, or legacy `/chat` surface.
-
-## Leave Behind
-
-Leave behind all code that belongs to the historical IDSS project, paper-era
-experiments, vehicle domain, or legacy shopping chat implementation.
-
-Leave behind entirely:
-
-- `idss/`
-- `api/`
-- `channels/`
-- `openclaw-skill/`
-- `evaluation/`
-- `testing/`
-- `knowledge_base/`
-- root-level paper/evaluation artifacts such as `newacmecsyspaper.tex`
-- root-level generated latency logs and images
-- orphaned SQLite databases
-- historical audit markdowns that are not rewritten for the new repo
-
-Leave behind the legacy chat/shopping-agent surface unless a specific piece is
-promoted into the new backend contract:
-
-- `agent/chat_endpoint.py`
-- `agent/comparison_agent.py`
-- `agent/query_rewriter.py`
-- legacy branches inside `agent/universal_agent.py`
-- legacy interview glue unless it is still required by the new agent contract
-- `mcp-server/app/research_compare.py`
-- `mcp-server/app/laptop_recommender.py`
-- `mcp-server/app/complex_query.py`
-- `mcp-server/app/conversation_controller.py`
-- `mcp-server/app/blackbox_api.py`
-- `mcp-server/app/knowledge_graph.py`
-- `mcp-server/app/rca_analyzer.py`
-- `mcp-server/app/llm_validator.py`
-- `mcp-server/app/or_filter_parser.py`
-- `mcp-server/app/custom_genre_handler.py`
-- `mcp-server/app/interview_flow_handler.py`
-
-Leave behind the vehicle stack:
-
-- vehicle data stores
-- vehicle search tools
-- vehicle-specific cards or schemas
-- vehicle branches in shared agents or endpoints
-
-Leave behind `mcp-server/scripts/` by default. Promote individual scripts only
-after proving they are part of the retained merchant-agent workflow.
-
-Leave behind `mcp-server/` top-level scratch scripts, benchmark scripts, local
-database files, generated JSON files, generated images, stale design notes, and
-root-level `test_*.py` files that do not exercise retained code.
+- legacy IDSS package and paper/evaluation artifacts
+- legacy `/chat` surface
+- vehicle-specific infrastructure
+- OpenClaw/UCP/ACP compatibility layers
+- Slack/channel adapters
+- scratch scripts, local DBs, generated run artifacts, images, and old evals
+- `idss-web`
 
 ## Validation
 
-Before using this branch as the seed for the new repo, validate the carried
-tree with:
+Validation target before using this as the new repo seed:
 
 ```bash
-pytest
-python -m compileall apps/backend
-python apps/backend/scripts/run_enrichment.py --help
-python apps/backend/scripts/bootstrap_merchant.py --help
-python apps/backend/scripts/enrichment_inspector.py --help
+python3 -m compileall apps/backend
+PYTHONPATH=apps/backend python3 -c "import merchant_agent.main"
+cd apps/backend && python3 -m pytest tests
 ```
 
-Also scan for stale references:
-
-```bash
-rg "from idss|import idss|mcp-server|vehicle|chat_endpoint|research_compare" apps/backend
-```
-
-The seed should not depend on the old repository layout, the legacy `idss`
-package, the vehicle domain, or the historical `/chat` implementation.
-
-## Draft PR Expectations
-
-The draft PR from this branch should state clearly:
-
-- it is not intended to merge into `idss-backend`
-- it is the proposed seed/tip for the fresh `merchant-agent` repo
-- it closes no issue by itself
-- it implements the migration direction from #109
-- it lists validation commands and their results
-- it calls out any intentionally deferred pieces
+Any remaining failures should be documented in the draft PR body and fixed
+before the clean initial commit is made in the new repository.
 
 ## Fresh Repo Creation
 
-After the seed tree is reviewed, create the fresh repo from a clean exported
-directory rather than preserving all historical `idss-backend` commits.
-
-The new repo should have a clean initial commit plus a provenance file:
-
-```text
-MIGRATION_SOURCE.md
-```
-
-That file should record:
-
-- source repo
-- source branch
-- source commit SHA
-- migration issue
-- migration branch or PR URL
-- date of repo creation
-
-This keeps the new repository's history focused on the new product while still
-preserving traceability to the old source.
+After this branch is reviewed, export the tree into a clean directory and
+create the new repo with a clean initial commit. Keep provenance in
+`MIGRATION_SOURCE.md`; do not preserve all historical `idss-backend` commits in
+the new product repository.
