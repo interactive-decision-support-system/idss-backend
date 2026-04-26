@@ -1,4 +1,4 @@
-# agentic-ecommerce
+# merchant-agent
 
 Standalone merchant-agent backend seed.
 

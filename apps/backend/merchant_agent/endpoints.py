@@ -49,7 +49,7 @@ def create_trace(
 def create_version_info() -> VersionInfo:
     now = datetime.now(timezone.utc)
     return VersionInfo(
-        catalog_version="agentic-ecommerce-seed",
+        catalog_version="merchant-agent-seed",
         updated_at=now,
         db_version=None,
         snapshot_version=None,

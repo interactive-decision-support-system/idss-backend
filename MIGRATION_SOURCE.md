@@ -3,7 +3,7 @@
 - Source repository: `interactive-decision-support-system/idss-backend`
 - Source branch: `enrichment-pipeline-dev`
 - Migration branch: `migration/merchant-agent-seed`
-- Destination repository: `interactive-decision-support-system/agentic-ecommerce`
+- Destination repository: `interactive-decision-support-system/merchant-agent`
 - Governing issue: `#109`
 - Seed includes local fix branch: `fix/mocklaptops-real-row-seed-124`
 

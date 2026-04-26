@@ -1,7 +1,7 @@
 [project]
-name = "agentic-ecommerce-backend"
+name = "merchant-agent-backend"
 version = "0.1.0"
-description = "Backend services for the agentic-ecommerce merchant agent."
+description = "Backend services for the merchant-agent backend."
 requires-python = ">=3.13"
 dependencies = [
   "beautifulsoup4==4.14.3",

@@ -1,4 +1,4 @@
-"""FastAPI surface for the standalone agentic-ecommerce backend."""
+"""FastAPI surface for the standalone merchant-agent backend."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="agentic-ecommerce backend",
+    title="merchant-agent backend",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -57,7 +57,7 @@ app.add_middleware(
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"service": "agentic-ecommerce backend", "status": "ok"}
+    return {"service": "merchant-agent backend", "status": "ok"}
 
 
 @app.get("/health")

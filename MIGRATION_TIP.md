@@ -1,7 +1,7 @@
-# Migration Tip: agentic-ecommerce repo seed
+# Migration Tip: merchant-agent repo seed
 
 This branch is the staging point for issue #109: creating a fresh
-`interactive-decision-support-system/agentic-ecommerce` repo that contains only
+`interactive-decision-support-system/merchant-agent` repo that contains only
 the relevant merchant-agent backend code.
 
 This branch is not intended to merge back into `idss-backend`. Its purpose is
@@ -12,14 +12,14 @@ to make the proposed seed state reviewable before copying it into a new repo.
 - Source repository: `interactive-decision-support-system/idss-backend`
 - Source branch: `enrichment-pipeline-dev`
 - Migration branch: `migration/merchant-agent-seed`
-- Destination repository: `interactive-decision-support-system/agentic-ecommerce`
+- Destination repository: `interactive-decision-support-system/merchant-agent`
 - Governing issue: #109
 - Included fix: `0e25a16` / `fix/mocklaptops-real-row-seed-124`
 
 ## Seed Layout
 
 ```text
-agentic-ecommerce/
+merchant-agent/
   apps/
     backend/
       merchant_agent/
