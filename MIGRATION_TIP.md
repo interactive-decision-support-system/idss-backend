@@ -32,6 +32,7 @@ merchant-agent/
   pnpm-workspace.yaml
   turbo.json
   justfile
+  apps/backend/.env.example
   MIGRATION_SOURCE.md
 ```
 
@@ -41,6 +42,10 @@ covered here.
 
 `uv.lock` is not generated in this branch because `uv` is not installed in the
 current local environment. Generate it after the standalone repo is created.
+
+`apps/backend/.env.example` is committed. The real source `.env` should be
+copied to `apps/backend/.env` in local/deploy environments only; it is ignored
+by git and must not be committed.
 
 ## Carried Forward
 
@@ -53,6 +58,8 @@ The seed carries the merchant-agent backend core:
 - KG projection/service code
 - vector search support
 - Supabase product store helper
+- migrated environment contract for Supabase/Postgres, Supabase REST, OpenAI,
+  Langfuse, Upstash/Redis, Neo4j, tracing, and runtime toggles
 - migrations 002-006 for the current merchant schema
 - operational scripts:
   - `bootstrap_merchant.py`

@@ -56,6 +56,8 @@ from merchant_agent.models import Product
 
 
 _TEST_DATABASE_URL = os.getenv("DATABASE_URL") or DATABASE_URL
+if not _TEST_DATABASE_URL:
+    pytest.skip("DATABASE_URL is not configured", allow_module_level=True)
 _engine = create_engine(_TEST_DATABASE_URL, pool_pre_ping=True)
 _Session = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 

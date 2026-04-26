@@ -7,8 +7,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 import os
 
-# Get database URL from environment, with sensible default for local development
-DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://julih@localhost:5432/mcp_ecommerce"
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is required. Configure apps/backend/.env with the "
+        "Supabase/Postgres connection string before starting the backend."
+    )
 
 # Create database engine
 # pool_pre_ping ensures connections are alive before using them

@@ -1,7 +1,13 @@
 """Pytest configuration for MCP server tests."""
 
 import os
+from pathlib import Path
+
 import pytest
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 
 # ---------------------------------------------------------------------------
@@ -31,11 +37,13 @@ def _isolate_carts():
 # Postgres availability check (runs once at collection time)
 # ---------------------------------------------------------------------------
 
-_DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://julih@localhost:5432/mcp_ecommerce"
+_DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 def _postgres_available() -> bool:
     """Return True if a real Postgres server is reachable."""
+    if not _DATABASE_URL:
+        return False
     try:
         from sqlalchemy import create_engine, text
         eng = create_engine(_DATABASE_URL, connect_args={"connect_timeout": 3})

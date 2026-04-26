@@ -12,6 +12,13 @@ Initial scope:
 - per-merchant catalog isolation
 - contract package placeholder for generated OpenAPI TypeScript types
 
+Environment:
+
+- Committed template: `apps/backend/.env.example`
+- Local secrets file: `apps/backend/.env` (git-ignored)
+- `DATABASE_URL` should point at the live Supabase/Postgres connection; the
+  backend does not fall back to a local database.
+
 Out of scope for this seed:
 
 - legacy IDSS paper artifacts
