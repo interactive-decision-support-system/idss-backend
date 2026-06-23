@@ -123,7 +123,12 @@ class LLMClient:
         try:
             from openai import OpenAI
 
-            self._client = OpenAI(api_key=api_key)
+            # Without an explicit timeout the OpenAI SDK uses httpx.Timeout(None, connect=5.0):
+            # a stuck request never raises, so a single hung worker blocks the entire
+            # ThreadPoolExecutor drain (#108). Any positive value is enough to convert
+            # the hang into an exception that the retry envelope at complete() handles.
+            timeout_s = float(os.getenv("ENRICHMENT_OPENAI_TIMEOUT_S", "180"))
+            self._client = OpenAI(api_key=api_key, timeout=timeout_s)
         except ImportError:
             logger.warning("openai package not installed — LLMClient is no-op")
             self._client = None

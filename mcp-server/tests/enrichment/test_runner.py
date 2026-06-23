@@ -345,3 +345,44 @@ def test_worker_spans_land_in_run_id_jsonl_not_no_run(
         assert expected_tag in span.get("tags", []), (
             f"span {span.get('name')} is missing tag '{expected_tag}': {span.get('tags')}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Regression: incremental upsert inside the as_completed drain (#108)
+# ---------------------------------------------------------------------------
+
+
+def test_outputs_flush_per_product_not_once_at_end(monkeypatch):
+    """Each completed product's rows must hit the DB while other futures are
+    still running — not in a single post-drain batch. Otherwise a single hung
+    worker blocks persistence for every successful peer (#108 stall).
+    """
+    from app.enrichment.tools import llm_client as llm_module
+    from app.enrichment.tools import catalog_reader
+
+    products = _products(3)
+    monkeypatch.setattr(catalog_reader, "load_products", lambda *a, **kw: products)
+    monkeypatch.setattr(runner, "load_products", lambda *a, **kw: products)
+    scripted = _ScriptedLLM()
+    monkeypatch.setattr(
+        llm_module.LLMClient, "complete", lambda self, **kw: scripted.complete(**kw)
+    )
+
+    calls: list[int] = []
+    monkeypatch.setattr(
+        db_writer,
+        "upsert_many",
+        lambda db, outs, *, enriched_model, dry_run=False: calls.append(
+            len(list(outs))
+        )
+        or 0,
+    )
+
+    runner.run_enrichment(db=None, mode="fixed", limit=3, dry_run=False)
+
+    assert len(calls) == 3, (
+        f"expected upsert_many called once per product (3), got {len(calls)} "
+        f"with sizes {calls} — regression to single-batched-commit pattern"
+    )
+    # Every flush should carry at least one row (the 6 successful strategies per product).
+    assert all(n > 0 for n in calls), f"empty flush detected: {calls}"
