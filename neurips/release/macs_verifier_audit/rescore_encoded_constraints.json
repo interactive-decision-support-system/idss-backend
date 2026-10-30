@@ -1,0 +1,70 @@
+{
+  "saved_product_fields": [
+    "brand",
+    "name",
+    "price"
+  ],
+  "scoring": "max(0, 1 - 0.33*penalties) on the final turn",
+  "note": "shipped benchmark unchanged; these are counterfactual re-scores",
+  "classification": {
+    "INEXPRESSIBLE (no catalog field)": [
+      "S1.use_case",
+      "S2.use_case",
+      "S4.use_case",
+      "S6.use_case",
+      "S9.use_case",
+      "S9.os",
+      "S10.style"
+    ],
+    "MECHANICAL (decidable from saved fields)": [
+      "S7.brand_preference",
+      "S9.excluded_types"
+    ]
+  },
+  "rescored": {
+    "S7": {
+      "constraints_added": {
+        "brand_preference": "Apple/MacBook"
+      },
+      "Full": {
+        "n_runs": 5,
+        "s_constraint_as_shipped": 1.0,
+        "s_constraint_if_encoded": 1.0,
+        "mean_judge": 0.54,
+        "pass_at_k_as_shipped": 1.0,
+        "pass_at_k_if_encoded": 1.0
+      },
+      "NoSession": {
+        "n_runs": 5,
+        "s_constraint_as_shipped": 1.0,
+        "s_constraint_if_encoded": 0.67,
+        "mean_judge": 0.16,
+        "pass_at_k_as_shipped": 0.0,
+        "pass_at_k_if_encoded": 0.0
+      }
+    },
+    "S9": {
+      "constraints_added": {
+        "excluded_types": [
+          "Chromebook"
+        ]
+      },
+      "Full": {
+        "n_runs": 5,
+        "s_constraint_as_shipped": 1.0,
+        "s_constraint_if_encoded": 1.0,
+        "mean_judge": 0.5,
+        "pass_at_k_as_shipped": 1.0,
+        "pass_at_k_if_encoded": 1.0
+      },
+      "NoSession": {
+        "n_runs": 5,
+        "s_constraint_as_shipped": 1.0,
+        "s_constraint_if_encoded": 1.0,
+        "mean_judge": 0.5,
+        "pass_at_k_as_shipped": 1.0,
+        "pass_at_k_if_encoded": 1.0
+      }
+    }
+  }
+}

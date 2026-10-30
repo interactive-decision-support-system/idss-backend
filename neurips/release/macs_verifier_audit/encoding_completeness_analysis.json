@@ -1,0 +1,187 @@
+{
+  "source": {
+    "harness": "run_multiturn_geval.py",
+    "three_way": "geval_multiturn_passatk5_20260421_3way_clean.json",
+    "nosession": "geval_multiturn_nosession_ablation.json"
+  },
+  "checked_keys": [
+    "budget_max_usd",
+    "excluded_brands",
+    "excluded_os",
+    "min_ram_gb"
+  ],
+  "n_scenarios": 10,
+  "n_scenarios_with_unchecked_constraint": 7,
+  "unchecked_instances_total": 9,
+  "unchecked_mechanical": 3,
+  "unchecked_inexpressible": 6,
+  "per_scenario": [
+    {
+      "id": 1,
+      "name": "constraint_accumulation_4turn",
+      "declared": [
+        "budget_max_usd",
+        "excluded_brands",
+        "min_ram_gb",
+        "use_case"
+      ],
+      "unchecked": [
+        "use_case"
+      ],
+      "classification": {
+        "use_case": "INEXPRESSIBLE"
+      },
+      "first_turn": "I need a laptop"
+    },
+    {
+      "id": 2,
+      "name": "mind_change_pivot_gaming_to_video",
+      "declared": [
+        "budget_max_usd",
+        "use_case"
+      ],
+      "unchecked": [
+        "use_case"
+      ],
+      "classification": {
+        "use_case": "INEXPRESSIBLE"
+      },
+      "first_turn": "Show me gaming laptops"
+    },
+    {
+      "id": 3,
+      "name": "brand_exclusion_persistence_dell",
+      "declared": [
+        "excluded_brands"
+      ],
+      "unchecked": [],
+      "classification": {},
+      "first_turn": "Show me laptops \u2014 I don't want any Dell products"
+    },
+    {
+      "id": 4,
+      "name": "vague_to_specific_college_cs",
+      "declared": [
+        "budget_max_usd",
+        "use_case"
+      ],
+      "unchecked": [
+        "use_case"
+      ],
+      "classification": {
+        "use_case": "INEXPRESSIBLE"
+      },
+      "first_turn": "laptop"
+    },
+    {
+      "id": 5,
+      "name": "comparison_request_with_follow_up",
+      "declared": [
+        "budget_max_usd"
+      ],
+      "unchecked": [],
+      "classification": {},
+      "first_turn": "I need a business laptop under $1200"
+    },
+    {
+      "id": 6,
+      "name": "price_refinement_downward",
+      "declared": [
+        "budget_max_usd",
+        "use_case"
+      ],
+      "unchecked": [
+        "use_case"
+      ],
+      "classification": {
+        "use_case": "INEXPRESSIBLE"
+      },
+      "first_turn": "Show me the best laptops for software developers"
+    },
+    {
+      "id": 7,
+      "name": "budget_increase_overwrite",
+      "declared": [
+        "brand_preference",
+        "budget_max_usd"
+      ],
+      "unchecked": [
+        "brand_preference"
+      ],
+      "classification": {
+        "brand_preference": "MECHANICAL"
+      },
+      "first_turn": "MacBook recommendations under $1000"
+    },
+    {
+      "id": 8,
+      "name": "exclusion_then_unexclude_hp",
+      "declared": [
+        "brand_preference"
+      ],
+      "unchecked": [],
+      "classification": {},
+      "first_turn": "Show me laptops, no HP please"
+    },
+    {
+      "id": 9,
+      "name": "5turn_med_school_session",
+      "declared": [
+        "budget_max_usd",
+        "excluded_os",
+        "excluded_types",
+        "os",
+        "use_case"
+      ],
+      "unchecked": [
+        "excluded_types",
+        "os",
+        "use_case"
+      ],
+      "classification": {
+        "excluded_types": "MECHANICAL",
+        "os": "MECHANICAL",
+        "use_case": "INEXPRESSIBLE"
+      },
+      "first_turn": "I need a laptop for medical school"
+    },
+    {
+      "id": 10,
+      "name": "dense_first_turn_then_refinement",
+      "declared": [
+        "budget_max_usd",
+        "min_ram_gb",
+        "style"
+      ],
+      "unchecked": [
+        "style"
+      ],
+      "classification": {
+        "style": "INEXPRESSIBLE"
+      },
+      "first_turn": "I want a lightweight laptop \u2014 under 4 lbs, 13 or 14 inch, at least 16GB RAM, no gaming aesthetics, professional look, under $1300"
+    }
+  ],
+  "rescored": {
+    "S7": {
+      "constraint": "brand_preference=Apple/MacBook",
+      "note": "re-scored from saved product lists; no agent re-run",
+      "Full": {
+        "n_runs": 5,
+        "mean_share_per_turn": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "NoSession": {
+        "n_runs": 5,
+        "mean_share_per_turn": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      }
+    }
+  }
+}

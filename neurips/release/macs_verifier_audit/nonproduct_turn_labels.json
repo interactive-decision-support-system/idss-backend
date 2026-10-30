@@ -1,0 +1,807 @@
+{
+  "labeller": "Claude (LLM coding assistant), single pass; not human",
+  "by_system": {
+    "gpt": {
+      "CLARIFY": 23,
+      "INFO": 8,
+      "NO_MATCH": 6
+    },
+    "gemini": {
+      "CLARIFY": 37,
+      "INFO": 9,
+      "NO_MATCH": 8,
+      "API_ERROR": 4,
+      "PROSE_RECS": 1
+    }
+  },
+  "by_system_and_harness_type": {
+    "gpt": {
+      "question->CLARIFY": 23,
+      "unknown->NO_MATCH": 3,
+      "recommendations->INFO": 5,
+      "question->NO_MATCH": 3,
+      "unknown->INFO": 3
+    },
+    "gemini": {
+      "question->NO_MATCH": 4,
+      "question->CLARIFY": 32,
+      "unknown->INFO": 3,
+      "question->INFO": 5,
+      "unknown->PROSE_RECS": 1,
+      "unknown->NO_MATCH": 4,
+      "unknown->CLARIFY": 5,
+      "unknown->API_ERROR": 4,
+      "recommendations->INFO": 1
+    }
+  },
+  "turns": [
+    {
+      "system": "gemini",
+      "scenario": 1,
+      "run": 0,
+      "turn": 4,
+      "response_type": "question",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 0,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 0,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 0,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 5,
+      "run": 0,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 5,
+      "run": 0,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 0,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 7,
+      "run": 0,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 7,
+      "run": 0,
+      "turn": 3,
+      "response_type": "question",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gpt",
+      "scenario": 8,
+      "run": 0,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 8,
+      "run": 0,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 9,
+      "run": 0,
+      "turn": 5,
+      "response_type": "recommendations",
+      "label": "INFO"
+    },
+    {
+      "system": "gemini",
+      "scenario": 9,
+      "run": 0,
+      "turn": 5,
+      "response_type": "unknown",
+      "label": "INFO"
+    },
+    {
+      "system": "gpt",
+      "scenario": 10,
+      "run": 0,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 10,
+      "run": 0,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 10,
+      "run": 0,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 1,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 1,
+      "turn": 2,
+      "response_type": "question",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 1,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 1,
+      "turn": 2,
+      "response_type": "question",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 1,
+      "turn": 3,
+      "response_type": "question",
+      "label": "INFO"
+    },
+    {
+      "system": "gpt",
+      "scenario": 5,
+      "run": 1,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 1,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 1,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 1,
+      "turn": 3,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 6,
+      "run": 1,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "PROSE_RECS"
+    },
+    {
+      "system": "gemini",
+      "scenario": 7,
+      "run": 1,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gpt",
+      "scenario": 8,
+      "run": 1,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 8,
+      "run": 1,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 9,
+      "run": 1,
+      "turn": 5,
+      "response_type": "recommendations",
+      "label": "INFO"
+    },
+    {
+      "system": "gemini",
+      "scenario": 9,
+      "run": 1,
+      "turn": 5,
+      "response_type": "question",
+      "label": "INFO"
+    },
+    {
+      "system": "gpt",
+      "scenario": 10,
+      "run": 1,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 10,
+      "run": 1,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 10,
+      "run": 1,
+      "turn": 2,
+      "response_type": "unknown",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 2,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 2,
+      "turn": 2,
+      "response_type": "question",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 2,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "INFO"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 2,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 2,
+      "turn": 2,
+      "response_type": "unknown",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 2,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "INFO"
+    },
+    {
+      "system": "gpt",
+      "scenario": 5,
+      "run": 2,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 2,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 2,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 2,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 7,
+      "run": 2,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "API_ERROR"
+    },
+    {
+      "system": "gpt",
+      "scenario": 8,
+      "run": 2,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 8,
+      "run": 2,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 9,
+      "run": 2,
+      "turn": 5,
+      "response_type": "recommendations",
+      "label": "INFO"
+    },
+    {
+      "system": "gemini",
+      "scenario": 9,
+      "run": 2,
+      "turn": 5,
+      "response_type": "question",
+      "label": "INFO"
+    },
+    {
+      "system": "gpt",
+      "scenario": 10,
+      "run": 2,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 10,
+      "run": 2,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 10,
+      "run": 2,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 10,
+      "run": 2,
+      "turn": 2,
+      "response_type": "unknown",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 1,
+      "run": 3,
+      "turn": 4,
+      "response_type": "unknown",
+      "label": "API_ERROR"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 3,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 3,
+      "turn": 2,
+      "response_type": "unknown",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 3,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "INFO"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 3,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 3,
+      "turn": 2,
+      "response_type": "unknown",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 3,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "INFO"
+    },
+    {
+      "system": "gpt",
+      "scenario": 5,
+      "run": 3,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 5,
+      "run": 3,
+      "turn": 3,
+      "response_type": "question",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 3,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 3,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 3,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 7,
+      "run": 3,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 8,
+      "run": 3,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 8,
+      "run": 3,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 9,
+      "run": 3,
+      "turn": 5,
+      "response_type": "recommendations",
+      "label": "INFO"
+    },
+    {
+      "system": "gemini",
+      "scenario": 9,
+      "run": 3,
+      "turn": 5,
+      "response_type": "recommendations",
+      "label": "INFO"
+    },
+    {
+      "system": "gpt",
+      "scenario": 10,
+      "run": 3,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 10,
+      "run": 3,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 10,
+      "run": 3,
+      "turn": 2,
+      "response_type": "unknown",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 2,
+      "run": 4,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "API_ERROR"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 4,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 4,
+      "turn": 2,
+      "response_type": "unknown",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gpt",
+      "scenario": 3,
+      "run": 4,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "INFO"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 4,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 4,
+      "turn": 2,
+      "response_type": "question",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gemini",
+      "scenario": 3,
+      "run": 4,
+      "turn": 3,
+      "response_type": "question",
+      "label": "INFO"
+    },
+    {
+      "system": "gemini",
+      "scenario": 4,
+      "run": 4,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "API_ERROR"
+    },
+    {
+      "system": "gpt",
+      "scenario": 5,
+      "run": 4,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 4,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 4,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 5,
+      "run": 4,
+      "turn": 3,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 6,
+      "run": 4,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 7,
+      "run": 4,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 7,
+      "run": 4,
+      "turn": 3,
+      "response_type": "unknown",
+      "label": "NO_MATCH"
+    },
+    {
+      "system": "gpt",
+      "scenario": 8,
+      "run": 4,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 8,
+      "run": 4,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 9,
+      "run": 4,
+      "turn": 5,
+      "response_type": "recommendations",
+      "label": "INFO"
+    },
+    {
+      "system": "gemini",
+      "scenario": 9,
+      "run": 4,
+      "turn": 5,
+      "response_type": "question",
+      "label": "INFO"
+    },
+    {
+      "system": "gpt",
+      "scenario": 10,
+      "run": 4,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gpt",
+      "scenario": 10,
+      "run": 4,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 10,
+      "run": 4,
+      "turn": 1,
+      "response_type": "question",
+      "label": "CLARIFY"
+    },
+    {
+      "system": "gemini",
+      "scenario": 10,
+      "run": 4,
+      "turn": 2,
+      "response_type": "question",
+      "label": "CLARIFY"
+    }
+  ]
+}

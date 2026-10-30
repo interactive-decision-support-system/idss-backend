@@ -1,0 +1,652 @@
+{
+  "model": "gemini-2.5-flash-lite",
+  "model_version": [
+    [
+      "gemini-2.5-flash-lite",
+      438
+    ]
+  ],
+  "n_turns_labeled": 438,
+  "encoded": {
+    "identification_rate": {
+      "budget": 1.0,
+      "excluded_brand": 1.0
+    },
+    "n_encoded_instances": {
+      "budget": 280,
+      "excluded_brand": 82
+    },
+    "budget": {
+      "det1_ver1": 5,
+      "det1_ver0": 1,
+      "det0_ver1": 0,
+      "det0_ver0": 274,
+      "agreement": 0.9964285714285714,
+      "kappa": 0.9072847682119208,
+      "n": 280
+    },
+    "excluded_brand": {
+      "det1_ver1": 5,
+      "det1_ver0": 0,
+      "det0_ver1": 0,
+      "det0_ver0": 77,
+      "agreement": 1.0,
+      "kappa": 1.0,
+      "n": 82
+    },
+    "pooled": {
+      "det1_ver1": 10,
+      "det1_ver0": 1,
+      "det0_ver1": 0,
+      "det0_ver0": 351,
+      "agreement": 0.9972375690607734,
+      "kappa": 0.9509617989704678,
+      "n": 362
+    },
+    "pooled_by_system": {
+      "gemini": {
+        "det1_ver1": 1,
+        "det1_ver0": 0,
+        "det0_ver1": 0,
+        "det0_ver0": 53,
+        "agreement": 1.0,
+        "kappa": 1.0,
+        "n": 54
+      },
+      "gpt": {
+        "det1_ver1": 0,
+        "det1_ver0": 0,
+        "det0_ver1": 0,
+        "det0_ver0": 78,
+        "agreement": 1.0,
+        "kappa": null,
+        "n": 78
+      },
+      "macs": {
+        "det1_ver1": 0,
+        "det1_ver0": 0,
+        "det0_ver1": 0,
+        "det0_ver0": 115,
+        "agreement": 1.0,
+        "kappa": null,
+        "n": 115
+      },
+      "macs_nosession": {
+        "det1_ver1": 9,
+        "det1_ver0": 1,
+        "det0_ver1": 0,
+        "det0_ver0": 105,
+        "agreement": 0.991304347826087,
+        "kappa": 0.9426433915211972,
+        "n": 115
+      }
+    }
+  },
+  "disagreements_on_encoded": [
+    {
+      "system": "macs_nosession",
+      "scenario": 1,
+      "run": 0,
+      "turn": 4,
+      "family": "budget",
+      "ceiling": 1000,
+      "det": true,
+      "ver": false,
+      "max_price": 2099.0
+    }
+  ],
+  "verifier_violations_without_encoded_constraint": {
+    "n": 9,
+    "by_category": {
+      "budget": 3,
+      "excluded_brand": 6
+    },
+    "examples": [
+      {
+        "system": "gemini",
+        "scenario": 2,
+        "turn": 2,
+        "run": 3,
+        "category": "budget",
+        "value": "1000"
+      },
+      {
+        "system": "gpt",
+        "scenario": 1,
+        "turn": 2,
+        "run": 0,
+        "category": "budget",
+        "value": "1000"
+      },
+      {
+        "system": "gpt",
+        "scenario": 8,
+        "turn": 3,
+        "run": 4,
+        "category": "excluded_brand",
+        "value": "HP"
+      },
+      {
+        "system": "macs",
+        "scenario": 8,
+        "turn": 3,
+        "run": 1,
+        "category": "excluded_brand",
+        "value": "HP"
+      },
+      {
+        "system": "macs",
+        "scenario": 9,
+        "turn": 3,
+        "run": 2,
+        "category": "budget",
+        "value": 1149
+      },
+      {
+        "system": "macs_nosession",
+        "scenario": 8,
+        "turn": 2,
+        "run": 1,
+        "category": "excluded_brand",
+        "value": "HP"
+      },
+      {
+        "system": "macs_nosession",
+        "scenario": 8,
+        "turn": 2,
+        "run": 3,
+        "category": "excluded_brand",
+        "value": "HP"
+      },
+      {
+        "system": "macs_nosession",
+        "scenario": 9,
+        "turn": 3,
+        "run": 1,
+        "category": "excluded_brand",
+        "value": "Chromebook"
+      },
+      {
+        "system": "macs_nosession",
+        "scenario": 9,
+        "turn": 3,
+        "run": 3,
+        "category": "excluded_brand",
+        "value": "Chromebook"
+      }
+    ]
+  },
+  "unencoded_violation_turns_by_system": {
+    "gemini": {
+      "spec": 7,
+      "other": 3
+    },
+    "gpt": {
+      "use_case": 5,
+      "spec": 9
+    },
+    "macs": {
+      "use_case": 3,
+      "spec": 12,
+      "required_brand": 3
+    },
+    "macs_nosession": {
+      "use_case": 2,
+      "spec": 27,
+      "required_brand": 10,
+      "other": 1
+    }
+  },
+  "any_violation_rate_by_system_exploratory": {
+    "gemini": {
+      "rate": 0.1875,
+      "ci95": [
+        0.09230769230769231,
+        0.26865671641791045
+      ],
+      "n_turns": 64,
+      "per_scenario": {
+        "1": [
+          1,
+          8
+        ],
+        "2": [
+          2,
+          8
+        ],
+        "3": [
+          0,
+          1
+        ],
+        "4": [
+          0,
+          8
+        ],
+        "5": [
+          0,
+          2
+        ],
+        "6": [
+          1,
+          8
+        ],
+        "7": [
+          1,
+          8
+        ],
+        "9": [
+          5,
+          15
+        ],
+        "10": [
+          2,
+          6
+        ]
+      }
+    },
+    "gpt": {
+      "rate": 0.1744186046511628,
+      "ci95": [
+        0.06578947368421052,
+        0.27884615384615385
+      ],
+      "n_turns": 86,
+      "per_scenario": {
+        "1": [
+          5,
+          15
+        ],
+        "2": [
+          0,
+          7
+        ],
+        "3": [
+          1,
+          3
+        ],
+        "4": [
+          0,
+          7
+        ],
+        "5": [
+          0,
+          8
+        ],
+        "6": [
+          1,
+          10
+        ],
+        "7": [
+          2,
+          15
+        ],
+        "8": [
+          1,
+          1
+        ],
+        "9": [
+          5,
+          13
+        ],
+        "10": [
+          0,
+          7
+        ]
+      }
+    },
+    "macs": {
+      "rate": 0.1258741258741259,
+      "ci95": [
+        0.055944055944055944,
+        0.208955223880597
+      ],
+      "n_turns": 143,
+      "per_scenario": {
+        "1": [
+          4,
+          14
+        ],
+        "2": [
+          0,
+          9
+        ],
+        "3": [
+          5,
+          15
+        ],
+        "4": [
+          3,
+          10
+        ],
+        "5": [
+          0,
+          15
+        ],
+        "6": [
+          1,
+          15
+        ],
+        "7": [
+          0,
+          15
+        ],
+        "8": [
+          1,
+          15
+        ],
+        "9": [
+          1,
+          20
+        ],
+        "10": [
+          3,
+          15
+        ]
+      }
+    },
+    "macs_nosession": {
+      "rate": 0.30344827586206896,
+      "ci95": [
+        0.176,
+        0.41379310344827586
+      ],
+      "n_turns": 145,
+      "per_scenario": {
+        "1": [
+          6,
+          15
+        ],
+        "2": [
+          0,
+          10
+        ],
+        "3": [
+          6,
+          15
+        ],
+        "4": [
+          2,
+          10
+        ],
+        "5": [
+          0,
+          15
+        ],
+        "6": [
+          4,
+          15
+        ],
+        "7": [
+          10,
+          15
+        ],
+        "8": [
+          2,
+          15
+        ],
+        "9": [
+          8,
+          20
+        ],
+        "10": [
+          6,
+          15
+        ]
+      }
+    }
+  },
+  "s7_prediction": {
+    "nosession_turns_2_3": {
+      "n": 10,
+      "required_brand_violated": 10,
+      "mean_apple_share": 0.0
+    },
+    "full_turns_2_3": {
+      "n": 10,
+      "required_brand_violated": 0,
+      "mean_apple_share": 1.0
+    },
+    "rows": [
+      {
+        "system": "macs",
+        "run": 0,
+        "turn": 1,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 0,
+        "turn": 2,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 0,
+        "turn": 3,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 1,
+        "turn": 1,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 1,
+        "turn": 2,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 1,
+        "turn": 3,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 2,
+        "turn": 1,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 2,
+        "turn": 2,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 2,
+        "turn": 3,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 3,
+        "turn": 1,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 3,
+        "turn": 2,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 3,
+        "turn": 3,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 4,
+        "turn": 1,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 4,
+        "turn": 2,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs",
+        "run": 4,
+        "turn": 3,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs_nosession",
+        "run": 0,
+        "turn": 1,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs_nosession",
+        "run": 0,
+        "turn": 2,
+        "apple_share": 0.0,
+        "required_brand_identified": true,
+        "required_brand_violated": true
+      },
+      {
+        "system": "macs_nosession",
+        "run": 0,
+        "turn": 3,
+        "apple_share": 0.0,
+        "required_brand_identified": true,
+        "required_brand_violated": true
+      },
+      {
+        "system": "macs_nosession",
+        "run": 1,
+        "turn": 1,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs_nosession",
+        "run": 1,
+        "turn": 2,
+        "apple_share": 0.0,
+        "required_brand_identified": true,
+        "required_brand_violated": true
+      },
+      {
+        "system": "macs_nosession",
+        "run": 1,
+        "turn": 3,
+        "apple_share": 0.0,
+        "required_brand_identified": true,
+        "required_brand_violated": true
+      },
+      {
+        "system": "macs_nosession",
+        "run": 2,
+        "turn": 1,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs_nosession",
+        "run": 2,
+        "turn": 2,
+        "apple_share": 0.0,
+        "required_brand_identified": true,
+        "required_brand_violated": true
+      },
+      {
+        "system": "macs_nosession",
+        "run": 2,
+        "turn": 3,
+        "apple_share": 0.0,
+        "required_brand_identified": true,
+        "required_brand_violated": true
+      },
+      {
+        "system": "macs_nosession",
+        "run": 3,
+        "turn": 1,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs_nosession",
+        "run": 3,
+        "turn": 2,
+        "apple_share": 0.0,
+        "required_brand_identified": true,
+        "required_brand_violated": true
+      },
+      {
+        "system": "macs_nosession",
+        "run": 3,
+        "turn": 3,
+        "apple_share": 0.0,
+        "required_brand_identified": true,
+        "required_brand_violated": true
+      },
+      {
+        "system": "macs_nosession",
+        "run": 4,
+        "turn": 1,
+        "apple_share": 1.0,
+        "required_brand_identified": true,
+        "required_brand_violated": false
+      },
+      {
+        "system": "macs_nosession",
+        "run": 4,
+        "turn": 2,
+        "apple_share": 0.0,
+        "required_brand_identified": true,
+        "required_brand_violated": true
+      },
+      {
+        "system": "macs_nosession",
+        "run": 4,
+        "turn": 3,
+        "apple_share": 0.0,
+        "required_brand_identified": true,
+        "required_brand_violated": true
+      }
+    ]
+  }
+}

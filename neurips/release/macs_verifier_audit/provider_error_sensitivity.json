@@ -1,0 +1,65 @@
+{
+  "n_error_turns": 6,
+  "error_turns": [
+    {
+      "system": "gemini",
+      "scenario": 7,
+      "run": 2,
+      "turn": 3,
+      "judge_score": 0.4,
+      "judge_reason": "Budget update not reflected in product recommendations."
+    },
+    {
+      "system": "gemini",
+      "scenario": 1,
+      "run": 3,
+      "turn": 4,
+      "judge_score": 0.0,
+      "judge_reason": "Final recommendations did not meet RAM requirement."
+    },
+    {
+      "system": "gemini",
+      "scenario": 4,
+      "run": 3,
+      "turn": 1,
+      "judge_score": 0.6,
+      "judge_reason": "Most constraints satisfied, but HP product violates user preference."
+    },
+    {
+      "system": "gemini",
+      "scenario": 2,
+      "run": 4,
+      "turn": 2,
+      "judge_score": 0.0,
+      "judge_reason": "No recommendations provided; failed to address user needs."
+    },
+    {
+      "system": "gemini",
+      "scenario": 2,
+      "run": 4,
+      "turn": 3,
+      "judge_score": 0.0,
+      "judge_reason": "No recommendations provided; failed to address user needs."
+    },
+    {
+      "system": "gemini",
+      "scenario": 4,
+      "run": 4,
+      "turn": 3,
+      "judge_score": 0.3,
+      "judge_reason": "HP laptop included despite user constraints."
+    }
+  ],
+  "sensitivity": {
+    "gemini": {
+      "n_points_affected": 5,
+      "n_points": 50,
+      "macro_pass_all": 0.52,
+      "macro_pass_excluding_affected": 0.525,
+      "mean_s_mt_all": 0.7165,
+      "mean_s_mt_excluding_affected": 0.722,
+      "mean_judge_all": 0.378,
+      "mean_judge_excluding_affected": 0.3911
+    }
+  }
+}

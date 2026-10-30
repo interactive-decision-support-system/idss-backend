@@ -1,0 +1,202 @@
+{
+  "source_dir": ".",
+  "sanity": "checker reproduces all stored scores at 1.05",
+  "R1_variance": {
+    "n_points": 150,
+    "var_S": 0.0146597549,
+    "var_aC": 0.0002181509,
+    "var_bJ": 0.01421001,
+    "two_cov": 0.00023159399999999998,
+    "share_aC_of_varS": 0.014880937743372503,
+    "share_bJ_of_varS": 0.9693211173673851,
+    "share_2cov_of_varS": 0.015797944889242313,
+    "paper_formula_share_bJ": 0.9848802004973481,
+    "check_sum": 1.0
+  },
+  "R2_exact_budget_final_turn": {
+    "MACS": {
+      "points_changed": 0,
+      "mean_c_105": 1.0,
+      "mean_c_100": 1.0,
+      "frac_c_at_ceiling_100": 1.0,
+      "macro_pass_105": 0.72,
+      "macro_pass_100": 0.72,
+      "mean_s_105": 0.7507,
+      "mean_s_100": 0.7507
+    },
+    "GPT+Catalog": {
+      "points_changed": 0,
+      "mean_c_105": 1.0,
+      "mean_c_100": 1.0,
+      "frac_c_at_ceiling_100": 1.0,
+      "macro_pass_105": 0.56,
+      "macro_pass_100": 0.56,
+      "mean_s_105": 0.7363000000000001,
+      "mean_s_100": 0.7363000000000001
+    },
+    "Gemini+Catalog": {
+      "points_changed": 0,
+      "mean_c_105": 0.9934,
+      "mean_c_100": 0.9934,
+      "frac_c_at_ceiling_100": 0.98,
+      "macro_pass_105": 0.52,
+      "macro_pass_100": 0.52,
+      "mean_s_105": 0.71647,
+      "mean_s_100": 0.71647
+    },
+    "MACS-NoSession": {
+      "points_changed": 0,
+      "mean_c_105": 0.934,
+      "mean_c_100": 0.9339999999999999,
+      "frac_c_at_ceiling_100": 0.9,
+      "macro_pass_105": 0.52,
+      "macro_pass_100": 0.52,
+      "mean_s_105": 0.673,
+      "mean_s_100": 0.673
+    }
+  },
+  "R2_exact_budget_turn_level": {
+    "1.05": {
+      "MACS": {
+        "carryover": "0/55",
+        "carryover_ci": [
+          0.0,
+          0.0
+        ],
+        "first_stated": "0/60",
+        "coverage": "105/105",
+        "n_scenarios_with_carryover_violation": 0
+      },
+      "GPT+Catalog": {
+        "carryover": "0/36",
+        "carryover_ci": [
+          0.0,
+          0.0
+        ],
+        "first_stated": "0/42",
+        "coverage": "68/105",
+        "n_scenarios_with_carryover_violation": 0
+      },
+      "Gemini+Catalog": {
+        "carryover": "1/20",
+        "carryover_ci": [
+          0.0,
+          0.25
+        ],
+        "first_stated": "0/34",
+        "coverage": "46/105",
+        "n_scenarios_with_carryover_violation": 1
+      },
+      "MACS-NoSession": {
+        "carryover": "10/55",
+        "carryover_ci": [
+          0.0,
+          0.5455
+        ],
+        "first_stated": "0/60",
+        "coverage": "105/105",
+        "n_scenarios_with_carryover_violation": 1
+      }
+    },
+    "1.00": {
+      "MACS": {
+        "carryover": "0/55",
+        "carryover_ci": [
+          0.0,
+          0.0
+        ],
+        "first_stated": "0/60",
+        "coverage": "105/105",
+        "n_scenarios_with_carryover_violation": 0
+      },
+      "GPT+Catalog": {
+        "carryover": "0/36",
+        "carryover_ci": [
+          0.0,
+          0.0
+        ],
+        "first_stated": "0/42",
+        "coverage": "68/105",
+        "n_scenarios_with_carryover_violation": 0
+      },
+      "Gemini+Catalog": {
+        "carryover": "1/20",
+        "carryover_ci": [
+          0.0,
+          0.25
+        ],
+        "first_stated": "0/34",
+        "coverage": "46/105",
+        "n_scenarios_with_carryover_violation": 1
+      },
+      "MACS-NoSession": {
+        "carryover": "10/55",
+        "carryover_ci": [
+          0.0,
+          0.5455
+        ],
+        "first_stated": "0/60",
+        "coverage": "105/105",
+        "n_scenarios_with_carryover_violation": 1
+      }
+    }
+  },
+  "R3_threshold_sensitivity": {
+    "MACS": {
+      "0.50": 1.0,
+      "0.55": 1.0,
+      "0.60": 0.96,
+      "0.65": 0.72,
+      "0.70": 0.58,
+      "0.75": 0.42,
+      "0.80": 0.33999999999999997
+    },
+    "GPT+Catalog": {
+      "0.50": 1.0,
+      "0.55": 1.0,
+      "0.60": 0.86,
+      "0.65": 0.56,
+      "0.70": 0.48000000000000004,
+      "0.75": 0.44,
+      "0.80": 0.44
+    },
+    "Gemini+Catalog": {
+      "0.50": 0.98,
+      "0.55": 0.98,
+      "0.60": 0.74,
+      "0.65": 0.52,
+      "0.70": 0.44,
+      "0.75": 0.34,
+      "0.80": 0.3
+    },
+    "MACS-NoSession": {
+      "0.50": 0.9,
+      "0.55": 0.9,
+      "0.60": 0.82,
+      "0.65": 0.52,
+      "0.70": 0.46,
+      "0.75": 0.3,
+      "0.80": 0.3
+    }
+  },
+  "R4_nonproduct_turn_types": {
+    "MACS": {
+      "returned_products": 105
+    },
+    "GPT+Catalog": {
+      "no_products:question": 26,
+      "no_products:recommendations": 5,
+      "no_products:unknown": 6,
+      "returned_products": 68
+    },
+    "Gemini+Catalog": {
+      "no_products:question": 41,
+      "no_products:recommendations": 1,
+      "no_products:unknown": 17,
+      "returned_products": 46
+    },
+    "MACS-NoSession": {
+      "returned_products": 105
+    }
+  }
+}
