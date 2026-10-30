@@ -1,0 +1,63 @@
+{
+  "macs": {
+    "checkable_turns": 15,
+    "turns_with_chromebook": 0,
+    "final_turn_with_chromebook": 0,
+    "rows": []
+  },
+  "gpt": {
+    "checkable_turns": 9,
+    "turns_with_chromebook": 0,
+    "final_turn_with_chromebook": 0,
+    "rows": []
+  },
+  "gemini": {
+    "checkable_turns": 10,
+    "turns_with_chromebook": 0,
+    "final_turn_with_chromebook": 0,
+    "rows": []
+  },
+  "macs_nosession": {
+    "checkable_turns": 15,
+    "turns_with_chromebook": 6,
+    "final_turn_with_chromebook": 0,
+    "rows": [
+      {
+        "run": 0,
+        "turn": 3,
+        "n_chromebooks": 1,
+        "n_products": 6
+      },
+      {
+        "run": 0,
+        "turn": 4,
+        "n_chromebooks": 1,
+        "n_products": 6
+      },
+      {
+        "run": 1,
+        "turn": 3,
+        "n_chromebooks": 1,
+        "n_products": 6
+      },
+      {
+        "run": 3,
+        "turn": 3,
+        "n_chromebooks": 1,
+        "n_products": 6
+      },
+      {
+        "run": 4,
+        "turn": 3,
+        "n_chromebooks": 2,
+        "n_products": 6
+      },
+      {
+        "run": 4,
+        "turn": 4,
+        "n_chromebooks": 1,
+        "n_products": 6
+      }
+    ]
+  }
+}

@@ -1,0 +1,541 @@
+{
+  "source_files": {
+    "three_way": "geval_multiturn_passatk5_20260421_3way_clean.json",
+    "nosession_ablation": "geval_multiturn_nosession_ablation.json",
+    "ground_truth": "run_multiturn_geval.py"
+  },
+  "K": 5,
+  "n_scenarios": 10,
+  "budget_tolerance": 1.05,
+  "systems": {
+    "idss": {
+      "system": "MACS",
+      "carryover": {
+        "applicable": 55,
+        "violations": 0,
+        "violation_rate": 0.0,
+        "ci95_scenario_cluster": {
+          "point": 0.0,
+          "lo": 0.0,
+          "hi": 0.0,
+          "n_scenarios": 7
+        }
+      },
+      "first_stated": {
+        "applicable": 60,
+        "violations": 0,
+        "violation_rate": 0.0
+      },
+      "per_scenario": {
+        "1": {
+          "carryover_applicable": 10,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 10
+        },
+        "2": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 5
+        },
+        "3": {
+          "carryover_applicable": 10,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 15
+        },
+        "4": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 5
+        },
+        "5": {
+          "carryover_applicable": 10,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 15
+        },
+        "6": {
+          "carryover_applicable": 5,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 10
+        },
+        "7": {
+          "carryover_applicable": 5,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 15
+        },
+        "8": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 5
+        },
+        "9": {
+          "carryover_applicable": 5,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 10
+        },
+        "10": {
+          "carryover_applicable": 10,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 15
+        }
+      },
+      "n_scenarios_with_carryover_violation": 0,
+      "by_constraint_kind": {
+        "brand": {
+          "applicable": 30,
+          "violations": 0,
+          "violation_rate": 0.0
+        },
+        "budget": {
+          "applicable": 85,
+          "violations": 0,
+          "violation_rate": 0.0
+        }
+      },
+      "coverage": {
+        "constrained_turns": 105,
+        "turns_with_products": 105,
+        "rate": 1.0,
+        "ci95_scenario_cluster": {
+          "point": 1.0,
+          "lo": 1.0,
+          "hi": 1.0,
+          "n_scenarios": 10
+        }
+      },
+      "violation_examples": [],
+      "sanity_check_mismatches": []
+    },
+    "gpt": {
+      "system": "GPT+Catalog",
+      "carryover": {
+        "applicable": 36,
+        "violations": 0,
+        "violation_rate": 0.0,
+        "ci95_scenario_cluster": {
+          "point": 0.0,
+          "lo": 0.0,
+          "hi": 0.0,
+          "n_scenarios": 6
+        }
+      },
+      "first_stated": {
+        "applicable": 42,
+        "violations": 0,
+        "violation_rate": 0.0
+      },
+      "per_scenario": {
+        "1": {
+          "carryover_applicable": 10,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 10
+        },
+        "2": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 5
+        },
+        "3": {
+          "carryover_applicable": 3,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 3
+        },
+        "4": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 5
+        },
+        "5": {
+          "carryover_applicable": 8,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 8
+        },
+        "6": {
+          "carryover_applicable": 5,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 10
+        },
+        "7": {
+          "carryover_applicable": 5,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 15
+        },
+        "8": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 0
+        },
+        "9": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 5
+        },
+        "10": {
+          "carryover_applicable": 5,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 7
+        }
+      },
+      "n_scenarios_with_carryover_violation": 0,
+      "by_constraint_kind": {
+        "brand": {
+          "applicable": 13,
+          "violations": 0,
+          "violation_rate": 0.0
+        },
+        "budget": {
+          "applicable": 65,
+          "violations": 0,
+          "violation_rate": 0.0
+        }
+      },
+      "coverage": {
+        "constrained_turns": 105,
+        "turns_with_products": 68,
+        "rate": 0.6476,
+        "ci95_scenario_cluster": {
+          "point": 0.6476,
+          "lo": 0.44,
+          "hi": 0.864,
+          "n_scenarios": 10
+        }
+      },
+      "violation_examples": [],
+      "sanity_check_mismatches": []
+    },
+    "gemini": {
+      "system": "Gemini+Catalog",
+      "carryover": {
+        "applicable": 20,
+        "violations": 1,
+        "violation_rate": 0.05,
+        "ci95_scenario_cluster": {
+          "point": 0.05,
+          "lo": 0.0,
+          "hi": 0.25,
+          "n_scenarios": 6
+        }
+      },
+      "first_stated": {
+        "applicable": 34,
+        "violations": 0,
+        "violation_rate": 0.0
+      },
+      "per_scenario": {
+        "1": {
+          "carryover_applicable": 6,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 8
+        },
+        "2": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 4
+        },
+        "3": {
+          "carryover_applicable": 1,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 1
+        },
+        "4": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 4
+        },
+        "5": {
+          "carryover_applicable": 2,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 2
+        },
+        "6": {
+          "carryover_applicable": 4,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 8
+        },
+        "7": {
+          "carryover_applicable": 1,
+          "carryover_violations": 1,
+          "constrained_turns": 15,
+          "turns_with_products": 8
+        },
+        "8": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 0
+        },
+        "9": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 5
+        },
+        "10": {
+          "carryover_applicable": 6,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 6
+        }
+      },
+      "n_scenarios_with_carryover_violation": 1,
+      "by_constraint_kind": {
+        "brand": {
+          "applicable": 9,
+          "violations": 0,
+          "violation_rate": 0.0
+        },
+        "budget": {
+          "applicable": 45,
+          "violations": 1,
+          "violation_rate": 0.0222
+        }
+      },
+      "coverage": {
+        "constrained_turns": 105,
+        "turns_with_products": 46,
+        "rate": 0.4381,
+        "ci95_scenario_cluster": {
+          "point": 0.4381,
+          "lo": 0.2667,
+          "hi": 0.6286,
+          "n_scenarios": 10
+        }
+      },
+      "violation_examples": [
+        {
+          "scenario_id": 7,
+          "scenario": "budget_increase_overwrite",
+          "turn": 3,
+          "constraint": "budget=1400",
+          "class": "carryover",
+          "first_stated_turn": 2,
+          "n_products": 4
+        }
+      ],
+      "sanity_check_mismatches": []
+    },
+    "idss_nosession": {
+      "system": "MACS-NoSession",
+      "carryover": {
+        "applicable": 55,
+        "violations": 10,
+        "violation_rate": 0.1818,
+        "ci95_scenario_cluster": {
+          "point": 0.1818,
+          "lo": 0.0,
+          "hi": 0.5455,
+          "n_scenarios": 7
+        }
+      },
+      "first_stated": {
+        "applicable": 60,
+        "violations": 0,
+        "violation_rate": 0.0
+      },
+      "per_scenario": {
+        "1": {
+          "carryover_applicable": 10,
+          "carryover_violations": 10,
+          "constrained_turns": 10,
+          "turns_with_products": 10
+        },
+        "2": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 5
+        },
+        "3": {
+          "carryover_applicable": 10,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 15
+        },
+        "4": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 5
+        },
+        "5": {
+          "carryover_applicable": 10,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 15
+        },
+        "6": {
+          "carryover_applicable": 5,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 10
+        },
+        "7": {
+          "carryover_applicable": 5,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 15
+        },
+        "8": {
+          "carryover_applicable": 0,
+          "carryover_violations": 0,
+          "constrained_turns": 5,
+          "turns_with_products": 5
+        },
+        "9": {
+          "carryover_applicable": 5,
+          "carryover_violations": 0,
+          "constrained_turns": 10,
+          "turns_with_products": 10
+        },
+        "10": {
+          "carryover_applicable": 10,
+          "carryover_violations": 0,
+          "constrained_turns": 15,
+          "turns_with_products": 15
+        }
+      },
+      "n_scenarios_with_carryover_violation": 1,
+      "by_constraint_kind": {
+        "brand": {
+          "applicable": 30,
+          "violations": 5,
+          "violation_rate": 0.1667
+        },
+        "budget": {
+          "applicable": 85,
+          "violations": 5,
+          "violation_rate": 0.0588
+        }
+      },
+      "coverage": {
+        "constrained_turns": 105,
+        "turns_with_products": 105,
+        "rate": 1.0,
+        "ci95_scenario_cluster": {
+          "point": 1.0,
+          "lo": 1.0,
+          "hi": 1.0,
+          "n_scenarios": 10
+        }
+      },
+      "violation_examples": [
+        {
+          "scenario_id": 1,
+          "scenario": "constraint_accumulation_4turn",
+          "turn": 4,
+          "constraint": "brand=HP",
+          "class": "carryover",
+          "first_stated_turn": 3,
+          "n_products": 6
+        },
+        {
+          "scenario_id": 1,
+          "scenario": "constraint_accumulation_4turn",
+          "turn": 4,
+          "constraint": "budget=1000",
+          "class": "carryover",
+          "first_stated_turn": 3,
+          "n_products": 6
+        },
+        {
+          "scenario_id": 1,
+          "scenario": "constraint_accumulation_4turn",
+          "turn": 4,
+          "constraint": "brand=HP",
+          "class": "carryover",
+          "first_stated_turn": 3,
+          "n_products": 6
+        },
+        {
+          "scenario_id": 1,
+          "scenario": "constraint_accumulation_4turn",
+          "turn": 4,
+          "constraint": "budget=1000",
+          "class": "carryover",
+          "first_stated_turn": 3,
+          "n_products": 6
+        },
+        {
+          "scenario_id": 1,
+          "scenario": "constraint_accumulation_4turn",
+          "turn": 4,
+          "constraint": "brand=HP",
+          "class": "carryover",
+          "first_stated_turn": 3,
+          "n_products": 6
+        },
+        {
+          "scenario_id": 1,
+          "scenario": "constraint_accumulation_4turn",
+          "turn": 4,
+          "constraint": "budget=1000",
+          "class": "carryover",
+          "first_stated_turn": 3,
+          "n_products": 6
+        },
+        {
+          "scenario_id": 1,
+          "scenario": "constraint_accumulation_4turn",
+          "turn": 4,
+          "constraint": "brand=HP",
+          "class": "carryover",
+          "first_stated_turn": 3,
+          "n_products": 6
+        },
+        {
+          "scenario_id": 1,
+          "scenario": "constraint_accumulation_4turn",
+          "turn": 4,
+          "constraint": "budget=1000",
+          "class": "carryover",
+          "first_stated_turn": 3,
+          "n_products": 6
+        },
+        {
+          "scenario_id": 1,
+          "scenario": "constraint_accumulation_4turn",
+          "turn": 4,
+          "constraint": "brand=HP",
+          "class": "carryover",
+          "first_stated_turn": 3,
+          "n_products": 6
+        },
+        {
+          "scenario_id": 1,
+          "scenario": "constraint_accumulation_4turn",
+          "turn": 4,
+          "constraint": "budget=1000",
+          "class": "carryover",
+          "first_stated_turn": 3,
+          "n_products": 6
+        }
+      ],
+      "sanity_check_mismatches": []
+    }
+  }
+}

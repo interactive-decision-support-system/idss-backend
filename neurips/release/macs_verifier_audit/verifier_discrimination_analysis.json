@@ -1,0 +1,98 @@
+{
+  "source_files": {
+    "three_way": "geval_multiturn_passatk5_20260421_3way_clean.json",
+    "nosession": "geval_multiturn_nosession_ablation.json"
+  },
+  "weights": {
+    "s_constraint": 0.55,
+    "s_judge": 0.45
+  },
+  "threshold": 0.65,
+  "independence_caveat": "The deterministic constraint verdict is injected into the judge prompt, so the judge is not an independent rater of constraint compliance; agreement figures are an upper bound.",
+  "per_system": {
+    "MACS": {
+      "n": 50,
+      "s_constraint": {
+        "mean": 1.0,
+        "sd": 0.0,
+        "min": 1.0,
+        "frac_at_ceiling": 1.0
+      },
+      "s_judge": {
+        "mean": 0.446,
+        "sd": 0.2443,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "pass_rate": 0.72
+    },
+    "GPT+Catalog": {
+      "n": 50,
+      "s_constraint": {
+        "mean": 1.0,
+        "sd": 0.0,
+        "min": 1.0,
+        "frac_at_ceiling": 1.0
+      },
+      "s_judge": {
+        "mean": 0.414,
+        "sd": 0.2538,
+        "min": 0.1,
+        "max": 1.0
+      },
+      "pass_rate": 0.56
+    },
+    "Gemini+Catalog": {
+      "n": 50,
+      "s_constraint": {
+        "mean": 0.9934,
+        "sd": 0.0462,
+        "min": 0.67,
+        "frac_at_ceiling": 0.98
+      },
+      "s_judge": {
+        "mean": 0.378,
+        "sd": 0.29,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "pass_rate": 0.52
+    },
+    "MACS-NoSession": {
+      "n": 50,
+      "s_constraint": {
+        "mean": 0.934,
+        "sd": 0.198,
+        "min": 0.34,
+        "frac_at_ceiling": 0.9
+      },
+      "s_judge": {
+        "mean": 0.354,
+        "sd": 0.2174,
+        "min": 0.1,
+        "max": 0.9
+      },
+      "pass_rate": 0.52
+    }
+  },
+  "composite_variance_attribution": {
+    "n_points": 150,
+    "var_weighted_constraint": 0.000218,
+    "var_weighted_judge": 0.01421,
+    "judge_share_of_variance": 0.9849
+  },
+  "pass_reduces_to": {
+    "frac_points_at_constraint_ceiling": 0.9933,
+    "judge_score_needed_when_at_ceiling": 0.2222,
+    "pass_rate_among_ceiling_points": 0.604
+  },
+  "agreement": {
+    "pearson_r_all_points": 0.0658,
+    "n_verifier_compliant": 149,
+    "mean_judge_when_compliant": 0.4141,
+    "n_verifier_violation": 1,
+    "mean_judge_when_violation": 0.2,
+    "n_compliant_but_judge_le_0.30": 74,
+    "frac_compliant_but_judge_le_0.30": 0.4966
+  }
+}
