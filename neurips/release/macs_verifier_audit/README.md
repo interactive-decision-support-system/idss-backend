@@ -37,6 +37,7 @@ does not.
 | App. E: S7 counterfactual 1.00 → 0.67 | `rescore_with_encoded_constraints.py` | `rescore_encoded_constraints.json` |
 | App. E: S9 Chromebooks on 6/15 non-final MACS-NoSession turns | `rescore_s9_chromebook_all_turns.py` | `rescore_s9_chromebook_all_turns.json` |
 | App. D: fault injection (55 mutants; s_constraint misses 15/15 non-final) | `fault_injection_carryover.py` | `fault_injection_carryover.json` |
+| RQ3, App. D: state-update fault injection (50 mutants on S7 overwrite / S8 reversal; 0/20 false flags; turn-level misses 10/10 stale reversals; text fallback hides 5/5) | `fault_injection_state_updates.py` | `fault_injection_state_updates.json` |
 | App. D: blinded verifier (361/362, κ = 0.95; S7 10/10 vs 0/10) | `independent_verifier.py` (model calls) → `analyze_independent_verifier.py` | `independent_verifier_summary.json` |
 | RQ2, App. F: non-product turn behaviour (GPT 23/8/6; Gemini 37/9/8/1/4) | `dump_nonproduct_turns.py` → `label_nonproduct_turns.py` | `nonproduct_turns_dump.json`, `nonproduct_turn_labels.json` |
 | App. F: 6 provider-error turns; Gemini MPR 52% → 52.5% excluding them | `provider_error_sensitivity.py` | `provider_error_sensitivity.json` |

@@ -1,0 +1,1004 @@
+{
+  "n_mutants": 50,
+  "summary": {
+    "O_allowed": {
+      "n": 10,
+      "should_flag": false,
+      "turns": [
+        2,
+        3
+      ],
+      "turn_level_flagged": 0,
+      "s_constraint_flagged": 0,
+      "s_constraint_flagged_final_turn": 0,
+      "n_final_turn": 5,
+      "pass_flipped": 0,
+      "passed_base": 10
+    },
+    "O_over": {
+      "n": 10,
+      "should_flag": true,
+      "turns": [
+        2,
+        3
+      ],
+      "turn_level_flagged": 10,
+      "s_constraint_flagged": 5,
+      "s_constraint_flagged_final_turn": 5,
+      "n_final_turn": 5,
+      "pass_flipped": 3,
+      "passed_base": 10
+    },
+    "O_pre": {
+      "n": 5,
+      "should_flag": true,
+      "turns": [
+        1
+      ],
+      "turn_level_flagged": 5,
+      "s_constraint_flagged": 0,
+      "s_constraint_flagged_final_turn": 0,
+      "n_final_turn": 0,
+      "pass_flipped": 0,
+      "passed_base": 5
+    },
+    "R_allowed": {
+      "n": 10,
+      "should_flag": false,
+      "turns": [
+        2,
+        3
+      ],
+      "turn_level_flagged": 0,
+      "s_constraint_flagged": 0,
+      "s_constraint_flagged_final_turn": 0,
+      "n_final_turn": 5,
+      "pass_flipped": 0,
+      "passed_base": 10
+    },
+    "R_stale": {
+      "n": 5,
+      "should_flag": true,
+      "turns": [
+        3
+      ],
+      "turn_level_flagged": 0,
+      "s_constraint_flagged": 5,
+      "s_constraint_flagged_final_turn": 5,
+      "n_final_turn": 5,
+      "pass_flipped": 0,
+      "passed_base": 5,
+      "final_text_mentions_hp": 0
+    },
+    "R_stale_negated": {
+      "n": 5,
+      "should_flag": true,
+      "turns": [
+        3
+      ],
+      "turn_level_flagged": 0,
+      "s_constraint_flagged": 0,
+      "s_constraint_flagged_final_turn": 0,
+      "n_final_turn": 5,
+      "pass_flipped": 0,
+      "passed_base": 5,
+      "final_text_mentions_hp": 5
+    },
+    "R_pre": {
+      "n": 5,
+      "should_flag": true,
+      "turns": [
+        1
+      ],
+      "turn_level_flagged": 5,
+      "s_constraint_flagged": 0,
+      "s_constraint_flagged_final_turn": 0,
+      "n_final_turn": 0,
+      "pass_flipped": 0,
+      "passed_base": 5
+    }
+  },
+  "skipped": [],
+  "mutants": [
+    {
+      "scenario": 7,
+      "run": 0,
+      "turn": 2,
+      "kind": "O_allowed",
+      "final_turn": false,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 0,
+      "turn": 3,
+      "kind": "O_allowed",
+      "final_turn": true,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 0,
+      "turn": 2,
+      "kind": "O_over",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 0,
+      "turn": 3,
+      "kind": "O_over",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": true,
+      "s_constraint_base": 1.0,
+      "s_constraint": 0.67,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": false,
+      "checker_notes": [
+        "\u2717 FAIL: 1 product(s) over $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 0,
+      "turn": 1,
+      "kind": "O_pre",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 0,
+      "turn": 2,
+      "kind": "R_allowed",
+      "final_turn": false,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 0,
+      "turn": 3,
+      "kind": "R_allowed",
+      "final_turn": true,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 0,
+      "turn": 3,
+      "kind": "R_stale",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": false,
+      "s_constraint_flag": true,
+      "s_constraint_base": 1.0,
+      "s_constraint": 0.67,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2717 FAIL: expected brand 'HP' not found in final products after un-exclusion"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 0,
+      "turn": 3,
+      "kind": "R_stale_negated",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "~ 'HP' mentioned in final text but not in structured products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 0,
+      "turn": 1,
+      "kind": "R_pre",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 1,
+      "turn": 2,
+      "kind": "O_allowed",
+      "final_turn": false,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 2 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 1,
+      "turn": 3,
+      "kind": "O_allowed",
+      "final_turn": true,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 2 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 1,
+      "turn": 2,
+      "kind": "O_over",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 2 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 1,
+      "turn": 3,
+      "kind": "O_over",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": true,
+      "s_constraint_base": 1.0,
+      "s_constraint": 0.67,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": false,
+      "checker_notes": [
+        "\u2717 FAIL: 1 product(s) over $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 1,
+      "turn": 1,
+      "kind": "O_pre",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 2 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 1,
+      "turn": 2,
+      "kind": "R_allowed",
+      "final_turn": false,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 1,
+      "turn": 3,
+      "kind": "R_allowed",
+      "final_turn": true,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 1,
+      "turn": 3,
+      "kind": "R_stale",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": false,
+      "s_constraint_flag": true,
+      "s_constraint_base": 1.0,
+      "s_constraint": 0.67,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2717 FAIL: expected brand 'HP' not found in final products after un-exclusion"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 1,
+      "turn": 3,
+      "kind": "R_stale_negated",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "~ 'HP' mentioned in final text but not in structured products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 1,
+      "turn": 1,
+      "kind": "R_pre",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 2,
+      "turn": 2,
+      "kind": "O_allowed",
+      "final_turn": false,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 2 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 2,
+      "turn": 3,
+      "kind": "O_allowed",
+      "final_turn": true,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 2 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 2,
+      "turn": 2,
+      "kind": "O_over",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 2 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 2,
+      "turn": 3,
+      "kind": "O_over",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": true,
+      "s_constraint_base": 1.0,
+      "s_constraint": 0.67,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2717 FAIL: 1 product(s) over $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 2,
+      "turn": 1,
+      "kind": "O_pre",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 2 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 2,
+      "turn": 2,
+      "kind": "R_allowed",
+      "final_turn": false,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 2,
+      "turn": 3,
+      "kind": "R_allowed",
+      "final_turn": true,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 2,
+      "turn": 3,
+      "kind": "R_stale",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": false,
+      "s_constraint_flag": true,
+      "s_constraint_base": 1.0,
+      "s_constraint": 0.67,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2717 FAIL: expected brand 'HP' not found in final products after un-exclusion"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 2,
+      "turn": 3,
+      "kind": "R_stale_negated",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "~ 'HP' mentioned in final text but not in structured products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 2,
+      "turn": 1,
+      "kind": "R_pre",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 3,
+      "turn": 2,
+      "kind": "O_allowed",
+      "final_turn": false,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 3,
+      "turn": 3,
+      "kind": "O_allowed",
+      "final_turn": true,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 3,
+      "turn": 2,
+      "kind": "O_over",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 3,
+      "turn": 3,
+      "kind": "O_over",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": true,
+      "s_constraint_base": 1.0,
+      "s_constraint": 0.67,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2717 FAIL: 1 product(s) over $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 3,
+      "turn": 1,
+      "kind": "O_pre",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 3,
+      "turn": 2,
+      "kind": "R_allowed",
+      "final_turn": false,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 3,
+      "turn": 3,
+      "kind": "R_allowed",
+      "final_turn": true,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 3,
+      "turn": 3,
+      "kind": "R_stale",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": false,
+      "s_constraint_flag": true,
+      "s_constraint_base": 1.0,
+      "s_constraint": 0.67,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2717 FAIL: expected brand 'HP' not found in final products after un-exclusion"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 3,
+      "turn": 3,
+      "kind": "R_stale_negated",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "~ 'HP' mentioned in final text but not in structured products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 3,
+      "turn": 1,
+      "kind": "R_pre",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 4,
+      "turn": 2,
+      "kind": "O_allowed",
+      "final_turn": false,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 4,
+      "turn": 3,
+      "kind": "O_allowed",
+      "final_turn": true,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 4,
+      "turn": 2,
+      "kind": "O_over",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 4,
+      "turn": 3,
+      "kind": "O_over",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": true,
+      "s_constraint_base": 1.0,
+      "s_constraint": 0.67,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": false,
+      "checker_notes": [
+        "\u2717 FAIL: 1 product(s) over $1400 budget"
+      ]
+    },
+    {
+      "scenario": 7,
+      "run": 4,
+      "turn": 1,
+      "kind": "O_pre",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 All 1 products within $1400 budget"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 4,
+      "turn": 2,
+      "kind": "R_allowed",
+      "final_turn": false,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 4,
+      "turn": 3,
+      "kind": "R_allowed",
+      "final_turn": true,
+      "should_flag": false,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 4,
+      "turn": 3,
+      "kind": "R_stale",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": false,
+      "s_constraint_flag": true,
+      "s_constraint_base": 1.0,
+      "s_constraint": 0.67,
+      "final_text_mentions_hp": false,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2717 FAIL: expected brand 'HP' not found in final products after un-exclusion"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 4,
+      "turn": 3,
+      "kind": "R_stale_negated",
+      "final_turn": true,
+      "should_flag": true,
+      "turn_level_flag": false,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "~ 'HP' mentioned in final text but not in structured products"
+      ]
+    },
+    {
+      "scenario": 8,
+      "run": 4,
+      "turn": 1,
+      "kind": "R_pre",
+      "final_turn": false,
+      "should_flag": true,
+      "turn_level_flag": true,
+      "s_constraint_flag": false,
+      "s_constraint_base": 1.0,
+      "s_constraint": 1.0,
+      "final_text_mentions_hp": true,
+      "pass_base": true,
+      "pass_mut": true,
+      "checker_notes": [
+        "\u2713 Expected brand 'HP' present in final products"
+      ]
+    }
+  ]
+}
