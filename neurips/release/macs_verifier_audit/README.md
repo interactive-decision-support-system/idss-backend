@@ -38,6 +38,8 @@ does not.
 | App. E: S9 Chromebooks on 6/15 non-final MACS-NoSession turns | `rescore_s9_chromebook_all_turns.py` | `rescore_s9_chromebook_all_turns.json` |
 | App. D: fault injection (55 mutants; s_constraint misses 15/15 non-final) | `fault_injection_carryover.py` | `fault_injection_carryover.json` |
 | RQ3, App. D: state-update fault injection (50 mutants on S7 overwrite / S8 reversal; 0/20 false flags; turn-level misses 10/10 stale reversals; text fallback hides 5/5) | `fault_injection_state_updates.py` | `fault_injection_state_updates.json` |
+| RQ1, App. D: 9 S8 baseline false passes via the presence check's text fallback; counterfactual ceiling 140/150, deterministic variance share 10.5% | `s8_presence_text_fallback.py` | `s8_presence_text_fallback.json` |
+| RQ1, App. D: blinded author rating of 40 transcripts (rho = 0.69 with s_judge; MACS-Full not ranked above baselines) | `judge_human_validation/analyze.py`, `exploratory.py` | `judge_human_validation/human_judge_agreement.json`, `exploratory.json` |
 | App. D: blinded verifier (361/362, κ = 0.95; S7 10/10 vs 0/10) | `independent_verifier.py` (model calls) → `analyze_independent_verifier.py` | `independent_verifier_summary.json` |
 | RQ2, App. F: non-product turn behaviour (GPT 23/8/6; Gemini 37/9/8/1/4) | `dump_nonproduct_turns.py` → `label_nonproduct_turns.py` | `nonproduct_turns_dump.json`, `nonproduct_turn_labels.json` |
 | App. F: 6 provider-error turns; Gemini MPR 52% → 52.5% excluding them | `provider_error_sensitivity.py` | `provider_error_sensitivity.json` |
