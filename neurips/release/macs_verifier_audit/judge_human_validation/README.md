@@ -9,7 +9,7 @@ score and deterministic verdict. `packet.md` is the clean packet the raters rece
 |---|---|
 | `sheet_JH.csv` | Final ratings by one author (JH), transcribed from the author's annotated packet |
 | `sheet_JH_draft_1631.csv` | An earlier saved draft of the same author's ratings (14 items differ); same conclusions (rho 0.688 vs 0.689, same ordering, 29/40 pass agreement) |
-| `gptsheet.csv` | Ratings by GPT-6 in the ChatGPT interface, given only `packet.md`; settings not controlled. An LLM, not a human |
+| `gptsheet.csv` | Ratings by GPT-6 in the ChatGPT interface, given only `packet.md`; settings not controlled. An LLM, not a human. Run separately; the author rated every item before seeing this sheet |
 | `sheet_GPT.csv` | `gptsheet.csv` with column names converted for the scripts; values unchanged |
 
 ```
@@ -22,3 +22,8 @@ The analysis plan and the interpretation rule in `analyze.py` were written befor
 ratings were collected. `exploratory.py` was written after the ratings were seen. The
 author rater knew the study's hypothesis; stylistic differences between systems were
 not masked.
+
+Result in one line: the author's ratings correlate with the stored judge at rho = 0.69
+(scenario-clustered 95% CI [0.45, 0.84]) but do not reproduce its MACS-first ordering;
+no paired MACS-baseline difference excludes zero, so this shows evaluator sensitivity,
+not a reliable alternative ranking.
