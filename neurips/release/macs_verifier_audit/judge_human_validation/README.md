@@ -25,5 +25,7 @@ not masked.
 
 Result in one line: the author's ratings correlate with the stored judge at rho = 0.69
 (scenario-clustered 95% CI [0.45, 0.84]) but do not reproduce its MACS-first ordering;
-no paired MACS-baseline difference excludes zero, so this shows evaluator sensitivity,
-not a reliable alternative ranking.
+no paired MACS-baseline difference excludes zero, and the judge itself orders the
+subsample differently from the full benchmark (Gemini 0.46 > MACS 0.39 > GPT 0.36 here
+vs MACS 0.446 > GPT 0.414 > Gemini 0.378 over all 50 runs). This shows sensitivity to
+the sample and the evaluator, not a reliable alternative ranking.
