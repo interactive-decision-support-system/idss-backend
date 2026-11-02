@@ -1,0 +1,326 @@
+{
+  "seed": 20261101,
+  "n_items": 40,
+  "items": {
+    "J001": {
+      "condition": "GPT+Catalog",
+      "scenario": 2,
+      "run": 3,
+      "judge_score": 0.2,
+      "constraint_score": 1.0,
+      "judge_reason": "Failed to provide video editing laptops and included HP."
+    },
+    "J002": {
+      "condition": "GPT+Catalog",
+      "scenario": 10,
+      "run": 0,
+      "judge_score": 0.7,
+      "constraint_score": 1.0,
+      "judge_reason": "Constraints mostly met, but RAM verification is missing."
+    },
+    "J003": {
+      "condition": "MACS-Full",
+      "scenario": 7,
+      "run": 1,
+      "judge_score": 0.4,
+      "constraint_score": 1.0,
+      "judge_reason": "Budget not updated; latest models not discussed."
+    },
+    "J004": {
+      "condition": "Gemini+Catalog",
+      "scenario": 8,
+      "run": 2,
+      "judge_score": 0.1,
+      "constraint_score": 1.0,
+      "judge_reason": "Failed to show HP options despite user request."
+    },
+    "J005": {
+      "condition": "Gemini+Catalog",
+      "scenario": 10,
+      "run": 1,
+      "judge_score": 0.8,
+      "constraint_score": 1.0,
+      "judge_reason": "Most constraints satisfied, minor issue with RAM verification."
+    },
+    "J006": {
+      "condition": "MACS-Full",
+      "scenario": 2,
+      "run": 0,
+      "judge_score": 0.2,
+      "constraint_score": 1.0,
+      "judge_reason": "Major constraint violations with gaming laptop recommendations."
+    },
+    "J007": {
+      "condition": "MACS-NoSession",
+      "scenario": 10,
+      "run": 3,
+      "judge_score": 0.3,
+      "constraint_score": 1.0,
+      "judge_reason": "Final products did not meet RAM requirement."
+    },
+    "J008": {
+      "condition": "MACS-NoSession",
+      "scenario": 9,
+      "run": 1,
+      "judge_score": 0.3,
+      "constraint_score": 1.0,
+      "judge_reason": "Major brand constraint violation with HP products included."
+    },
+    "J009": {
+      "condition": "GPT+Catalog",
+      "scenario": 7,
+      "run": 4,
+      "judge_score": 0.3,
+      "constraint_score": 1.0,
+      "judge_reason": "Budget not updated; latest models not provided."
+    },
+    "J010": {
+      "condition": "MACS-Full",
+      "scenario": 8,
+      "run": 2,
+      "judge_score": 0.9,
+      "constraint_score": 1.0,
+      "judge_reason": "All constraints satisfied, minor oversight in preference tracking."
+    },
+    "J011": {
+      "condition": "MACS-Full",
+      "scenario": 10,
+      "run": 1,
+      "judge_score": 0.5,
+      "constraint_score": 1.0,
+      "judge_reason": "Some constraints satisfied, but RAM verification and product variety lacking."
+    },
+    "J012": {
+      "condition": "MACS-Full",
+      "scenario": 3,
+      "run": 3,
+      "judge_score": 0.1,
+      "constraint_score": 1.0,
+      "judge_reason": "Dell products were recommended, violating critical constraints."
+    },
+    "J013": {
+      "condition": "MACS-Full",
+      "scenario": 9,
+      "run": 2,
+      "judge_score": 0.3,
+      "constraint_score": 1.0,
+      "judge_reason": "Failed to exclude HP products as requested."
+    },
+    "J014": {
+      "condition": "Gemini+Catalog",
+      "scenario": 5,
+      "run": 0,
+      "judge_score": 0.2,
+      "constraint_score": 1.0,
+      "judge_reason": "Failed to compare products as requested."
+    },
+    "J015": {
+      "condition": "GPT+Catalog",
+      "scenario": 4,
+      "run": 3,
+      "judge_score": 0.4,
+      "constraint_score": 1.0,
+      "judge_reason": "Brand constraint violated; some recommendations may not meet user needs."
+    },
+    "J016": {
+      "condition": "Gemini+Catalog",
+      "scenario": 4,
+      "run": 3,
+      "judge_score": 0.6,
+      "constraint_score": 1.0,
+      "judge_reason": "Most constraints satisfied, but HP product violates user preference."
+    },
+    "J017": {
+      "condition": "MACS-NoSession",
+      "scenario": 1,
+      "run": 2,
+      "judge_score": 0.1,
+      "constraint_score": 0.34,
+      "judge_reason": "Multiple critical constraints violated, including brand and budget."
+    },
+    "J018": {
+      "condition": "MACS-Full",
+      "scenario": 1,
+      "run": 0,
+      "judge_score": 0.6,
+      "constraint_score": 1.0,
+      "judge_reason": "Most constraints satisfied, but RAM verification is missing."
+    },
+    "J019": {
+      "condition": "GPT+Catalog",
+      "scenario": 9,
+      "run": 2,
+      "judge_score": 0.6,
+      "constraint_score": 1.0,
+      "judge_reason": "HP exclusion violated, but other constraints met."
+    },
+    "J020": {
+      "condition": "Gemini+Catalog",
+      "scenario": 1,
+      "run": 3,
+      "judge_score": 0.0,
+      "constraint_score": 1.0,
+      "judge_reason": "Final recommendations did not meet RAM requirement."
+    },
+    "J021": {
+      "condition": "MACS-NoSession",
+      "scenario": 5,
+      "run": 1,
+      "judge_score": 0.1,
+      "constraint_score": 1.0,
+      "judge_reason": "Failed to compare requested products, introduced new item instead."
+    },
+    "J022": {
+      "condition": "GPT+Catalog",
+      "scenario": 8,
+      "run": 0,
+      "judge_score": 0.1,
+      "constraint_score": 1.0,
+      "judge_reason": "Failed to provide requested HP options despite user request."
+    },
+    "J023": {
+      "condition": "MACS-NoSession",
+      "scenario": 3,
+      "run": 0,
+      "judge_score": 0.2,
+      "constraint_score": 1.0,
+      "judge_reason": "Critical failure in brand exclusion and preference tracking."
+    },
+    "J024": {
+      "condition": "MACS-Full",
+      "scenario": 5,
+      "run": 0,
+      "judge_score": 0.2,
+      "constraint_score": 1.0,
+      "judge_reason": "Failed to compare top two options as requested."
+    },
+    "J025": {
+      "condition": "GPT+Catalog",
+      "scenario": 3,
+      "run": 4,
+      "judge_score": 0.1,
+      "constraint_score": 1.0,
+      "judge_reason": "No product recommendations provided, critical failure in context."
+    },
+    "J026": {
+      "condition": "MACS-NoSession",
+      "scenario": 7,
+      "run": 2,
+      "judge_score": 0.1,
+      "constraint_score": 1.0,
+      "judge_reason": "Failed to maintain brand preference and budget update."
+    },
+    "J027": {
+      "condition": "GPT+Catalog",
+      "scenario": 5,
+      "run": 0,
+      "judge_score": 0.2,
+      "constraint_score": 1.0,
+      "judge_reason": "Failed to compare requested products and lacked battery details."
+    },
+    "J028": {
+      "condition": "Gemini+Catalog",
+      "scenario": 3,
+      "run": 0,
+      "judge_score": 0.6,
+      "constraint_score": 1.0,
+      "judge_reason": "Dell excluded, but product recommendations were incomplete."
+    },
+    "J029": {
+      "condition": "GPT+Catalog",
+      "scenario": 6,
+      "run": 1,
+      "judge_score": 0.7,
+      "constraint_score": 1.0,
+      "judge_reason": "Budget constraint met, but incomplete product list affected coherence."
+    },
+    "J030": {
+      "condition": "MACS-Full",
+      "scenario": 6,
+      "run": 0,
+      "judge_score": 0.2,
+      "constraint_score": 1.0,
+      "judge_reason": "Included HP products despite user exclusion request."
+    },
+    "J031": {
+      "condition": "Gemini+Catalog",
+      "scenario": 6,
+      "run": 1,
+      "judge_score": 0.7,
+      "constraint_score": 1.0,
+      "judge_reason": "Budget constraints met, but HP brand preference violated."
+    },
+    "J032": {
+      "condition": "MACS-NoSession",
+      "scenario": 2,
+      "run": 2,
+      "judge_score": 0.2,
+      "constraint_score": 1.0,
+      "judge_reason": "Failed to recommend video editing laptops after user pivot."
+    },
+    "J033": {
+      "condition": "Gemini+Catalog",
+      "scenario": 2,
+      "run": 3,
+      "judge_score": 0.2,
+      "constraint_score": 1.0,
+      "judge_reason": "Major constraint violation with gaming laptop recommendation."
+    },
+    "J034": {
+      "condition": "GPT+Catalog",
+      "scenario": 1,
+      "run": 1,
+      "judge_score": 0.3,
+      "constraint_score": 1.0,
+      "judge_reason": "Only one product met the 16GB RAM requirement."
+    },
+    "J035": {
+      "condition": "MACS-NoSession",
+      "scenario": 6,
+      "run": 3,
+      "judge_score": 0.6,
+      "constraint_score": 1.0,
+      "judge_reason": "Budget met, but HP brand violation occurred."
+    },
+    "J036": {
+      "condition": "Gemini+Catalog",
+      "scenario": 9,
+      "run": 1,
+      "judge_score": 1.0,
+      "constraint_score": 1.0,
+      "judge_reason": "All constraints satisfied, preferences tracked, and responses appropriate."
+    },
+    "J037": {
+      "condition": "MACS-NoSession",
+      "scenario": 8,
+      "run": 2,
+      "judge_score": 0.6,
+      "constraint_score": 1.0,
+      "judge_reason": "Constraints met, but preference tracking and response could improve."
+    },
+    "J038": {
+      "condition": "MACS-Full",
+      "scenario": 4,
+      "run": 0,
+      "judge_score": 0.5,
+      "constraint_score": 1.0,
+      "judge_reason": "Brand constraints violated; some recommendations unsuitable for CS major."
+    },
+    "J039": {
+      "condition": "MACS-NoSession",
+      "scenario": 4,
+      "run": 1,
+      "judge_score": 0.3,
+      "constraint_score": 1.0,
+      "judge_reason": "Major constraint violation with HP product included."
+    },
+    "J040": {
+      "condition": "Gemini+Catalog",
+      "scenario": 7,
+      "run": 0,
+      "judge_score": 0.4,
+      "constraint_score": 1.0,
+      "judge_reason": "Budget not updated; latest models not provided."
+    }
+  }
+}

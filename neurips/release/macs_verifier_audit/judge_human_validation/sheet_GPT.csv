@@ -1,0 +1,41 @@
+item,constraint_satisfaction_0_4,preference_tracking_0_3,response_appropriateness_0_3,total_0_10,main_failure_note,annotator_initials
+J001,4,3,2,9,Correct pivot to video editing and within budget; limited visible discussion of color accuracy and rendering needs.,GPT
+J002,4,3,2,9,Refurbished professional 14-inch options within budget; displayed product titles do not verify every weight/RAM specification.,GPT
+J003,4,2,0,6,"Apple and budget retained, but latest-model question answered with older Intel MacBooks described as latest.",GPT
+J004,0,0,1,1,Explicit final request for HP options receives none; repeats unavailability without a suitable recommendation.,GPT
+J005,4,3,2,9,Appropriate refurbished ThinkPad under budget; truncated listing does not confirm weight and RAM.,GPT
+J006,2,2,1,5,"Video-editing pivot partly followed, but final list includes MSI gaming laptop and an HD-screen budget option; minimal color-accuracy guidance.",GPT
+J007,4,2,1,7,Final best-value option switches from discussed refurbished ThinkPad to Acer Swift without explaining value or refurbishment.,GPT
+J008,4,2,0,6,"Final Dell product is within budget, but directly asked warranty question is ignored; earlier Chromebook/accessory results were inappropriate.",GPT
+J009,4,3,2,9,Maintains MacBook and updated ceiling and candidly says latest models absent; does not provide a concrete current-model comparison.,GPT
+J010,4,3,3,10,Reverses HP exclusion and final list contains only HP laptops.,GPT
+J011,4,2,1,7,Final recommendation changes from discussed refurbished ThinkPad to Acer without explaining why; specifications partly truncated.,GPT
+J012,2,1,0,3,Dell XPS appears in turn-2 product list despite persistent exclusion; final price reply replaces GPU options with unrelated budget laptops.,GPT
+J013,4,3,0,7,"Final listed HP is within $600 and a Windows laptop, but warranty question gets another laptop recommendation rather than advice.",GPT
+J014,4,2,2,8,Initial turn offers no two options; turn two introduces two and asks permission to compare instead of actually comparing; battery answer appropriately admits missing data.,GPT
+J015,4,3,3,10,"Clarifies vague query, preserves CS/data-science use, and lists sub-$800 options with relevant hardware discussion.",GPT
+J016,4,3,1,8,"Final recommendations fit stated budget/use reasonably, but initial 503 crash is a serious conversational failure.",GPT
+J017,0,1,0,1,Final products include explicitly excluded HP and several nongaming business machines after AAA-gaming/16GB requirements.,GPT
+J018,2,1,1,4,"Final options satisfy visible price/no-HP constraints, but selection is dominated by business/convertible laptops not suited to modern AAA gaming.",GPT
+J019,4,3,3,10,"Tracks medical-school, OS, and budget preferences and answers warranty decision in context; no conflicting final product list.",GPT
+J020,0,1,0,1,Final request adds 16GB RAM but assistant crashes with 503 and offers no compliant recommendations.,GPT
+J021,4,1,0,5,Battery follow-up should compare previously shown HP and Lenovo; introduces an unrelated Apple MacBook instead.,GPT
+J022,0,0,1,1,Explicit request for HP recommendations receives none after user reversed exclusion; repeats unavailable-catalog claim.,GPT
+J023,4,2,0,6,"No Dell in listed products and GPU-capable ASUS shown, but final price-range answer describes unrelated budget HP/Lenovo.",GPT
+J024,4,2,1,7,Compares the correct two models in text but provides unsupported battery-life estimates and unrelated ASUS product in final list.,GPT
+J025,2,2,2,6,"Keeps Dell exclusion and gives a useful generic GPU price range, but supplies no dedicated-GPU recommendations.",GPT
+J026,2,0,0,2,"Abandons persistent MacBook/Apple preference for Acer, Lenovo, MSI, then HP despite updated $1400 budget.",GPT
+J027,4,2,2,8,Names two appropriate sub-$1200 options after initial clarification and honestly notes missing battery data; earlier top-two comparison was not possible as requested.,GPT
+J028,4,3,3,10,"Retains no-Dell preference, explains dedicated GPU price bands, and recommends ASUS/Acer GPU laptops.",GPT
+J029,4,3,3,10,All visible final products remain under $700 and Docker follow-up identifies a previously listed Acer option.,GPT
+J030,4,2,2,8,Recommends $385 16GB HP for Docker within ceiling; runner-up is not in the immediately preceding product list.,GPT
+J031,4,3,3,10,Retains sub-$700 ceiling and answers Docker question using previously recommended ASUS gaming laptop.,GPT
+J032,2,1,0,3,"After explicit pivot away from gaming to editing, final lead item is an MSI gaming laptop without editing-specific rationale.",GPT
+J033,2,2,2,6,"Editing use and budget acknowledged, but final list includes an explicitly gaming-branded Predator; weak color-accuracy/rendering assessment.",GPT
+J034,2,2,1,5,"Meets visible price/no-HP and 16GB for lead product, but final list centers on workstations/business laptops rather than AAA gaming.",GPT
+J035,4,2,2,8,"Under-$700 Docker recommendation relevant, but HP runner-up was not among prior options.",GPT
+J036,4,3,3,10,Preserves Windows/macOS and $600 context and gives a contextual discussion of extended warranties.,GPT
+J037,4,3,3,10,Exclusion reversal handled correctly; final product list consists of HP laptops.,GPT
+J038,3,2,2,7,"Within $800, but lead 8GB older business laptop is weak for data-science workload; visible specs of other options are incomplete.",GPT
+J039,2,1,1,4,Within budget but final product list includes an Odyson logic board (not a laptop) and low-spec older models for CS/data science.,GPT
+J040,4,3,2,9,"Keeps MacBook focus and updated $1400 cap, explains latest models are outside catalog budget; does not supply a concrete alternative.",GPT

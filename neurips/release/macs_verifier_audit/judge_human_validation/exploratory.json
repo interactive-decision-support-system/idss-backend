@@ -1,0 +1,122 @@
+{
+  "note": "exploratory; not pre-specified",
+  "paired_differences": {
+    "MACS-Full minus GPT+Catalog | author": {
+      "mean": -0.04,
+      "ci95": [
+        -0.22,
+        0.19
+      ]
+    },
+    "MACS-Full minus GPT+Catalog | llm_rater": {
+      "mean": -0.13,
+      "ci95": [
+        -0.29,
+        0.12
+      ]
+    },
+    "MACS-Full minus GPT+Catalog | stored_judge": {
+      "mean": 0.03,
+      "ci95": [
+        -0.17,
+        0.26
+      ]
+    },
+    "MACS-Full minus Gemini+Catalog | author": {
+      "mean": -0.04,
+      "ci95": [
+        -0.31,
+        0.26
+      ]
+    },
+    "MACS-Full minus Gemini+Catalog | llm_rater": {
+      "mean": -0.08,
+      "ci95": [
+        -0.3,
+        0.19
+      ]
+    },
+    "MACS-Full minus Gemini+Catalog | stored_judge": {
+      "mean": -0.07,
+      "ci95": [
+        -0.33,
+        0.21
+      ]
+    },
+    "MACS-NoSession minus MACS-Full | author": {
+      "mean": -0.2,
+      "ci95": [
+        -0.41,
+        0.04
+      ]
+    },
+    "MACS-NoSession minus MACS-Full | llm_rater": {
+      "mean": -0.12,
+      "ci95": [
+        -0.22,
+        0.0
+      ]
+    },
+    "MACS-NoSession minus MACS-Full | stored_judge": {
+      "mean": -0.11,
+      "ci95": [
+        -0.25,
+        0.05
+      ]
+    }
+  },
+  "author_vs_llm_rater": {
+    "spearman_rho": 0.886,
+    "ci95": [
+      0.786,
+      0.947
+    ],
+    "mean_abs_diff": 0.102
+  },
+  "subscore_means": {
+    "author": {
+      "GPT+Catalog": {
+        "constraint_satisfaction_0_4": 2.9,
+        "preference_tracking_0_3": 2.0,
+        "response_appropriateness_0_3": 2.0
+      },
+      "Gemini+Catalog": {
+        "constraint_satisfaction_0_4": 2.9,
+        "preference_tracking_0_3": 2.3,
+        "response_appropriateness_0_3": 1.7
+      },
+      "MACS-Full": {
+        "constraint_satisfaction_0_4": 3.0,
+        "preference_tracking_0_3": 2.3,
+        "response_appropriateness_0_3": 1.2
+      },
+      "MACS-NoSession": {
+        "constraint_satisfaction_0_4": 2.6,
+        "preference_tracking_0_3": 1.2,
+        "response_appropriateness_0_3": 0.7
+      }
+    },
+    "llm_rater": {
+      "GPT+Catalog": {
+        "constraint_satisfaction_0_4": 3.2,
+        "preference_tracking_0_3": 2.4,
+        "response_appropriateness_0_3": 2.1
+      },
+      "Gemini+Catalog": {
+        "constraint_satisfaction_0_4": 3.0,
+        "preference_tracking_0_3": 2.3,
+        "response_appropriateness_0_3": 1.9
+      },
+      "MACS-Full": {
+        "constraint_satisfaction_0_4": 3.3,
+        "preference_tracking_0_3": 2.0,
+        "response_appropriateness_0_3": 1.1
+      },
+      "MACS-NoSession": {
+        "constraint_satisfaction_0_4": 3.0,
+        "preference_tracking_0_3": 1.5,
+        "response_appropriateness_0_3": 0.7
+      }
+    }
+  }
+}

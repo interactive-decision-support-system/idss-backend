@@ -1,0 +1,35 @@
+{
+  "n_items": 40,
+  "n_annotators": 1,
+  "primary_spearman_rho": 0.689,
+  "primary_rho_ci95_scenario_clustered": [
+    0.454,
+    0.843
+  ],
+  "mean_abs_diff": 0.273,
+  "condition_mean_human": {
+    "GPT+Catalog": 0.69,
+    "Gemini+Catalog": 0.69,
+    "MACS-Full": 0.65,
+    "MACS-NoSession": 0.45
+  },
+  "condition_mean_judge": {
+    "GPT+Catalog": 0.36,
+    "Gemini+Catalog": 0.46,
+    "MACS-Full": 0.39,
+    "MACS-NoSession": 0.28
+  },
+  "condition_order_human": [
+    "GPT+Catalog",
+    "Gemini+Catalog",
+    "MACS-Full",
+    "MACS-NoSession"
+  ],
+  "condition_order_judge": [
+    "Gemini+Catalog",
+    "MACS-Full",
+    "GPT+Catalog",
+    "MACS-NoSession"
+  ],
+  "pass_verdict_agreement": "29/40"
+}
